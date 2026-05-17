@@ -856,37 +856,18 @@ function LoadingScreen({ elapsed, message }: { elapsed: number; message: string 
               }}
             />
           </div>
-          <div className="mt-3 flex items-center justify-center gap-3">
+          <div className="mt-3 flex items-center justify-center">
             <span
               className="tabular"
               style={{
-                fontSize: "10.5px",
-                letterSpacing: "0.20em",
+                fontSize: "11px",
+                letterSpacing: "0.22em",
                 textTransform: "uppercase",
                 color: "var(--vx-muted)",
+                fontWeight: 600,
               }}
             >
-              {Math.min(elapsed, 22)} / 22 sec
-            </span>
-            <span
-              aria-hidden="true"
-              style={{
-                width: "3px",
-                height: "3px",
-                background: "var(--vx-muted)",
-                borderRadius: "50%",
-              }}
-            />
-            <span
-              className="tabular"
-              style={{
-                fontSize: "10.5px",
-                letterSpacing: "0.20em",
-                textTransform: "uppercase",
-                color: "var(--vx-muted)",
-              }}
-            >
-              {factIndex + 1} / {Math.min(shuffled.length, Math.ceil(22 / FACT_INTERVAL))}
+              {Math.min(100, pct)}%
             </span>
           </div>
         </div>
@@ -1032,24 +1013,181 @@ function ResultScreen({
           </p>
         </div>
 
-        {/* Painted image — the cyan-outlined roof */}
-        {paintedImageBase64 && (
-          <div
-            className="result-card mt-10 overflow-hidden mx-auto"
-            style={{ maxWidth: "780px", aspectRatio: "1 / 1" }}
-          >
-            <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
-            <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
-            <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
-            <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`data:image/png;base64,${paintedImageBase64}`}
-              alt="Your roof, outlined"
-              className="w-full h-full object-cover"
-            />
+        {/* Above-the-fold row — image LEFT, price + CTA RIGHT on lg+.
+            On mobile this stacks vertically with the image first. Goal
+            is for price + "Get a rep to my door" to be visible without
+            the customer having to scroll. */}
+        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_440px] gap-8 lg:gap-10 items-start">
+          {/* Painted image */}
+          {paintedImageBase64 ? (
+            <div
+              className="result-card overflow-hidden mx-auto lg:mx-0 w-full"
+              style={{ maxWidth: "520px", aspectRatio: "1 / 1" }}
+            >
+              <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+              <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+              <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+              <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`data:image/png;base64,${paintedImageBase64}`}
+                alt="Your roof, outlined"
+                className="w-full h-full object-cover"
+              />
+            </div>
+          ) : (
+            <div />
+          )}
+
+          {/* Right column: price + voice-consent CTA, stacked. */}
+          <div className="flex flex-col gap-5">
+            {price && (
+              <div
+                className="result-card text-center"
+                style={{ padding: "24px 22px" }}
+              >
+                <div className="eyebrow mb-2">Estimated investment</div>
+                <div
+                  className="font-serif tabular"
+                  style={{
+                    fontSize: "clamp(44px, 5.5vw, 64px)",
+                    lineHeight: 1,
+                    fontWeight: 500,
+                    color: "var(--vx-ink)",
+                    letterSpacing: "-0.015em",
+                  }}
+                >
+                  ${price.total.toLocaleString()}
+                </div>
+                <div
+                  className="mt-2 tabular"
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--vx-ink-soft)",
+                    fontWeight: 600,
+                  }}
+                >
+                  ${price.totalLow.toLocaleString()} – ${price.totalHigh.toLocaleString()}
+                </div>
+                <div
+                  className="mt-4 mx-auto"
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--vx-ink-soft)",
+                    fontWeight: 600,
+                    maxWidth: "38ch",
+                  }}
+                >
+                  Architectural shingles · ${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)} per sq ft installed.
+                </div>
+              </div>
+            )}
+
+            {/* Voice consent CTA — sits right next to the price. */}
+            {bookingState === "booked" ? (
+              <div
+                className="result-card text-center"
+                style={{
+                  padding: "22px 20px",
+                  borderColor: "var(--vx-terra)",
+                }}
+              >
+                <div className="eyebrow mb-2" style={{ color: "var(--vx-terra)" }}>
+                  You&apos;re on the list
+                </div>
+                <p
+                  className="font-serif mx-auto"
+                  style={{
+                    fontSize: "18px",
+                    lineHeight: 1.35,
+                    color: "var(--vx-ink)",
+                  }}
+                >
+                  A specialist will call within a few minutes to confirm a time. Watch your phone.
+                </p>
+              </div>
+            ) : (
+              <div className="result-card" style={{ padding: "20px 20px" }}>
+                <div className="eyebrow mb-3">Want a rep at your door?</div>
+                <label
+                  className="flex items-start gap-3 cursor-pointer"
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--vx-ink-soft)",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    className="checkbox"
+                    checked={voiceConsent}
+                    onChange={(e) => setVoiceConsent(e.target.checked)}
+                    disabled={!leadPublicId || bookingState === "sending"}
+                  />
+                  <span>
+                    <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+                      Call me with an automated voice intro
+                    </span>{" "}
+                    to walk through this estimate and book an on-site visit. I can hang up or reply STOP anytime.
+                  </span>
+                </label>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    className="btn-terra w-full"
+                    disabled={
+                      !voiceConsent ||
+                      !leadPublicId ||
+                      bookingState === "sending"
+                    }
+                    onClick={bookInPersonEstimate}
+                  >
+                    {bookingState === "sending" ? "Booking…" : "Get a rep to my door"}
+                    <span className="arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                {!leadPublicId && (
+                  <p
+                    className="mt-3"
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--vx-muted)",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    Refresh and resubmit to enable booking.
+                  </p>
+                )}
+                {bookingState === "error" && bookingError && (
+                  <p className="mt-3" style={{ fontSize: "11px", color: "#8a2c2c" }}>
+                    {bookingError}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Tertiary: re-pin link, ghost. */}
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={onRePin}
+                style={{
+                  fontSize: "11px",
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  color: "var(--vx-muted)",
+                  fontWeight: 600,
+                  background: "none",
+                  border: 0,
+                  cursor: "pointer",
+                  padding: "4px 0",
+                }}
+              >
+                ← Re-pin building center
+              </button>
+            </div>
           </div>
-        )}
+        </div>
 
         {/* Measurement chips. FACES E ("predominant compass") removed —
             not useful to the customer. */}
@@ -1136,184 +1274,23 @@ function ResultScreen({
           </div>
         )}
 
-        {/* Price block — big total + simple rate line. Waste % is NOT
-            surfaced (rolled into the math; internal workbench shows it). */}
+        {/* Detail line under the price (full-width below the fold so it
+            doesn't crowd the above-the-fold price card). */}
         {price && (
           <div
-            className="mt-12 mx-auto text-center result-card"
-            style={{ maxWidth: "640px", padding: "32px 24px" }}
+            className="mt-10 mx-auto font-serif italic text-center"
+            style={{
+              fontSize: "14px",
+              color: "var(--vx-ink-soft)",
+              maxWidth: "56ch",
+            }}
           >
-            <div className="eyebrow mb-3">Estimated investment</div>
-            <div
-              className="font-serif tabular"
-              style={{
-                fontSize: "clamp(48px, 7vw, 72px)",
-                lineHeight: 1,
-                fontWeight: 500,
-                color: "var(--vx-ink)",
-                letterSpacing: "-0.015em",
-              }}
-            >
-              ${price.total.toLocaleString()}
-            </div>
-            <div
-              className="mt-3 tabular"
-              style={{
-                fontSize: "14px",
-                color: "var(--vx-ink-soft)",
-                fontWeight: 600,
-              }}
-            >
-              Range ${price.totalLow.toLocaleString()} – ${price.totalHigh.toLocaleString()}
-            </div>
-            <div
-              className="mt-5 mx-auto"
-              style={{
-                fontSize: "14px",
-                color: "var(--vx-ink-soft)",
-                fontWeight: 600,
-                maxWidth: "44ch",
-              }}
-            >
-              Architectural shingles · ${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)} per
-              sq ft installed (tear-off, underlayment, ridge cap, drip edge,
-              flashing, labor, disposal).
-            </div>
-            <div
-              className="mt-3 mx-auto font-serif italic"
-              style={{
-                fontSize: "14px",
-                color: "var(--vx-ink-soft)",
-                maxWidth: "48ch",
-              }}
-            >
-              Final number depends on deck condition, code-driven upgrades,
-              and your exact material selection — confirmed on-site by a
-              licensed roofer.
-            </div>
+            Includes tear-off, underlayment, ridge cap, drip edge, flashing,
+            labor, and disposal. Final number depends on deck condition,
+            code-driven upgrades, and your exact material selection — confirmed
+            on-site by a licensed roofer.
           </div>
         )}
-
-        {/* "Get a rep to my door" — post-result voice consent + dispatch.
-            TCPA-compliant: the customer hasn't received any automated
-            voice call yet, and we capture the consent + disclosure text +
-            IP/UA + timestamp at the moment of opt-in before the call is
-            placed. Disabled when there's no leadPublicId (lead capture
-            failed at form submit). */}
-        <div className="mt-12 mx-auto" style={{ maxWidth: "640px" }}>
-          {bookingState === "booked" ? (
-            <div
-              className="result-card text-center"
-              style={{
-                padding: "28px 24px",
-                borderColor: "var(--vx-terra)",
-              }}
-            >
-              <div className="eyebrow mb-2" style={{ color: "var(--vx-terra)" }}>
-                You&apos;re on the list
-              </div>
-              <p
-                className="font-serif mx-auto"
-                style={{
-                  fontSize: "22px",
-                  lineHeight: 1.3,
-                  color: "var(--vx-ink)",
-                  maxWidth: "44ch",
-                }}
-              >
-                A specialist will call you within a few minutes to confirm a
-                time. Watch your phone.
-              </p>
-            </div>
-          ) : (
-            <div className="result-card" style={{ padding: "24px 22px" }}>
-              <div className="eyebrow mb-3">Want a rep at your door?</div>
-              <label
-                className="flex items-start gap-3 cursor-pointer"
-                style={{
-                  fontSize: "14px",
-                  color: "var(--vx-ink-soft)",
-                  lineHeight: 1.6,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  className="checkbox"
-                  checked={voiceConsent}
-                  onChange={(e) => setVoiceConsent(e.target.checked)}
-                  disabled={!leadPublicId || bookingState === "sending"}
-                />
-                <span>
-                  <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                    Call me with an automated voice intro
-                  </span>{" "}
-                  to walk through this estimate and schedule an on-site
-                  visit. I can hang up or reply STOP anytime. I understand
-                  consent is not required to do business with Voxaris or the
-                  partner contractor.
-                </span>
-              </label>
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={onRePin}
-                  style={{
-                    fontSize: "12px",
-                    letterSpacing: "0.18em",
-                    textTransform: "uppercase",
-                    color: "var(--vx-ink-soft)",
-                    fontWeight: 600,
-                    background: "none",
-                    border: 0,
-                    cursor: "pointer",
-                    padding: "10px 0",
-                  }}
-                >
-                  ← Re-pin
-                </button>
-                <button
-                  type="button"
-                  className="btn-terra"
-                  disabled={
-                    !voiceConsent ||
-                    !leadPublicId ||
-                    bookingState === "sending"
-                  }
-                  onClick={bookInPersonEstimate}
-                >
-                  {bookingState === "sending"
-                    ? "Booking…"
-                    : "Get a rep to my door"}
-                  <span className="arrow" aria-hidden="true">→</span>
-                </button>
-              </div>
-              {!leadPublicId && (
-                <p
-                  className="mt-3"
-                  style={{
-                    fontSize: "12px",
-                    color: "var(--vx-muted)",
-                    fontStyle: "italic",
-                  }}
-                >
-                  We didn&apos;t finish saving your contact info. Refresh and
-                  resubmit to enable booking, or call us directly.
-                </p>
-              )}
-              {bookingState === "error" && bookingError && (
-                <p
-                  className="mt-3"
-                  style={{
-                    fontSize: "12px",
-                    color: "#8a2c2c",
-                  }}
-                >
-                  {bookingError}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
 
         <div className="mt-10 text-center">
           <button
@@ -1519,7 +1496,6 @@ function VoxarisFooter() {
               className="space-y-2.5"
               style={{ fontSize: "13px", color: "rgba(236, 227, 208, 0.78)", fontWeight: 600 }}
             >
-              <li>Licensed &amp; insured · FL CCC1234567</li>
               <li>
                 <Link href="/privacy">Privacy</Link>
                 <span style={{ margin: "0 6px", color: "rgba(236, 227, 208, 0.32)" }}>·</span>
