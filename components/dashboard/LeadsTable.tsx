@@ -377,14 +377,23 @@ function LeadDrawer({
               </span>
             </div>
           </div>
-          <button
-            type="button"
-            aria-label="Close drawer"
-            onClick={onClose}
-            className="glass-button-secondary !px-2.5 !py-1.5"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
+              className="glass-button-primary !px-3 !py-1.5 text-[12.5px] inline-flex items-center gap-1.5 whitespace-nowrap"
+            >
+              Open workbench
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+            <button
+              type="button"
+              aria-label="Close drawer"
+              onClick={onClose}
+              className="glass-button-secondary !px-2.5 !py-1.5"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </header>
 
         {/* ─── Customer contact ─────────────────────────────────────── */}

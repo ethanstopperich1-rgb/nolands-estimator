@@ -5,6 +5,8 @@ import {
   Bricolage_Grotesque,
   Space_Grotesk,
   Space_Mono,
+  Cormorant_Garamond,
+  Hanken_Grotesk,
 } from "next/font/google";
 import "./globals.css";
 import { GradientBackground } from "@/components/ui/gradient-background-4";
@@ -40,6 +42,23 @@ const spaceMono = Space_Mono({
   display: "swap",
   weight: ["400", "700"],
 });
+// Patek-inspired editorial pair used by the customer-facing root /.
+// Cormorant Garamond for display + italic accents; Hanken Grotesk for
+// body text. Variables let the .patek scope opt in without affecting
+// any other route's typography.
+const cormorant = Cormorant_Garamond({
+  subsets: ["latin"],
+  variable: "--font-cormorant",
+  display: "swap",
+  weight: ["300", "400", "500", "600"],
+  style: ["normal", "italic"],
+});
+const hanken = Hanken_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-hanken",
+  display: "swap",
+  weight: ["300", "400", "500", "600", "700"],
+});
 
 // metadataBase resolves relative URLs in OG / Twitter card images against a
 // real origin so shared links (Slack, iMessage, X) load the social card from
@@ -64,7 +83,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable}`}
+      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable}`}
     >
       <body className="min-h-[100dvh] antialiased relative">
         <GradientBackground />

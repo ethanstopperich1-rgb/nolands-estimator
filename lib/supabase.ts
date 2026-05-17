@@ -117,23 +117,44 @@ export function createServiceRoleClient() {
   });
 }
 
+/** Office branding row — what every customer-facing surface reads from
+ *  to render the right company name, phone, license info. Per-office
+ *  white-label customization lives here. */
+export interface OfficeBranding {
+  id: string;
+  slug: string;
+  /** Display name as it appears in customer-facing copy + SMS body. */
+  displayName: string;
+  /** Inbound phone customers see (and can call back). */
+  inboundNumber: string | null;
+  /** Twilio sender number for outbound SMS. Falls back to env config. */
+  twilioNumber: string | null;
+  /** Brand hex (no #). Drives the customer page accent color. */
+  brandColor: string | null;
+  /** Brand wordmark URL. */
+  logoUrl: string | null;
+  /** LiveKit agent persona — e.g. "sydney-nolands". Determines the
+   *  voice agent's identity on outbound calls. */
+  livekitAgentName: string | null;
+}
+
 /** Resolve an office by slug. Used by public /api routes (e.g.
  *  /api/leads with ?office=voxaris) to tag the right office_id. Cached
  *  via the in-memory Map below — offices change rarely and the lookup
  *  fires on every public form submit. */
-const OFFICE_CACHE = new Map<string, { id: string; fetchedAt: number }>();
+const OFFICE_CACHE = new Map<string, { branding: OfficeBranding; fetchedAt: number }>();
 const OFFICE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-export async function resolveOfficeIdBySlug(slug: string): Promise<string | null> {
+export async function resolveOfficeBySlug(slug: string): Promise<OfficeBranding | null> {
   const cached = OFFICE_CACHE.get(slug);
   if (cached && Date.now() - cached.fetchedAt < OFFICE_TTL_MS) {
-    return cached.id;
+    return cached.branding;
   }
   if (!supabaseServiceRoleConfigured()) return null;
   const supabase = createServiceRoleClient();
   const { data, error } = await supabase
     .from("offices")
-    .select("id")
+    .select("id, slug, name, inbound_number, twilio_number, brand_color, logo_url, livekit_agent_name")
     .eq("slug", slug)
     .eq("is_active", true)
     .single();
@@ -141,6 +162,23 @@ export async function resolveOfficeIdBySlug(slug: string): Promise<string | null
     console.warn(`[supabase] office lookup failed for slug='${slug}':`, error?.message);
     return null;
   }
-  OFFICE_CACHE.set(slug, { id: data.id, fetchedAt: Date.now() });
-  return data.id;
+  const branding: OfficeBranding = {
+    id: data.id,
+    slug: data.slug,
+    displayName: data.name,
+    inboundNumber: data.inbound_number,
+    twilioNumber: data.twilio_number,
+    brandColor: data.brand_color,
+    logoUrl: data.logo_url,
+    livekitAgentName: data.livekit_agent_name,
+  };
+  OFFICE_CACHE.set(slug, { branding, fetchedAt: Date.now() });
+  return branding;
+}
+
+/** Back-compat shim — returns just the office id. New code should
+ *  prefer `resolveOfficeBySlug` which also surfaces display_name. */
+export async function resolveOfficeIdBySlug(slug: string): Promise<string | null> {
+  const o = await resolveOfficeBySlug(slug);
+  return o?.id ?? null;
 }

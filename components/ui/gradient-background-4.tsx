@@ -21,6 +21,7 @@ import { usePathname } from "next/navigation";
 export const GradientBackground = () => {
   const pathname = usePathname() ?? "/";
   if (
+    pathname === "/" ||
     pathname.startsWith("/embed") ||
     pathname.startsWith("/quote") ||
     pathname.startsWith("/p/")

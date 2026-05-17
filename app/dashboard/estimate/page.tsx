@@ -1,2322 +1,1354 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
-
-// 3D viewer is heavy (Cesium + Map Tiles 3D bundle ≈ 1.2 MB gzipped)
-// — lazy-load it so the initial render of the internal page isn't
-// blocked. ssr:false because Cesium relies on the WebGL canvas
-// which doesn't exist server-side.
-//
-// Re-added 2026-05-13 after the vision-based primary-residence
-// detection landed in /api/sam3-roof. The viewer was originally
-// removed because rural FL properties with outbuildings consistently
-// highlighted the wrong structure (the geocoded pin's closest
-// building rather than the addressed residence). With Claude vision
-// now identifying the residence semantically and SAM3 tracing it
-// from there, the 3D mesh draping is anchored on the right building
-// — and the photorealistic view is a real differentiator for reps
-// showing storm damage to homeowners on tablets in the field.
-const Roof3DViewer = dynamic(() => import("@/components/Roof3DViewer"), {
-  ssr: false,
-});
-import AddressInput from "@/components/AddressInput";
-import AssumptionsEditor from "@/components/AssumptionsEditor";
-import AddOnsPanel from "@/components/AddOnsPanel";
-import ResultsPanel from "@/components/ResultsPanel";
-import EstimateSticky from "@/components/EstimateSticky";
-import OutputButtons from "@/components/OutputButtons";
-import MapView from "@/components/MapView";
-import InsightsPanel from "@/components/InsightsPanel";
-import PropertyContextPanel from "@/components/PropertyContextPanel";
-import StormHistoryCard from "@/components/StormHistoryCard";
-import LineItemsPanel from "@/components/LineItemsPanel";
-import TiersPanel from "@/components/TiersPanel";
-import MeasurementsPanel from "@/components/MeasurementsPanel";
-import SectionHeader from "@/components/SectionHeader";
-import PhotoUploadPanel from "@/components/PhotoUploadPanel";
-import ImageryStormBanner from "@/components/ImageryStormBanner";
-import VoiceNoteRecorder, { type VoiceNoteResult } from "@/components/VoiceNoteRecorder";
-import CarrierClaimPanel from "@/components/CarrierClaimPanel";
-import SupplementAnalyzerPanel from "@/components/SupplementAnalyzerPanel";
-import type { PhotoMeta } from "@/types/photo";
-import type { ClaimContext } from "@/lib/carriers";
-import { QuantumPulseLoader } from "@/components/ui/quantum-pulse-loader";
-import ErrorBoundary from "@/components/ErrorBoundary";
-import { useKeyboardShortcuts } from "@/lib/useKeyboardShortcuts";
-import { generatePdf, buildSummaryText } from "@/lib/pdf";
-import { saveEstimate } from "@/lib/storage";
-import type { ProposalTier } from "@/lib/tiers";
-import type {
-  AddOn,
-  AddressInfo,
-  Assumptions,
-  DetailedEstimate,
-  Estimate,
-  RoofVision,
-  SolarSummary,
-} from "@/types/estimate";
-import type {
-  EdgeType,
-  PricedEstimate,
-  PricingInputs,
-  RoofData,
-} from "@/types/roof";
-import { priceRoofData } from "@/lib/roof-engine";
-import { DEFAULT_ADDONS, computeBase, computeTotal } from "@/lib/pricing";
-import {
-  buildWasteTable,
-  inferComplexityFromPolygons,
-} from "@/lib/roof-waste";
-import {
-  orthogonalizePolygon,
-  mergeNearbyVertices,
-  polygonIsNearAddress,
-  polygonCoversFootprint,
-  polygonsCoverFootprint,
-  polygonAreaSqft,
-  polygonIoU,
-} from "@/lib/polygon";
-import { BRAND_CONFIG } from "@/lib/branding";
-import { estimateAge, estimateRoofSize } from "@/lib/utils";
-import { newId } from "@/lib/storage";
-import { Plus, RotateCcw, Sparkles, Zap } from "lucide-react";
-
-const DEFAULT_ASSUMPTIONS: Assumptions = {
-  sqft: 2200,
-  pitch: "6/12",
-  material: "asphalt-architectural",
-  ageYears: 15,
-  laborMultiplier: 1.0,
-  materialMultiplier: 1.0,
-  serviceType: "reroof-tearoff",
-  complexity: "moderate",
-};
-
-const VISION_MATERIAL_TO_ASSUMPTION: Partial<
-  Record<RoofVision["currentMaterial"], Assumptions["material"]>
-> = {
-  "asphalt-3tab": "asphalt-3tab",
-  "asphalt-architectural": "asphalt-architectural",
-  "metal-standing-seam": "metal-standing-seam",
-  "tile-concrete": "tile-concrete",
-};
-
 /**
- * The actual rep tool. Wrapped in <Suspense> by the default export
- * below because it synchronously calls `useSearchParams()` to read the
- * `?office=<slug>` tenancy param at the top of the component. Per
- * Next.js 16, any Client Component that synchronously reads search
- * params during render forces a CSR bailout — the prerender pass throws
- * unless a <Suspense> boundary exists above the useSearchParams call.
+ * /dashboard/estimate — internal estimator (rep workbench).
  *
- * Setting `export const dynamic = "force-dynamic"` does NOT fix this
- * (that directive is only respected on Server Component pages — on a
- * "use client" page it's silently ignored). The wrapper pattern is the
- * canonical fix.
+ * Mirrors what the customer sees at `/` and adds rep-only context that
+ * the customer doesn't need: storm history, imagery-vs-storm correlation,
+ * lead context, line-item penetration translation, squares + waste,
+ * tear-off tonnage + dumpster sizing, drive-there link, and a composite
+ * measurement-confidence score.
+ *
+ * Deep-link: `/dashboard/estimate?leadId=lead_xxx` (rep clicks a lead in
+ * /dashboard/leads → lands here with the address pre-loaded and the
+ * measurement auto-running).
+ *
+ * All source-of-truth labels are deliberately opaque. The rep sees
+ * "measurement", "auto-detected outline", "verified by secondary source"
+ * — never the underlying provider names. Rationale: the rep doesn't need
+ * to know which provider produced which pixel; surfacing it adds noise
+ * and creates training-leak risk in screenshots / shared links.
  */
-function HomePageInner() {
-  // Tenancy — which business this rep is working under. Until staff
-  // auth is wired through (Supabase JWT), reps bookmark `/?office=nolands`
-  // for their company. Defaults to "nolands" — the only live customer
-  // today — so bare visits still save under the right tenant.
+
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { loadGoogle } from "@/lib/google";
+import { MATERIAL_RATES } from "@/lib/pricing";
+import type { Material } from "@/types/estimate";
+
+type Step = "address" | "pin" | "loading" | "result" | "error";
+
+interface AddressResolved {
+  formatted: string;
+  lat: number;
+  lng: number;
+  zip?: string;
+}
+
+interface EstimateResult {
+  solar: {
+    sqft: number | null;
+    footprintSqft: number | null;
+    pitchDegrees: number | null;
+    segmentCount: number;
+    imageryQuality: string | null;
+    imageryDate: string | null;
+  };
+  correction: {
+    applied: boolean;
+    reason: string;
+    solarRawSlopedSqft: number;
+    solarRawFootprintSqft: number;
+    gisSource: string | null;
+    gisFootprintSqft: number | null;
+    slopeFactor: number | null;
+  } | null;
+  tile: { centerLat: number; centerLng: number; zoom: number; widthPx: number; heightPx: number };
+  paintedImageBase64: string | null;
+  objects: Array<{
+    type: string;
+    centerPx: { x: number; y: number };
+    bboxPx: { x: number; y: number; width: number; height: number };
+    confidence: number;
+  }>;
+  penetrationTotals: { count: number; perimeterFt: number; areaSqft: number };
+  edges: {
+    ridgesHipsLf: number | null;
+    valleysLf: number | null;
+    rakesLf: number | null;
+    eavesLf: number | null;
+  };
+  facets: Array<{
+    pitchDegrees: number;
+    pitchOnTwelve: string;
+    azimuthDegrees: number;
+    compassDirection: string;
+    slopedSqft: number;
+    footprintSqft: number;
+  }>;
+  derived: {
+    stories: number;
+    estimatedAtticSqft: number | null;
+    predominantCompass: string | null;
+    complexity: "simple" | "moderate" | "complex";
+  };
+  geminiAnalysis: {
+    facetCountEstimate: { count: number; complexity: string; confidence: number } | null;
+    roofMaterial: { type: string; confidence: number } | null;
+    conditionHints: Array<{ hint: string; confidence: number }>;
+    visibleDamage: Array<{ kind: string; location_hint?: string; confidence: number }>;
+    secondaryStructures: Array<{ kind: string; confidence: number }>;
+    siteObstacles: Array<{ kind: string; confidence: number }>;
+    apparentAgeBand: { band: string; confidence: number } | null;
+  };
+  modelVersion: string;
+  computedAt: string;
+}
+
+interface StormEvent {
+  event_type: string;
+  event_begin_time: string;
+  magnitude: number | null;
+  magnitude_type: string | null;
+  distance_miles: number;
+}
+interface HailEvent {
+  date: string;
+  maxSizeInches: number;
+  distance_miles: number;
+}
+interface LeadRow {
+  public_id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  source: string | null;
+  tcpa_consent: boolean | null;
+  tcpa_consent_at: string | null;
+  created_at: string;
+  notes: string | null;
+}
+
+const LOADING_MESSAGES = [
+  { at: 0, text: "Fetching satellite imagery…" },
+  { at: 3, text: "Measuring the roof…" },
+  { at: 7, text: "Identifying the outline…" },
+  { at: 13, text: "Tracing roof features…" },
+  { at: 19, text: "Detecting penetrations…" },
+];
+
+export default function DashboardEstimatePage() {
+  return (
+    <Suspense fallback={<div className="p-10 text-slate-400 text-sm">Loading…</div>}>
+      <EstimatePage />
+    </Suspense>
+  );
+}
+
+function EstimatePage() {
   const searchParams = useSearchParams();
-  const office = (searchParams.get("office") ?? "nolands").trim().toLowerCase();
-  // `?nocache=1` URL param — debug toggle so the rep can force a
-  // fresh SAM3 round-trip during the demo (bypasses the Redis cache
-  // for the resolved polygon). Forwarded as a query suffix to the
-  // /api/sam3-roof fetch below; the route's `noCache` handling already
-  // exists, this just plumbs the front-end toggle through.
-  const sam3NoCacheSuffix =
-    searchParams.get("nocache") === "1" ? "&nocache=1" : "";
-  const [addressText, setAddressText] = useState("");
-  const [address, setAddress] = useState<AddressInfo | null>(null);
-  const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
-  const [addOns, setAddOns] = useState<AddOn[]>(DEFAULT_ADDONS);
-  const [staff, setStaff] = useState("");
-  const [customerName, setCustomerName] = useState("");
+  const queryLeadId = searchParams.get("leadId");
+
+  const [step, setStep] = useState<Step>("address");
+  const [resolved, setResolved] = useState<AddressResolved | null>(null);
+  const [pinLat, setPinLat] = useState<number | null>(null);
+  const [pinLng, setPinLng] = useState<number | null>(null);
+  const [result, setResult] = useState<EstimateResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingElapsed, setLoadingElapsed] = useState(0);
+
+  // Rep-side inputs
+  const [material, setMaterial] = useState<Material>("asphalt-architectural");
+  const [manualPitchOn12, setManualPitchOn12] = useState<number>(5);
+  const [tearOff, setTearOff] = useState<boolean>(true);
+  const [laborMult, setLaborMult] = useState<number>(1.0);
+  const [materialMult, setMaterialMult] = useState<number>(1.0);
   const [notes, setNotes] = useState("");
-  const [estimateId, setEstimateId] = useState<string>(newId());
-  const [shown, setShown] = useState(false);
-  // Breakdown section tabs — the rep workbench used to render 11 panels
-  // stacked vertically, which made the page feel endless. Tabbing groups
-  // them into 3 logical workflows so only ~3-4 panels are visible at any
-  // time. Default is "numbers" because that's where reps land after the
-  // headline price card.
-  const [breakdownTab, setBreakdownTab] = useState<
-    "numbers" | "measurements" | "delivery"
-  >("numbers");
 
-  const [solar, setSolar] = useState<SolarSummary | null>(null);
-  const [vision, setVision] = useState<RoofVision | null>(null);
-  const [visionLoading, setVisionLoading] = useState(false);
-  const [, setVisionError] = useState<string>("");
+  // Rep-only enrichments
+  const [lead, setLead] = useState<LeadRow | null>(null);
+  const [storms, setStorms] = useState<StormEvent[] | null>(null);
+  const [hail, setHail] = useState<HailEvent[] | null>(null);
 
-  // ─── Tier C unified pipeline result ──────────────────────────────────
-  // Parallel fetch to /api/roof-pipeline that returns a canonical RoofData
-  // feed. When present, drives priceRoofData (new engine); when null /
-  // degraded, the page falls back to the legacy computeBase/computeTotal
-  // headline. Mirrors /internal page's pattern with a fetch-generation
-  // token to drop out-of-order responses on rapid address switching.
-  const [roofData, setRoofData] = useState<RoofData | null>(null);
-  const [pipelineLoading, setPipelineLoading] = useState(false);
-  const [pipelineError, setPipelineError] = useState<string | null>(null);
-  const fetchGenRef = useRef(0);
-  const [isInsuranceClaim, setIsInsuranceClaim] = useState(false);
-  const [photos, setPhotos] = useState<PhotoMeta[]>([]);
-  const [claim, setClaim] = useState<ClaimContext>({ carrier: "state-farm" });
-  const [osmBuildingPolygon, setOsmBuildingPolygon] = useState<
-    Array<{ lat: number; lng: number }> | null
-  >(null);
-  // Compound-pipeline result — OSM building × SAM 2 "roof" mask.
-  // Tighter than OSM (it removes porches/decks/garages from the polygon)
-  // and tighter than Claude (pixel-precise mask, not LLM-traced vertices).
-  const [samRefinedPolygon, setSamRefinedPolygon] = useState<
-    Array<{ lat: number; lng: number }> | null
-  >(null);
-  // `samRefining` flag removed — the legacy SAM2 (sam-refine) refining
-  // step was deprecated in favor of custom SAM3. The state slot
-  // `samRefinedPolygon` above is kept as a passive emergency-rollback
-  // hook (see Phase 1 cleanup notes below).
-  // Google Solar dataLayers:get binary roof mask — Project Sunroof's own
-  // ground-truth segmentation. Beats SAM/OSM/AI for any property in Solar
-  // coverage. Falls back through the chain when not available.
-  const [solarMaskPolygon, setSolarMaskPolygon] = useState<
-    Array<{ lat: number; lng: number }> | null
-  >(null);
-  // Polygon extracted client-side from the loaded 3D Tiles photogrammetric
-  // mesh (Roof3DViewer samples elevations on a grid, thresholds above
-  // tiles3d (mesh height extraction) was removed — produced inconsistent
-  // results across rural properties (locked onto tree blobs, sheds, or
-  // partial roofs depending on mesh quality). The 3D viewer now serves
-  // purely as a visual renderer + multi-view capture surface for Claude
-  // verification (separate route).
-  // Roboflow Hosted Inference — roof-specific instance segmentation on the
-  // same satellite tile the rest of the pipeline uses. Bake-off in
-  // scripts/eval-roboflow.ts picked Satellite Rooftop Map (v3) — nailed a
-  // hip-roof house at 92% confidence where tiles3d-vision had been
-  // returning a wrong-angle rectangle.
-  const [roboflowPolygon, setRoboflowPolygon] = useState<
-    Array<{ lat: number; lng: number }> | null
-  >(null);
-  // Microsoft Building Footprints — open-data ML-extracted building polygons
-  // covering rural areas where OSM has no coverage. ODbL license. Currently
-  // scoped to the Nashville metro bbox (see lib/microsoft-buildings.ts).
-  // Slotted below OSM (OSM is hand-traced, more accurate where present) and
-  // above the Claude-vision last-resort.
-  const [msBuildingPolygon, setMsBuildingPolygon] = useState<
-    Array<{ lat: number; lng: number }> | null
-  >(null);
-  // Custom SAM3 (Roboflow Workflow) with server-side GIS-footprint
-  // reconciliation. Sits at the top of the priority chain when available —
-  // trained on our service-area imagery, so it consistently outperforms
-  // the off-the-shelf Roboflow Satellite Rooftop Map and Solar mask on
-  // properties where Solar's photogrammetry has gaps. The route handles
-  // tree occlusion / wrong-building substitution before returning.
-  const [sam3Polygon, setSam3Polygon] = useState<
-    Array<{ lat: number; lng: number }> | null
-  >(null);
-  // SAM3 in-flight gate. While `sam3InFlight === true`, the polygon
-  // priority chain returns "none" regardless of what MS Buildings, OSM,
-  // or Solar mask have returned. This eliminates the visual flicker
-  // where a fast-resolving fallback (MS Buildings ~100ms, OSM ~1.5s)
-  // renders a polygon over the satellite tile, only to get replaced
-  // 5-30 seconds later when SAM3 finishes. Reps were seeing the wrong
-  // polygon during the cold-start window and assuming SAM3 had failed.
-  //
-  // The "Generating measurement…" overlay stays visible until SAM3
-  // settles — either succeeds (its polygon wins the priority chain)
-  // or fails (404 / kill switch / network error → fallback chain runs).
-  // Set true at the start of every loadAddress fetch, set false in the
-  // .then() of the sam3Promise regardless of outcome.
-  const [sam3InFlight, setSam3InFlight] = useState<boolean>(false);
-  // Reconciler source from /api/sam3-roof. When SAM3's raw output gets
-  // substituted with the GIS wall footprint (occluded by tree canopy,
-  // catastrophic centroid drift, area-ratio gate fail), the returned
-  // polygon traces walls, not eaves — so it needs the 1.06 overhang
-  // multiplier applied to roof-material sqft. "sam3" / "sam3-no-footprint"
-  // mean the polygon traces eaves directly and no multiplier applies.
-  const [sam3Source, setSam3Source] = useState<
-    "sam3" | "footprint-only" | "footprint-occluded" | "sam3-no-footprint" | null
-  >(null);
-  // "Pick the right building" mode — when the auto-detection picks the
-  // wrong building on a multi-structure rural parcel, the rep toggles
-  // this on and clicks the actual house on the satellite tile. We then
-  // re-call SAM3 with ?clickLat=&clickLng= override and update the
-  // polygon with the result.
-  const [pickingBuilding, setPickingBuilding] = useState(false);
-  const [pickingLoading, setPickingLoading] = useState(false);
-  // Claude verification of the rendered polygon. Catches polygons traced
-  // on the wrong building, neighbour's roof, covered patio over-traces.
-  // When Claude flags an issue with high confidence (ok=false, conf>0.7),
-  // we treat the source as failed and fall through. Otherwise informational.
-  const [claudeVerifications, setClaudeVerifications] = useState<
-    Partial<Record<string, { ok: boolean; confidence: number; reason: string; issues?: string[] }>>
-  >({});
-  // Live polygons after the rep edits a vertex. When set, overrides the
-  // auto-detected source polygons everywhere (lengths, sqft, blueprint, PDF).
-  // Reset to null on every new estimate so we always start from auto-detect.
-  const [livePolygons, setLivePolygons] = useState<
-    Array<Array<{ lat: number; lng: number }>> | null
-  >(null);
-  // Tracked via ref so late-arriving SAM doesn't stomp in-progress edits
-  // (the sam-refine fetch resolves ~5-10s after OSM, by which point the rep
-  // may have already moved vertices on the OSM polygon).
-  const hasUserEditedRef = useRef(false);
-  // Refs mirror state for the edit-capture closure so its [] dep array is
-  // safe — without these, the captured edit would carry stale address /
-  // source data from the moment handlePolygonsChanged was first created.
-  const addressRef = useRef<AddressInfo | null>(null);
-  const polygonSourceRef = useRef<string>("none");
-  // Active-learning edit capture: when the rep settles on a corrected
-  // polygon (5s of no further edits), persist it as a future training/
-  // eval datapoint. The rep's manual correction IS the ground truth for
-  // this address; capturing thousands of these over time gives us a
-  // labeled corpus for fine-tuning a custom segmenter — without any
-  // extra labeling effort. The original AI source is recorded too so we
-  // can later compute "Roboflow IoU vs rep-corrected truth" by source.
-  const editCaptureTimerRef = useRef<number | null>(null);
-  const lastCapturedSignatureRef = useRef<string | null>(null);
-  // Ref mirror of `isWallFootprintSource`, updated by a useEffect below
-  // (the derived value depends on polygonSource which is declared later
-  // in the component, so we can't read it directly from this callback).
-  // Captures whether the polygon being edited originated from a wall-
-  // footprint source (MS Buildings, OSM, or SAM3 reconciler substitution).
-  // Once livePolygons is set, `polygonSource` flips to "edited" and we
-  // lose track of what the polygon was *traced from* — but the rep's
-  // edits still describe walls, so the 1.06 overhang still applies.
-  const isWallFootprintSourceRef = useRef<boolean>(false);
-  // Frozen at first edit; cleared on runEstimate / reset.
-  const editOriginIsWallFootprintRef = useRef<boolean>(false);
-  const handlePolygonsChanged = useCallback(
-    (polys: Array<Array<{ lat: number; lng: number }>>) => {
-      if (!hasUserEditedRef.current) {
-        // First edit — capture whether the source we're editing FROM
-        // traces walls (so 1.06 keeps applying as the rep nudges).
-        editOriginIsWallFootprintRef.current = isWallFootprintSourceRef.current;
-      }
-      hasUserEditedRef.current = true;
-      setLivePolygons(polys);
-      // Debounced capture: reset on every edit, fire 5s after last edit.
-      if (editCaptureTimerRef.current != null) {
-        window.clearTimeout(editCaptureTimerRef.current);
-      }
-      editCaptureTimerRef.current = window.setTimeout(() => {
-        editCaptureTimerRef.current = null;
-        const primary = polys?.[0];
-        if (!primary || primary.length < 3) return;
-        // De-dup: don't re-POST identical polygons (rep clicked but didn't
-        // change anything, or the debounce caught a no-op flicker).
-        const sig = `${primary.length}|${primary[0].lat.toFixed(6)},${primary[0].lng.toFixed(6)}`;
-        if (sig === lastCapturedSignatureRef.current) return;
-        lastCapturedSignatureRef.current = sig;
-        // Fire-and-forget; failures are non-fatal (capture is opportunistic).
-        const a = addressRef.current;
-        fetch("/api/eval-truth/edit-capture", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            address: a?.formatted ?? null,
-            lat: a?.lat ?? null,
-            lng: a?.lng ?? null,
-            originalSource: polygonSourceRef.current,
-            polygon: primary,
-          }),
-        }).catch(() => { /* opportunistic */ });
-      }, 5000);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
+  // Load lead from deep link
   useEffect(() => {
-    const s = localStorage.getItem("pitch.staff");
-    if (s) setStaff(s);
-  }, []);
-  useEffect(() => {
-    if (staff) localStorage.setItem("pitch.staff", staff);
-  }, [staff]);
-
-  // ─── Tier C pricing — priceRoofData when roofData is available,
-  // otherwise the legacy sqft × $/sf fallback so the headline still
-  // renders while the rep types the address and the pipeline is in
-  // flight (or degraded).
-  const pricingInputs = useMemo<PricingInputs>(
-    () => ({
-      material: assumptions.material,
-      materialMultiplier: assumptions.materialMultiplier,
-      laborMultiplier: assumptions.laborMultiplier,
-      serviceType: assumptions.serviceType ?? "reroof-tearoff",
-      addOns,
-      wasteOverridePct: undefined,
-      isInsuranceClaim,
-    }),
-    [assumptions, addOns, isInsuranceClaim],
-  );
-
-  const priced = useMemo<PricedEstimate | null>(() => {
-    if (!roofData || roofData.source === "none") return null;
-    return priceRoofData(roofData, pricingInputs);
-  }, [roofData, pricingInputs]);
-
-  const { low, high } = useMemo(() => {
-    if (priced) {
-      return { low: Math.round(priced.totalLow), high: Math.round(priced.totalHigh) };
-    }
-    const b = computeBase(assumptions);
-    return { low: b.low, high: b.high };
-  }, [priced, assumptions]);
-
-  const total = useMemo(() => {
-    if (priced) return Math.round((priced.totalLow + priced.totalHigh) / 2);
-    return computeTotal(assumptions, addOns);
-  }, [priced, assumptions, addOns]);
-
-  // Polygon priority: Solar API per-facet > Claude single-polygon fallback.
-  // Claude's polygon is in pixel coords on the 640x640 zoom-20 satellite tile;
-  // we project back to lat/lng using the same meters-per-pixel formula MapView
-  // uses, so the polygon lines up with the satellite imagery underneath.
-  const claudePolygonLatLng = useMemo(() => {
-    if (!address?.lat || !address?.lng) return null;
-    const rawPoly = vision?.roofPolygon;
-    if (!rawPoly || rawPoly.length < 3) return null;
-    // Soft orthogonalize Claude's pixel-space trace before projection.
-    // We DON'T force an oriented bounding rectangle here — bounding boxes
-    // CIRCUMSCRIBE the input, so when Claude over-traces (covers the yard
-    // too), the rect ends up even bigger. The size guard in cleanRoofPolygon
-    // (lib/anthropic.ts) is what protects against over-trace; this pass
-    // just smooths jaggies on traces that ARE roughly correct.
-    // Orthogonalize, then drop near-duplicate vertices (orthogonalization
-    // can collapse two adjacent vertices onto the same intersection point).
-    const poly = mergeNearbyVertices(orthogonalizePolygon(rawPoly, 18), 4);
-    const lat = address.lat;
-    const lng = address.lng;
-    const mPerPx =
-      (156_543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, 20);
-    const cosLat = Math.cos((lat * Math.PI) / 180);
-    return poly.map(([x, y]) => {
-      const dx = x - 320;
-      const dy = y - 320;
-      return {
-        lat: lat + (-dy * mPerPx) / 111_320,
-        lng: lng + (dx * mPerPx) / (111_320 * cosLat),
-      };
-    });
-  }, [vision?.roofPolygon, address?.lat, address?.lng]);
-
-  // Wrong-house guard. Every auto-detected polygon must contain (or be
-  // within tolerance of) an anchor on the actual building. Catches the
-  // failure mode where AI traces the brightest neighbouring roof rather
-  // than the actual target. Returns the polygon when valid, null when
-  // it should be rejected.
-  //
-  // Polygon passes if it satisfies EITHER anchor:
-  //   1. Solar's `buildingCenter` — Solar API's photogrammetric centroid
-  //      for the closest building. On the actual roof when present.
-  //   2. The user's geocoded address — Google's address point. Sits on
-  //      the building footprint for tightly-platted suburban lots, but
-  //      may be 10-20m off on large lots / set-back houses / parcels
-  //      where the address geocodes to the lot center / driveway / pool.
-  //
-  // Tolerance tuned to 18m: the eval surfaced two FL addresses where
-  // Roboflow returned an IoU=0 polygon on a neighbour's roof but within
-  // 15m of the geocoded address — that's the upper bound we need to
-  // reject. But early production testing showed 8m was too tight on
-  // large lots where the geocoded point lands on the patio/lawn rather
-  // than the building. 18m keeps the wrong-house failures we measured
-  // out while letting through correct polygons whose anchor sits on
-  // hardscape adjacent to the building.
-  const PROXIMITY_M = 18;
-  const buildingCenter = solar?.buildingCenter ?? null;
-  const validateAtAddress = (
-    poly: Array<{ lat: number; lng: number }> | null,
-  ): Array<{ lat: number; lng: number }> | null => {
-    if (!poly || poly.length < 3) return null;
-    // Either anchor passes — buildingCenter is a BONUS signal, not a gate.
-    // When Solar finds a building close to the user's geocoded address it
-    // confirms which lot is the target; when it finds a neighbour's
-    // building (Solar's `findClosest` is "closest to the input lat/lng",
-    // which can be off when the address is rural or on a corner lot),
-    // we don't want it to invalidate polygons that ARE on the user's
-    // actual building.
-    if (
-      buildingCenter &&
-      polygonIsNearAddress(poly, buildingCenter.lat, buildingCenter.lng, PROXIMITY_M)
-    ) {
-      return poly;
-    }
-    if (address?.lat == null || address?.lng == null) {
-      return buildingCenter ? null : poly;
-    }
-    return polygonIsNearAddress(poly, address.lat, address.lng, PROXIMITY_M) ? poly : null;
-  };
-
-  const validSam3 = useMemo(() => validateAtAddress(sam3Polygon), [sam3Polygon, address?.lat, address?.lng, buildingCenter]);
-  const validSolarMask = useMemo(() => validateAtAddress(solarMaskPolygon), [solarMaskPolygon, address?.lat, address?.lng, buildingCenter]);
-  const validRoboflow = useMemo(() => validateAtAddress(roboflowPolygon), [roboflowPolygon, address?.lat, address?.lng, buildingCenter]);
-  const validSam = useMemo(() => validateAtAddress(samRefinedPolygon), [samRefinedPolygon, address?.lat, address?.lng, buildingCenter]);
-  const validOsm = useMemo(() => validateAtAddress(osmBuildingPolygon), [osmBuildingPolygon, address?.lat, address?.lng, buildingCenter]);
-  const validMsBuilding = useMemo(() => validateAtAddress(msBuildingPolygon), [msBuildingPolygon, address?.lat, address?.lng, buildingCenter]);
-  const validClaude = useMemo(() => validateAtAddress(claudePolygonLatLng), [claudePolygonLatLng, address?.lat, address?.lng, buildingCenter]);
-
-  // Pattern A: only consider a source if its 3D-mesh validation score is
-  // above MIN_VALIDATION_SCORE (or no score yet — we don't penalize sources
-  // that haven't been validated). 0.4 = at least 40% of polygon samples at
-  // roof height. Tighter bars over-reject good polygons; looser bars let
-  // through polygons traced on driveways. Tune up if false positives
-  // continue to ship; tune down if good polygons get demoted.
-  // Claude flagged the polygon as wrong with high confidence?  Demote it.
-  // Low-confidence flags are informational (rep may notice a small edge
-  // issue but the polygon is mostly right).
-  const passesClaude = (source: string) => {
-    const v = claudeVerifications[source];
-    if (!v) return true;
-    if (v.ok) return true;
-    return v.confidence < 0.7; // ok=false but Claude isn't sure → keep
-  };
-
-  // MS Buildings hallucination cross-check. When BOTH Roboflow and MS
-  // Buildings have polygons for the same address, compare areas + centroid
-  // distance. If they disagree wildly (Roboflow's polygon is 3× the size
-  // of MS's footprint, OR centroid is > 25m away), Roboflow has likely
-  // hallucinated — traced a paved area or the neighbour's roof. Demote.
-  // MS Buildings serves as a sanity-check authority for Roboflow because
-  // it's pre-traced from satellite imagery (different model, different
-  // training data) and contains the geocoded address point.
-  const passesMsHallucinationCheck = (
-    candidate: Array<{ lat: number; lng: number }> | null,
-  ): boolean => {
-    if (!candidate || candidate.length < 3) return true;
-    if (!msBuildingPolygon || msBuildingPolygon.length < 3) return true; // no MS reference
-    const cosLat = Math.cos(((candidate[0].lat) * Math.PI) / 180);
-    const M_PER_DEG_LAT = 111_320;
-    const polygonAreaSqM = (poly: Array<{ lat: number; lng: number }>): number => {
-      let sum = 0;
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i];
-        const b = poly[(i + 1) % poly.length];
-        sum += a.lng * b.lat - b.lng * a.lat;
-      }
-      // Convert from deg² to m² via local linear approximation
-      const degSq = Math.abs(sum) / 2;
-      return degSq * (M_PER_DEG_LAT * M_PER_DEG_LAT) * cosLat;
-    };
-    const centroid = (poly: Array<{ lat: number; lng: number }>) => {
-      let lat = 0, lng = 0;
-      for (const p of poly) { lat += p.lat; lng += p.lng; }
-      return { lat: lat / poly.length, lng: lng / poly.length };
-    };
-    const aArea = polygonAreaSqM(candidate);
-    const bArea = polygonAreaSqM(msBuildingPolygon);
-    const ratio = aArea / Math.max(bArea, 1);
-    const ac = centroid(candidate);
-    const bc = centroid(msBuildingPolygon);
-    const dxM = (ac.lng - bc.lng) * M_PER_DEG_LAT * cosLat;
-    const dyM = (ac.lat - bc.lat) * M_PER_DEG_LAT;
-    const centroidDistM = Math.hypot(dxM, dyM);
-    // Reject when:
-    //   - candidate is > 3× larger than MS footprint (over-trace into yard)
-    //   - candidate is < 0.3× MS footprint (only tracing a portion of the building)
-    //   - centroid is > 25m from MS footprint centroid (wrong building)
-    if (ratio > 3.0 || ratio < 0.3 || centroidDistM > 25) {
-      console.warn(
-        `[hallucination] candidate vs MS Footprint: area ratio=${ratio.toFixed(2)}, centroid dist=${centroidDistM.toFixed(1)}m — flagging as hallucination`,
-      );
-      return false;
-    }
-    return true;
-  };
-
-  // Roof-type prior gate. Originally rejected polygons whose vertex
-  // count wildly disagreed with vision.complexity (simple+>12 verts or
-  // complex+≤4 verts). Production testing showed Vision's complexity
-  // classification was less reliable than its confidence score
-  // suggested, particularly on complex-segment roofs that Vision tagged
-  // as "simple" — the gate then rejected good Solar/Roboflow polygons.
-  // Currently a no-op pending more eval data; vertex-count vs Solar's
-  // segmentCount may be a better signal than vision.complexity.
-  const passesComplexityPrior = (
-    _candidate: Array<{ lat: number; lng: number }> | null,
-  ): boolean => true;
-
-  // Footprint-coverage gate. Two failure modes:
-  //   • UNDER-trace: segmenter caught one center section, missed wings.
-  //     Polygon is < 55% of expected building footprint.
-  //   • OVER-trace: segmenter followed fence / yard / driveway. Polygon
-  //     is > 2.2× expected footprint (eave overhang + attached lanais /
-  //     covered porches / multi-section roofs in FL routinely add 50-
-  //     100% to the Solar-reported footprint; tightened to 1.6 was
-  //     rejecting legitimate polygons on complex Doctor-Phillips-style
-  //     properties).
-  //
-  // Reference: prefer Solar's `buildingFootprintSqft` (DSM-derived,
-  // closest to ground truth). When Solar has no footprint signal, fall
-  // back to MS Buildings polygon area, then OSM polygon area — both are
-  // pre-curated building footprints. Only when ALL three are missing
-  // do we ship without coverage gating (rural last-resort).
-  //
-  // The reference source is excluded from being gated against itself
-  // (otherwise it's circular). Other sources still get gated against it.
-  const solarFootprintSqft = solar?.buildingFootprintSqft ?? null;
-  const msFootprintSqft =
-    validMsBuilding ? polygonAreaSqft(validMsBuilding) : null;
-  const osmFootprintSqft = validOsm ? polygonAreaSqft(validOsm) : null;
-  const referenceFootprintSqft =
-    (solarFootprintSqft && solarFootprintSqft >= 100 ? solarFootprintSqft : null) ??
-    (msFootprintSqft && msFootprintSqft >= 100 ? msFootprintSqft : null) ??
-    (osmFootprintSqft && osmFootprintSqft >= 100 ? osmFootprintSqft : null);
-  // Which source (if any) IS the reference — that source skips the gate
-  // because comparing it to itself always passes (and is meaningless).
-  const referenceSource: "solar" | "ms" | "osm" | null =
-    solarFootprintSqft && solarFootprintSqft >= 100
-      ? "solar"
-      : msFootprintSqft && msFootprintSqft >= 100
-        ? "ms"
-        : osmFootprintSqft && osmFootprintSqft >= 100
-          ? "osm"
-          : null;
-  // Solar-anchored coverage gate. Tier-aware upper bound — Solar's
-  // `segmentCount` is our independent complexity signal (independent of
-  // whichever polygon is being checked, so no circularity):
-  //   • ≤2 segments → simple gable / single-pitch  → cap at 1.3× footprint
-  //   • 3–5 segments → moderate (typical hip)       → cap at 1.6×
-  //   • ≥6 segments → complex (multi-section, FL)  → cap at 2.0×
-  //   • 0 segments  → no Solar findClosest signal  → cap at 1.20×
-  //
-  // The 0-segment case is the *strictest* because the only reference left
-  // is MS Buildings / OSM footprint. Those are top-down satellite-derived
-  // footprints with no eave / overhang information — a candidate polygon
-  // with light eaves should land within ~10-20% of them. Anything above
-  // 1.20× is almost certainly an over-trace into shadow / driveway / yard.
-  //
-  // History: was 1.6 → loosened to 2.2 (Doctor Phillips Orlando complex
-  // FL home) → 5385 Henley Rd Mt Juliet shipped over-traced Solar mask at
-  // 1.235× MS Buildings footprint. Tightening the no-Solar case to 1.20
-  // rejects Mt Juliet's over-trace, falls through to Roboflow (~0.98× of
-  // MS Buildings, clean), which becomes the displayed polygon.
-  const overTraceUpperRatio = (() => {
-    const sc = solar?.segmentCount ?? 0;
-    if (sc >= 6) return 2.0;
-    if (sc >= 3) return 1.6;
-    if (sc >= 1) return 1.3;
-    return 1.20;
-  })();
-  const passesCoverage = (
-    poly: Array<{ lat: number; lng: number }> | null | undefined,
-  ) => polygonCoversFootprint(poly, referenceFootprintSqft, 0.55, overTraceUpperRatio);
-  const passesCoverageMulti = (
-    polys: Array<Array<{ lat: number; lng: number }>> | null | undefined,
-  ) => polygonsCoverFootprint(polys, referenceFootprintSqft, 0.55, overTraceUpperRatio);
-  // Skip self-comparison when the source IS the reference (OSM gated
-  // against an OSM-derived footprint = circular, trivially passes).
-  const passesCoverageNonRef = (
-    poly: Array<{ lat: number; lng: number }> | null | undefined,
-    source: "ms" | "osm",
-  ): boolean => {
-    if (referenceSource === source) return true;
-    return passesCoverage(poly);
-  };
-  // Absolute size sanity. ~93 m² ≈ 1000 sqft minimum (smaller than that
-  // is almost always a noise blob or a shed, not a residential roof);
-  // ~1860 m² ≈ 20,000 sqft maximum (larger than that is almost always
-  // tracing the entire parcel or the neighbour's house too).
-  const passesAbsoluteSize = (
-    poly: Array<{ lat: number; lng: number }> | null | undefined,
-  ): boolean => {
-    if (!poly || poly.length < 3) return false;
-    const sqft = polygonAreaSqft(poly);
-    return sqft >= 200 && sqft <= 20_000;
-  };
-
-  /** TIGHTER size gate for Claude vision specifically. Claude over-traces
-   *  routinely on rural / multi-building lots — it'll draw a single big
-   *  rectangle around the house + driveway + outbuildings rather than
-   *  isolate just the roof. Cap at 6,000 sqft to force fall-through to
-   *  "none" when Claude returns a clearly oversized rectangle. The rep
-   *  then gets the "Draw fresh" CTA instead of a bad auto-trace silently
-   *  driving a $200k estimate. Lower bound stays 200 (catches sheds). */
-  const passesClaudeSize = (
-    poly: Array<{ lat: number; lng: number }> | null | undefined,
-  ): boolean => {
-    if (!poly || poly.length < 3) return false;
-    const sqft = polygonAreaSqft(poly);
-    return sqft >= 200 && sqft <= 6_000;
-  };
-
-  // Polygon source priority — best-quality first.
-  //
-  // tiles3d (3D mesh height extraction) was originally at #1 but DEMOTED
-  // below Roboflow because mesh quality varies wildly between properties.
-  // On properties with sparse/noisy photogrammetric mesh, tiles3d
-  // reproducibly extracts a tiny polygon on a shed near the geocode while
-  // missing the actual main house. Roboflow is more CONSISTENT (~85-90%
-  // accurate across all property types) even when not pixel-perfect.
-  // Pattern A validation gates Roboflow on the mesh, so when the mesh IS
-  // clean it improves Roboflow's score; when it's noisy, Roboflow still
-  // wins.
-  //
-  //   1. Solar mask       — Project Sunroof's roof segmentation
-  //                         (photogrammetric, ground truth where covered)
-  //   2. Roboflow         — roof-trained instance segmenter on satellite
-  //                         (Satellite Rooftop Map v3); consistent winner
-  //   3. 3D Tiles mesh    — height-thresholded from Google's photogrammetry.
-  //                         Demoted from #1 — only trusted when Roboflow
-  //                         doesn't fire. Now requires ≥150 cells (was 80).
-  //   4. Solar facets     — multi-facet bboxes from findClosest
-  //   5. SAM 2 + OSM clip — point-prompted SAM with OSM building intersect
-  //   6. OSM              — hand-traced building outline (~50-60% US, urban)
-  //   7. MS Buildings     — open-data ML-extracted building footprints; fills
-  //                         OSM coverage gap on rural addresses (Nashville)
-  //   8. Claude vision    — Claude on the 2D satellite tile. Last resort.
-  //
-  // tiles3d-vision (Claude on multi-angle 3D mesh renders) was REMOVED —
-  // it consistently produced over-traced rectangles. Claude's general vision
-  // can't reliably pixel-trace eaves; roof-specific segmenters are needed.
-  //
-  // Each source goes through the wrong-house guard above before being
-  // considered — a polygon that doesn't contain (or live very near to) the
-  // geocoded address is dropped on the floor regardless of source.
-  const polygonSource = useMemo<
-    | "edited"
-    | "tiles3d"
-    | "sam3"
-    | "solar-mask"
-    | "roboflow"
-    | "solar"
-    | "sam"
-    | "osm"
-    | "microsoft-buildings"
-    | "ai"
-    | "none"
-  >(() => {
-    // Rep edits always win — they're the final authority and shouldn't
-    // be replaced by anything else, including a still-in-flight SAM3.
-    if (livePolygons && livePolygons.length) return "edited";
-    // SAM3 in-flight gate. Block the priority chain from rendering ANY
-    // fallback polygon (MS Buildings, OSM, Solar mask, Solar facets,
-    // Claude vision) while SAM3 is still working. Without this gate,
-    // MS Buildings resolves in ~100ms and renders immediately, then
-    // SAM3 replaces it 5-30s later — reps were seeing the wrong
-    // polygon and assuming SAM3 had failed.
-    //
-    // Returning "none" here keeps the priority chain in its initial
-    // (no-polygon) state, which the UI renders as the "Generating
-    // measurement…" overlay. The gate clears in the sam3Promise.then
-    // (after SAM3 succeeds OR its Solar-mask fallback completes),
-    // at which point this useMemo recomputes and picks the best
-    // polygon from whatever has resolved.
-    if (sam3InFlight) return "none";
-    // SAM3 (custom Roboflow Workflow) — top priority when it produces a
-    // polygon. The route already runs GIS reconciliation server-side, so
-    // a polygon coming back here has passed wrong-building / occlusion /
-    // over-trace checks. Still gate against absolute size + coverage as
-    // a belt-and-suspenders defence (cheap to compute, catches anything
-    // the server-side reconciler missed).
-    if (validSam3 && passesClaude("sam3") && passesAbsoluteSize(validSam3) && passesCoverage(validSam3) && passesComplexityPrior(validSam3)) return "sam3";
-    // Coverage gating policy (revised 2026-05-06):
-    //
-    // • Solar mask: still gated against Solar's reported footprint via
-    //   `passesCoverage`. Catches the failure mode where Solar's mask
-    //   only traced a sub-section of its own segment-detected building
-    //   (under-trace by ≥45%); without this gate, Solar mask polygons
-    //   like Benwick Aly's 700 sqft fragment vs Solar's own 2202 sqft
-    //   footprint would ship as the displayed polygon.
-    //
-    // • Other sources (Roboflow, SAM, OSM, MS Buildings, Claude vision)
-    //   only need an absolute size sanity check. Solar's footprint
-    //   isn't a reliable upper bound — Solar misses segments routinely,
-    //   and complex FL homes with wide eaves / lanais / multi-section
-    //   roofs trace 1.5-2× Solar's partial number. Gating those
-    //   polygons against Solar's incomplete reference was hiding
-    //   accurate traces. We trust the rep to visually verify the
-    //   polygon overlay against the satellite tile and click "Draw
-    //   fresh" if it's wrong.
-    // Gate composition (revised 2026-05-06, regression-fix pass):
-    //   • passesAbsoluteSize: 200–20,000 sf hard band (sheds & whole-parcel guard)
-    //   • passesCoverage: tier-aware ratio vs Solar/MS/OSM reference footprint
-    //     (lower 0.55, upper 1.3–2.0 by Solar segmentCount)
-    //   • passesClaude: multi-view verifier (advisory, demotes on strong reject)
-    //   • passesComplexityPrior: vertex count vs vision-detected complexity
-    //   • passesMsHallucinationCheck: catches MS-derived hallucinations
-    //
-    // Coverage was previously skipped on Roboflow/SAM/OSM/MS — that bypass
-    // let the Mt. Juliet over-trace ship. Now applied to every source,
-    // with self-comparison skipped via passesCoverageNonRef where applicable.
-    if (validSolarMask && passesClaude("solar-mask") && passesCoverage(validSolarMask) && passesComplexityPrior(validSolarMask)) return "solar-mask";
-    if (validRoboflow && passesClaude("roboflow") && passesAbsoluteSize(validRoboflow) && passesCoverage(validRoboflow) && passesMsHallucinationCheck(validRoboflow) && passesComplexityPrior(validRoboflow)) return "roboflow";
-    if (validSam && passesClaude("sam") && passesAbsoluteSize(validSam) && passesCoverage(validSam) && passesComplexityPrior(validSam)) return "sam";
-    if (validOsm && passesClaude("osm") && passesAbsoluteSize(validOsm) && passesCoverageNonRef(validOsm, "osm") && passesComplexityPrior(validOsm)) return "osm";
-    if (validMsBuilding && passesClaude("microsoft-buildings") && passesAbsoluteSize(validMsBuilding) && passesCoverageNonRef(validMsBuilding, "ms") && passesComplexityPrior(validMsBuilding)) return "microsoft-buildings";
-    // Solar facets — rotated bboxes from findClosest. Multi-polygon, so
-    // we sum the absolute area against the size band instead of using
-    // single-polygon `passesAbsoluteSize`.
-    if (solar?.segmentPolygonsLatLng?.length && solar.segmentCount > 1) {
-      const totalSqft = solar.segmentPolygonsLatLng.reduce(
-        (sum, p) => sum + polygonAreaSqft(p),
-        0,
-      );
-      if (totalSqft >= 200 && totalSqft <= 20_000) return "solar";
-    }
-    // Claude vision is the LAST RESORT — gated tighter than other sources.
-    // Uses passesClaudeSize (6,000 sqft ceiling, vs 20,000 for others) to
-    // reject Claude's classic over-trace failure mode where it draws a big
-    // rectangle around the whole compound on rural / multi-building lots.
-    // When this gate fails, polygon source falls to "none" and the rep
-    // sees the "Draw fresh" CTA instead of a bad auto-trace.
-    if (validClaude && passesClaude("ai") && passesClaudeSize(validClaude) && passesCoverage(validClaude) && passesMsHallucinationCheck(validClaude)) return "ai";
-    return "none";
-  }, [
-    livePolygons,
-    sam3InFlight,
-    validSam3,
-    validSolarMask,
-    validRoboflow,
-    solar?.segmentPolygonsLatLng,
-    solar?.segmentCount,
-    referenceFootprintSqft,
-    validSam,
-    validOsm,
-    validMsBuilding,
-    validClaude,
-    claudeVerifications,
-    msBuildingPolygon,
-  ]);
-
-  // Keep refs in sync for the active-learning edit-capture closure.
-  useEffect(() => { addressRef.current = address; }, [address]);
-  useEffect(() => { polygonSourceRef.current = polygonSource; }, [polygonSource]);
-
-  // Source polygons — what MapView draws initially. Edited polygons don't
-  // come back through this prop (would cause a redraw loop / cancel the
-  // user's drag). They flow back via onPolygonsChanged → livePolygons.
-  //
-  // Derived DIRECTLY from `polygonSource` so it can't diverge — previous
-  // version applied only `passesCoverage` here, missing `passesAbsoluteSize`
-  // / `passesClaude` / `passesComplexityPrior` / `passesMsHallucinationCheck`
-  // / `passesClaudeSize`. That gap let the displayed/priced polygon be one
-  // that the source-priority logic had REJECTED — a real correctness bug
-  // (wrong roof sqft → wrong PDF → wrong estimate). One source of truth now.
-  const sourcePolygons:
-    | Array<Array<{ lat: number; lng: number }>>
-    | undefined = useMemo(() => {
-    switch (polygonSource) {
-      case "edited":
-        return livePolygons ?? undefined;
-      case "sam3":
-        return validSam3 ? [validSam3] : undefined;
-      case "solar-mask":
-        return validSolarMask ? [validSolarMask] : undefined;
-      case "roboflow":
-        return validRoboflow ? [validRoboflow] : undefined;
-      case "sam":
-        return validSam ? [validSam] : undefined;
-      case "osm":
-        return validOsm ? [validOsm] : undefined;
-      case "microsoft-buildings":
-        return validMsBuilding ? [validMsBuilding] : undefined;
-      case "solar":
-        return solar?.segmentPolygonsLatLng ?? undefined;
-      case "ai":
-        return validClaude ? [validClaude] : undefined;
-      case "tiles3d":
-      case "none":
-      default:
-        return undefined;
-    }
-  }, [
-    polygonSource,
-    validSam3,
-    validSolarMask,
-    validRoboflow,
-    validSam,
-    validOsm,
-    validMsBuilding,
-    validClaude,
-    solar?.segmentPolygonsLatLng,
-    livePolygons,
-  ]);
-
-  // Active polygons — what we use for sqft, lengths, blueprint, PDF.
-  // Live edits override source.
-  const activePolygons = livePolygons ?? sourcePolygons;
-
-  // Polygon visibility gate.
-  //
-  // Previous behaviour: polygon was hidden until Claude multi-view verify
-  // completed, on the theory that an unverified polygon might be wrong.
-  // Failure mode in production: Claude verify can hang (network, slow
-  // 3D-tile load, Replicate cold start, capture timing) — and when it
-  // does, the rep stares at a blank map indefinitely with no way to
-  // proceed. The polygon IS computed (priority chain settled) but
-  // hidden behind a "Generating…" overlay that never clears.
-  //
-  // New policy: show the polygon as soon as the priority chain picks
-  // one. Claude verify still runs in the background; if it rejects
-  // strongly (ok=false, confidence ≥ 0.7), `passesClaude` demotes the
-  // source out of the priority chain on the next render → the polygon
-  // either swaps to the next-best source or disappears (with the chain
-  // settling on "none"). The confidence chip in mapBadges reflects
-  // verify status as it lands. Rep is in the loop and can visually
-  // verify the outline against the satellite tile; clicking "Draw
-  // fresh" lets them re-trace if it's wrong.
-  const polygonReady = useMemo(
-    () => polygonSource !== "none",
-    [polygonSource],
-  );
-
-  // Polygons passed to the viewers. With the verify-gate removal above,
-  // `polygonReady` is true iff we have any priority-chain source — so
-  // these mirror activePolygons / sourcePolygons whenever a source is
-  // available. Kept the gate condition as a no-op safeguard against
-  // future refactors that might re-introduce a "ready" state.
-  const renderedPolygons = polygonReady ? activePolygons : undefined;
-  const renderedSourcePolygons = polygonReady ? sourcePolygons : undefined;
-
-  // Cross-source consensus. Compute IoU between the active polygon and
-  // every OTHER valid source's polygon — when multiple independent
-  // detectors converge on the same shape, that's the strongest signal
-  // we have that the polygon is correct. Also cheap insurance against
-  // a single source being misled by fence lines / yard perimeters,
-  // since unrelated detectors are unlikely to make the same mistake.
-  const consensusInfo = useMemo<{
-    agreeingSources: number;
-    bestIoU: number;
-    sources: Array<{ name: string; iou: number }>;
-  }>(() => {
-    const empty = { agreeingSources: 0, bestIoU: 0, sources: [] };
-    if (!activePolygons || activePolygons.length === 0) return empty;
-    const primary = activePolygons[0];
-    if (!primary || primary.length < 3) return empty;
-    const candidates: Array<{ name: string; poly: Array<{ lat: number; lng: number }> | null }> = [
-      { name: "solar-mask", poly: validSolarMask },
-      { name: "roboflow", poly: validRoboflow },
-      { name: "sam", poly: validSam },
-      { name: "osm", poly: validOsm },
-      { name: "microsoft-buildings", poly: validMsBuilding },
-      { name: "ai", poly: validClaude },
-    ];
-    const sources: Array<{ name: string; iou: number }> = [];
-    let bestIoU = 0;
-    for (const c of candidates) {
-      if (!c.poly) continue;
-      // Skip self — comparing the active polygon against itself is 1.0
-      // and adds no information.
-      if (c.poly === primary) continue;
-      const iou = polygonIoU(primary, c.poly);
-      sources.push({ name: c.name, iou });
-      if (iou > bestIoU) bestIoU = iou;
-    }
-    const AGREE_THRESHOLD = 0.7;
-    const agreeingSources = sources.filter((s) => s.iou >= AGREE_THRESHOLD).length;
-    return { agreeingSources, bestIoU, sources };
-  }, [
-    activePolygons,
-    validSolarMask,
-    validRoboflow,
-    validSam,
-    validOsm,
-    validMsBuilding,
-    validClaude,
-  ]);
-
-  // Composite confidence for the rep. "high" / "moderate" / "low".
-  // Inputs:
-  //   • Cross-source consensus (3+ agreeing sources is strong; 2 is OK)
-  //   • Multi-view Claude verdict (ok=true conf>0.85 is strong; ok=false
-  //     high-conf collapses to low — that polygon is bad)
-  //   • Source identity (rep edits = high; "ai" last-resort = low)
-  //   • Reference footprint signal (Solar provided = better calibration)
-  const estimateConfidence = useMemo<{
-    level: "high" | "moderate" | "low";
-    rationale: string;
-  }>(() => {
-    if (polygonSource === "edited") {
-      return { level: "high", rationale: "Rep verified by hand" };
-    }
-    if (polygonSource === "none") {
-      return { level: "low", rationale: "No polygon detected" };
-    }
-    const claudeV =
-      polygonSource && claudeVerifications[polygonSource];
-    // Hard fail on a high-confidence rejection from Claude.
-    if (claudeV && !claudeV.ok && claudeV.confidence >= 0.7) {
-      return { level: "low", rationale: `Verifier rejected: ${claudeV.reason || "polygon does not match roof"}` };
-    }
-    const claudeStrong = !!(claudeV && claudeV.ok && claudeV.confidence >= 0.85);
-    const claudeMod = !!(claudeV && claudeV.ok && claudeV.confidence >= 0.6);
-
-    // Imagery-age penalty. Solar / Google Static Maps imagery for any given
-    // property dates 2017-2024. Older imagery means the rep may be looking
-    // at a roof that's since been replaced, extended, or torn off — even
-    // a perfect AI trace describes a stale state. STALE_YEARS=5 is the
-    // point where roof material/condition divergence starts dominating;
-    // 3 is when "noticeably aged" matters for sales accuracy.
-    const STALE_YEARS = 5;
-    const AGED_YEARS = 3;
-    const imageryDateString = solar?.imageryDate ?? null;
-    const imageryAgeYears = imageryDateString
-      ? (Date.now() - new Date(imageryDateString).getTime()) /
-        (365.25 * 24 * 3600 * 1000)
-      : null;
-    const isStaleImagery =
-      imageryAgeYears != null &&
-      isFinite(imageryAgeYears) &&
-      imageryAgeYears > STALE_YEARS;
-    const isAgedImagery =
-      imageryAgeYears != null &&
-      isFinite(imageryAgeYears) &&
-      imageryAgeYears > AGED_YEARS;
-    // Solar's `imageryQuality === "LOW"` also indicates a less reliable
-    // mask — same effect on confidence.
-    const lowQualityImagery = solar?.imageryQuality === "LOW";
-
-    const ageNote = isStaleImagery
-      ? ` · imagery ${Math.round(imageryAgeYears!)}y old`
-      : isAgedImagery
-        ? ` · imagery ${Math.round(imageryAgeYears!)}y old`
-        : lowQualityImagery
-          ? " · imagery LOW quality"
-          : "";
-
-    // Imagery age caps the achievable confidence level. Stale imagery (>5y)
-    // can't be high-confidence even with perfect cross-source agreement —
-    // the underlying ground truth might not be the current roof.
-    if (consensusInfo.agreeingSources >= 3 || (claudeStrong && consensusInfo.agreeingSources >= 1)) {
-      const cappedToModerate = isStaleImagery || lowQualityImagery;
-      return {
-        level: cappedToModerate ? "moderate" : "high",
-        rationale: `${consensusInfo.agreeingSources + 1} sources agree${claudeStrong ? " · verifier passed" : ""}${ageNote}`,
-      };
-    }
-    if (consensusInfo.agreeingSources >= 2 || claudeStrong || (claudeMod && consensusInfo.agreeingSources >= 1)) {
-      const cappedToLow = isStaleImagery && !claudeStrong;
-      return {
-        level: cappedToLow ? "low" : "moderate",
-        rationale: `${consensusInfo.agreeingSources + 1} sources agree${claudeMod ? " · verifier passed" : ""}${ageNote}`,
-      };
-    }
-    if (polygonSource === "ai") {
-      return { level: "low", rationale: `AI fallback (other sources unavailable)${ageNote}` };
-    }
-    if (consensusInfo.agreeingSources === 0 && consensusInfo.sources.length > 0) {
-      return {
-        level: "low",
-        rationale: `Sources disagree (best IoU ${consensusInfo.bestIoU.toFixed(2)})${ageNote}`,
-      };
-    }
-    return {
-      level: isStaleImagery || lowQualityImagery ? "low" : "moderate",
-      rationale: `Single-source polygon${ageNote}`,
-    };
-  }, [polygonSource, claudeVerifications, consensusInfo, solar?.imageryDate, solar?.imageryQuality]);
-
-  // Single-image Claude verification was previously triggered here from
-  // /api/verify-polygon. That endpoint still exists as a fallback but the
-  // 3D viewer now drives multi-view verification via Roof3DViewer's
-  // onMultiViewVerified callback (see /api/verify-polygon-multiview).
-  // Multi-view is strictly more informative — it has top-down + 4 oblique
-  // views with the polygon overlaid, lets Claude check cross-view
-  // consistency. The single-image route remains for callers without 3D
-  // (e.g. ssr / scripts).
-
-  // Drop penetration markers that fall outside our active roof polygon —
-  // Vision occasionally tags vents/skylights on neighboring houses since the
-  // satellite tile spans more than just the target property. Anything we
-  // can't clearly attribute to OUR roof shouldn't drive line-item counts or
-  // confuse the rep on the satellite map.
-  const filteredPenetrations = useMemo(() => {
-    const pens = vision?.penetrations;
-    if (!pens || pens.length === 0) return undefined;
-    if (!activePolygons || activePolygons.length === 0 || address?.lat == null || address?.lng == null) {
-      return pens;
-    }
-    const lat = address.lat;
-    const lng = address.lng;
-    const mPerPx = (156_543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, 20);
-    const cosLat = Math.cos((lat * Math.PI) / 180);
-    const inAny = (penLat: number, penLng: number) => {
-      for (const poly of activePolygons) {
-        let inside = false;
-        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-          const xi = poly[i].lng, yi = poly[i].lat;
-          const xj = poly[j].lng, yj = poly[j].lat;
-          if (
-            yi > penLat !== yj > penLat &&
-            penLng < ((xj - xi) * (penLat - yi)) / (yj - yi) + xi
-          ) {
-            inside = !inside;
-          }
-        }
-        if (inside) return true;
-      }
-      return false;
-    };
-    return pens.filter((p) => {
-      const dx = p.x - 320;
-      const dy = p.y - 320;
-      const penLat = lat + (-dy * mPerPx) / 111_320;
-      const penLng = lng + (dx * mPerPx) / (111_320 * cosLat);
-      return inAny(penLat, penLng);
-    });
-  }, [vision?.penetrations, activePolygons, address?.lat, address?.lng]);
-
-  // Sqft source priority — Solar's photogrammetric measurement wins on
-  // initial load, polygon-derived area takes over only after rep edits.
-  //
-  // Solar API's `roofSegmentStats[].areaMeters2` is the actual 3D surface
-  // area Google computed from stereo aerial imagery — it's measurement,
-  // not tracing. When Solar has segment coverage, that's the truth;
-  // any polygon-shoelace-times-pitch number is a degraded approximation.
-  //
-  // The earlier "always use polygon" approach (commit aa5f5cc) tried to
-  // solve a real problem: Solar undercounts on complex / multi-section
-  // roofs, and a 4,500 sf polygon paired with 1,898 sf line items felt
-  // wrong to the rep. But the cure was worse than the disease: when the
-  // polygon over-traces (catches shadow / driveway / yard), the inflated
-  // sqft now shows directly to the customer. See 5385 Henley Rd Mt Juliet:
-  // polygon caught driveway shadow → 3,960 sf, ~40% above truth.
-  //
-  // Resolution: Solar wins on initial load (handled by the early-return
-  // guard below + the assignment in runEstimate). Once the rep edits the
-  // polygon (livePolygons set), the edit is the truth — recompute from it.
-  // For addresses where Solar has no segments at all, polygon × pitch is
-  // the fallback (handled by `solar?.sqft` being null → guard skipped).
-  // Polygon sources that trace WALL footprint, not roof eaves. These
-  // need a 1.06 overhang multiplier to approximate the roof-material
-  // outline (typical residential eaves project 6-18in past the wall).
-  // The reconciler at /api/sam3-roof already applies this internally
-  // to its returned footprintSqft, but the page recomputes from the
-  // polygon shape (so it stays right after rep edits) — meaning we
-  // must apply the multiplier here whenever the underlying source
-  // traces walls. Mirrors lib/reconcile-roof-polygon.ts EAVE_OVERHANG_FACTOR.
-  //
-  // Eave-traced sources (Solar facets, Solar mask, raw SAM3, Roboflow,
-  // SAM 2, Claude) trace roof material directly → no multiplier.
-  // Once the rep edits (polygonSource === "edited"), we use the frozen
-  // pre-edit value captured by handlePolygonsChanged so the multiplier
-  // persists through edits of MS/OSM polygons.
-  const EAVE_OVERHANG = 1.06;
-  const isWallFootprintSource = useMemo(() => {
-    if (polygonSource === "edited") return editOriginIsWallFootprintRef.current;
-    if (polygonSource === "microsoft-buildings") return true;
-    if (polygonSource === "osm") return true;
-    if (
-      polygonSource === "sam3" &&
-      (sam3Source === "footprint-only" || sam3Source === "footprint-occluded")
-    ) {
-      return true;
-    }
-    return false;
-  }, [polygonSource, sam3Source]);
-
-  // Mirror into a ref so the (forward-declared) handlePolygonsChanged
-  // callback can capture the pre-edit value at the moment of first edit.
-  useEffect(() => {
-    isWallFootprintSourceRef.current = isWallFootprintSource;
-  }, [isWallFootprintSource]);
-
-  useEffect(() => {
-    // Solar's segment-summed sqft is canonical when available + no rep edit.
-    // assumptions.sqft is set from solar.sqft in runEstimate; this guard
-    // prevents a fresh polygon (Solar mask / Roboflow / etc) from stomping
-    // it with a polygon-shoelace estimate. Once the rep edits, livePolygons
-    // is set and the guard releases.
-    if (solar?.sqft && !livePolygons) return;
-    if (!activePolygons || activePolygons.length === 0) return;
-    // Shoelace area in m² (lat/lng → meters via cosLat scale)
-    const M = 111_320;
-    let totalM2 = 0;
-    for (const poly of activePolygons) {
-      if (poly.length < 3) continue;
-      const cLat = poly.reduce((s, v) => s + v.lat, 0) / poly.length;
-      const cosLat = Math.cos((cLat * Math.PI) / 180);
-      let sum = 0;
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i];
-        const b = poly[(i + 1) % poly.length];
-        const ax = a.lng * M * cosLat;
-        const ay = a.lat * M;
-        const bx = b.lng * M * cosLat;
-        const by = b.lat * M;
-        sum += ax * by - bx * ay;
-      }
-      totalM2 += Math.abs(sum) / 2;
-    }
-    // Project footprint → roof surface area using the real pitch when
-    // we have it (Solar `pitchDegrees`); fall back to the rep's selected
-    // assumptions.pitch; final fallback is 6/12 (26.57°). Surface =
-    // footprint / cos(pitch).
-    const PITCH_MAP: Record<string, number> = {
-      "4/12": 18.43, "5/12": 22.62, "6/12": 26.57, "7/12": 30.26, "8/12+": 35.0,
-    };
-    const pitchDeg =
-      solar?.pitchDegrees ??
-      PITCH_MAP[assumptions.pitch] ??
-      26.57;
-    const slopeMult = 1 / Math.cos((pitchDeg * Math.PI) / 180);
-    const overhang = isWallFootprintSource ? EAVE_OVERHANG : 1;
-    const sqft = Math.round(totalM2 * 10.7639 * overhang * slopeMult);
-    if (sqft >= 200 && sqft <= 30_000) {
-      setAssumptions((a) => ({ ...a, sqft }));
-    }
-  }, [
-    activePolygons,
-    solar?.sqft,
-    solar?.pitchDegrees,
-    livePolygons,
-    assumptions.pitch,
-    isWallFootprintSource,
-  ]);
-
-  // Auto-derive complexity from polygon shape — strictly geometric, beats
-  // Vision's noisy-thumbnail guess. Vision still wins when it returns
-  // confidence >= 0.8 (set in the Solar+Vision merge below); this fires
-  // for the moderate-confidence cases where the polygon is the better signal.
-  useEffect(() => {
-    if (!activePolygons || activePolygons.length === 0) return;
-    if (vision && vision.confidence >= 0.8) return; // trust strong vision
-    const inferred = inferComplexityFromPolygons(activePolygons);
-    if (inferred && inferred !== assumptions.complexity) {
-      setAssumptions((a) => ({ ...a, complexity: inferred }));
-    }
-  }, [activePolygons, vision, assumptions.complexity]);
-
-  // Legacy DetailedEstimate projection — feeds LineItemsPanel and the
-  // v1-compatible Estimate object passed to OutputButtons / PDF / etc.
-  // When the pipeline is degraded (priced === null), detailed is null;
-  // LineItemsPanel handles the null case gracefully.
-  const detailed = useMemo<DetailedEstimate | null>(() => {
-    if (!priced) return null;
-    return {
-      lineItems: priced.lineItems.map((li) => ({
-        code: li.code,
-        description: li.description,
-        friendlyName: li.friendlyName,
-        quantity: li.quantity,
-        unit: li.unit,
-        unitCostLow: li.unitCostLow,
-        unitCostHigh: li.unitCostHigh,
-        extendedLow: li.extendedLow,
-        extendedHigh: li.extendedHigh,
-        category: li.category,
-      })),
-      simplifiedItems: priced.simplifiedItems,
-      subtotalLow: priced.subtotalLow,
-      subtotalHigh: priced.subtotalHigh,
-      overheadProfit: priced.overheadProfit,
-      totalLow: priced.totalLow,
-      totalHigh: priced.totalHigh,
-      squares: priced.squares,
-    };
-  }, [priced]);
-
-  // ─── Tier C lengths — derived from RoofData.edges + RoofData.flashing
-  // when available. Null when the pipeline is degraded —
-  // MeasurementsPanel handles the null case.
-  const lengths = useMemo(() => {
-    if (!roofData || roofData.source === "none") return null;
-    const sum = (type: EdgeType) =>
-      roofData.edges
-        .filter((e) => e.type === type)
-        .reduce((s, e) => s + e.lengthFt, 0);
-    return {
-      perimeterLf: roofData.flashing.dripEdgeLf,
-      eavesLf: sum("eave"),
-      rakesLf: sum("rake"),
-      ridgesLf: sum("ridge"),
-      hipsLf: sum("hip"),
-      valleysLf: sum("valley"),
-      dripEdgeLf: roofData.flashing.dripEdgeLf,
-      // Continuous-metal flashing + Tier B headwall/apron.
-      flashingLf:
-        roofData.flashing.chimneyLf +
-        roofData.flashing.skylightLf +
-        roofData.flashing.headwallLf +
-        roofData.flashing.apronLf,
-      // Step flashing = dormer cheek walls + Tier B non-dormer wall-step.
-      stepFlashingLf:
-        roofData.flashing.dormerStepLf + roofData.flashing.wallStepLf,
-      iwsSqft: roofData.flashing.iwsSqft,
-      source: "polygons" as const,
-    };
-  }, [roofData]);
-
-  // Prefer RoofData-driven waste when the pipeline returned usable data
-  // (matches /internal). Falls back to assumptions when roofData is null
-  // or degraded (source === "none").
-  const waste = useMemo(() => {
-    if (roofData && roofData.source !== "none") {
-      return buildWasteTable(
-        roofData.totals.totalRoofAreaSqft,
-        roofData.totals.complexity,
-      );
-    }
-    return buildWasteTable(assumptions.sqft, assumptions.complexity ?? "moderate");
-  }, [roofData, assumptions.sqft, assumptions.complexity]);
-
-  const runEstimate = async (explicitAddr?: AddressInfo) => {
-    // Accept an explicit address from the autocomplete pick so we don't
-    // race with React state. Falls back to current state for the
-    // Estimate-button / Enter-key paths.
-    const addr: AddressInfo =
-      explicitAddr ?? address ?? { formatted: addressText.trim() };
-    if (!addr.formatted?.trim()) return;
-    setAddress(addr);
-    setShown(true);
-    setSolar(null);
-    setVision(null);
-    setVisionError("");
-    setOsmBuildingPolygon(null);
-    setSamRefinedPolygon(null);
-    setSolarMaskPolygon(null);
-    setSam3Polygon(null);
-    setSam3Source(null);
-    setSam3InFlight(false); // reset gate on address change / clear
-    setLivePolygons(null);
-    setRoofData(null);
-    hasUserEditedRef.current = false;
-    editOriginIsWallFootprintRef.current = false;
-
-    if (addr.lat == null || addr.lng == null) {
-      setAssumptions((a) => ({
-        ...a,
-        sqft: a.sqft || estimateRoofSize(),
-        ageYears: a.ageYears || estimateAge(),
-      }));
-      return;
-    }
-
-    setVisionLoading(true);
-
-    // ─── Tier C unified pipeline ─────────────────────────────────────
-    // Fire /api/roof-pipeline alongside the legacy chain. Result populates
-    // `roofData`, which drives priceRoofData (new engine) for the
-    // headline price, line items, and lengths. Out-of-order responses
-    // are dropped via fetchGenRef.
-    const gen = ++fetchGenRef.current;
-    setPipelineLoading(true);
-    setPipelineError(null);
-    fetch(
-      `/api/roof-pipeline?lat=${addr.lat}&lng=${addr.lng}` +
-        `&address=${encodeURIComponent(addr.formatted ?? "")}` +
-        sam3NoCacheSuffix,
-      { cache: "no-store" },
-    )
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`pipeline ${r.status}`);
-        return (await r.json()) as RoofData;
-      })
+    if (!queryLeadId) return;
+    let cancelled = false;
+    fetch(`/api/leads/${encodeURIComponent(queryLeadId)}`)
+      .then(async (r) => (r.ok ? ((await r.json()) as { lead?: LeadRow }) : null))
       .then((data) => {
-        if (gen !== fetchGenRef.current) return;
-        setRoofData(data);
-      })
-      .catch((err) => {
-        if (gen !== fetchGenRef.current) return;
-        setPipelineError(err instanceof Error ? err.message : String(err));
-        setRoofData(null);
-      })
-      .finally(() => {
-        if (gen === fetchGenRef.current) setPipelineLoading(false);
-      });
-
-    const solarPromise = fetch(`/api/solar?lat=${addr.lat}&lng=${addr.lng}`)
-      .then(async (r) => (r.ok ? ((await r.json()) as SolarSummary) : null))
-      .catch(() => null);
-
-    const visionPromise = fetch(`/api/vision?lat=${addr.lat}&lng=${addr.lng}`)
-      .then(async (r) => {
-        if (!r.ok) {
-          const data = await r.json().catch(() => ({}));
-          throw new Error(data.error || `vision_${r.status}`);
-        }
-        return (await r.json()) as RoofVision;
-      })
-      .catch((err) => {
-        setVisionError(err instanceof Error ? err.message : "failed");
-        return null;
-      });
-
-    // OSM building footprint — ground truth from human-traced data when
-    // available. Runs in parallel with solar + vision. Cheap (free public
-    // API) and short-circuits the need to trust an AI polygon for the
-    // ~50-60% of US residential properties OSM has data on.
-    const osmPromise = fetch(`/api/building?lat=${addr.lat}&lng=${addr.lng}`)
-      .then(async (r) => {
-        if (!r.ok) return null;
-        const data = (await r.json()) as {
-          latLng?: Array<{ lat: number; lng: number }>;
-        };
-        return data.latLng && data.latLng.length >= 3 ? data.latLng : null;
-      })
-      .catch(() => null);
-
-    // [Lazy 2026-05-07] Solar mask (Project Sunroof) is now fired only as a
-    // fallback after SAM3 returns null — see the sam3Promise.then block
-    // below. Saves the $0.075 dataLayers cost on the common path where
-    // SAM3 succeeds, and eliminates the "Solar mask renders first then
-    // SAM3 swaps in" flicker.
-
-    // [Phase 1 cleanup 2026-05-07] Off-the-shelf Roboflow Satellite Rooftop
-    // Map call removed — custom SAM3 supersedes it. Route still exists for
-    // emergency rollback (re-add the fetch here if needed). State slot
-    // (`roboflowPolygon`) and priority chain entry kept passive; they'll
-    // never receive data from the page so the chain skips that tier.
-
-    // Microsoft Building Footprints — open-data ML-extracted building outlines,
-    // pre-extracted for the Nashville metro bbox (see lib/microsoft-buildings.ts).
-    // Fills the OSM coverage gap on rural addresses. Returns null outside the
-    // pre-extracted bbox (so this is a noop for non-TN addresses for now).
-    const msBuildingPromise = fetch(`/api/microsoft-building?lat=${addr.lat}&lng=${addr.lng}`)
-      .then(async (r) => {
-        if (!r.ok) return null;
-        const data = (await r.json()) as {
-          polygon?: Array<{ lat: number; lng: number }>;
-        };
-        return data.polygon && data.polygon.length >= 3 ? data.polygon : null;
-      })
-      .catch(() => null);
-
-    // Custom SAM3 (Roboflow Workflow) with server-side GIS reconciliation.
-    // Top-priority polygon source — trained on our service-area imagery.
-    // ~5-10s latency (Roboflow inference + reconciliation), so we fire it
-    // in parallel with everything else and let the priority chain pick it
-    // up when it lands. Falls through silently when the kill switch is
-    // tripped or the route 404s.
-    //
-    // Set the in-flight gate BEFORE the fetch starts. This is what keeps
-    // the polygon priority chain from rendering MS Buildings or OSM
-    // polygons in the 100ms-5s window while SAM3 is still working. The
-    // .then() at the end of the file (sam3Promise.then) clears the flag
-    // regardless of outcome (success or null), unblocking the chain.
-    setSam3InFlight(true);
-    const sam3Promise = fetch(
-      `/api/sam3-roof?lat=${addr.lat}&lng=${addr.lng}` +
-        `&address=${encodeURIComponent(addr.formatted)}` +
-        sam3NoCacheSuffix,
-    )
-      .then(async (r) => {
-        if (!r.ok) return null;
-        const data = (await r.json()) as {
-          polygon?: Array<{ lat: number; lng: number }>;
-          source?:
-            | "sam3"
-            | "footprint-only"
-            | "footprint-occluded"
-            | "sam3-no-footprint";
-        };
-        if (!data.polygon || data.polygon.length < 3) return null;
-        return { polygon: data.polygon, source: data.source ?? "sam3" };
-      })
-      .catch(() => null);
-
-    // [Phase 1 cleanup 2026-05-07] Replicate SAM2 (sam-refine) call removed
-    // — custom SAM3 supersedes it. Route + lib/grounded-sam.ts still exist
-    // for emergency rollback. State slot (`samRefinedPolygon`) and
-    // `samRefining` flag stay passive; the "Refining…" badge will never
-    // light up because we no longer toggle it on.
-
-    const [solarData, visionData, osmData] = await Promise.all([
-      solarPromise,
-      visionPromise,
-      osmPromise,
-    ]);
-
-    if (solarData) setSolar(solarData);
-    if (visionData) setVision(visionData);
-    if (osmData) setOsmBuildingPolygon(osmData);
-    setVisionLoading(false);
-
-    // [Phase 1 cleanup] sam-refine and off-the-shelf roboflow result handlers
-    // removed — those promises are no longer fired. Custom SAM3 below
-    // covers the same role with better accuracy and lower latency.
-
-    // MS Building Footprints — same edit-stomp guard.
-    msBuildingPromise.then((msPoly) => {
-      if (msPoly && !hasUserEditedRef.current) setMsBuildingPolygon(msPoly);
-    });
-
-    // SAM3 (custom) primary + lazy Solar mask fallback.
-    // When SAM3 returns null, fire /api/solar-mask in serial as a fallback.
-    // This avoids paying for Solar dataLayers on the common path where
-    // SAM3 succeeds AND eliminates the visual flicker where Solar mask
-    // would render first and then SAM3 would override it.
-    //
-    // The `sam3InFlight` gate clears AS LATE AS POSSIBLE so the
-    // "Generating measurement…" overlay stays up through the entire
-    // chain. Specifically:
-    //   - SAM3 succeeds → clear immediately (we have the winning polygon)
-    //   - SAM3 fails → wait for Solar mask fallback to land before
-    //     clearing, so we don't briefly render "no polygon" between
-    //     SAM3's failure and mask's arrival.
-    sam3Promise.then((sam3Result) => {
-      if (sam3Result) {
-        if (!hasUserEditedRef.current) {
-          setSam3Polygon(sam3Result.polygon);
-          setSam3Source(sam3Result.source);
-        }
-        setSam3InFlight(false);
-        return;
-      }
-      // SAM3 returned nothing — fall back to Solar mask. No need to fire
-      // it earlier since the priority chain would have used SAM3 anyway.
-      fetch(`/api/solar-mask?lat=${addr.lat}&lng=${addr.lng}`)
-        .then(async (r) => {
-          if (!r.ok) return null;
-          const data = (await r.json()) as {
-            latLng?: Array<{ lat: number; lng: number }>;
+        if (cancelled || !data?.lead) return;
+        setLead(data.lead);
+        if (data.lead.lat != null && data.lead.lng != null && data.lead.address) {
+          const addr: AddressResolved = {
+            formatted: data.lead.address,
+            lat: data.lead.lat,
+            lng: data.lead.lng,
           };
-          return data.latLng && data.latLng.length >= 3 ? data.latLng : null;
-        })
-        .catch(() => null)
-        .then((maskPoly) => {
-          if (maskPoly && !hasUserEditedRef.current) setSolarMaskPolygon(maskPoly);
-          // Clear the gate whether mask succeeded or not. If both SAM3
-          // and the mask fallback fail, the priority chain falls through
-          // to MS Buildings / OSM (which by now are already resolved in
-          // state). Clearing here unblocks that final fallback render.
-          setSam3InFlight(false);
+          setResolved(addr);
+          setPinLat(addr.lat);
+          setPinLng(addr.lng);
+          setStep("pin");
+        }
+        if (data.lead.notes) setNotes(data.lead.notes);
+      })
+      .catch(() => {
+        /* Lead lookup failed — rep proceeds manually */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [queryLeadId]);
+
+  // Loading timer
+  useEffect(() => {
+    if (step !== "loading") return;
+    const t0 = Date.now();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on entering loading step
+    setLoadingElapsed(0);
+    const id = window.setInterval(() => setLoadingElapsed(Math.floor((Date.now() - t0) / 1000)), 250);
+    return () => window.clearInterval(id);
+  }, [step]);
+
+  // Fetch storm history once we have a result
+  useEffect(() => {
+    if (!result || pinLat == null || pinLng == null) return;
+    let cancelled = false;
+    Promise.allSettled([
+      fetch(`/api/storms?lat=${pinLat}&lng=${pinLng}&radiusMiles=5&yearsBack=5`).then(async (r) =>
+        r.ok ? ((await r.json()) as { events?: StormEvent[] }) : null,
+      ),
+      fetch(`/api/hail-mrms?lat=${pinLat}&lng=${pinLng}&radiusMiles=2&yearsBack=3`).then(async (r) =>
+        r.ok ? ((await r.json()) as { events?: HailEvent[] }) : null,
+      ),
+    ]).then(([sRes, hRes]) => {
+      if (cancelled) return;
+      if (sRes.status === "fulfilled" && sRes.value?.events) setStorms(sRes.value.events);
+      else setStorms([]);
+      if (hRes.status === "fulfilled" && hRes.value?.events) setHail(hRes.value.events);
+      else setHail([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [result, pinLat, pinLng]);
+
+  const runEstimate = useCallback(async (): Promise<void> => {
+    if (pinLat == null || pinLng == null) return;
+    setStep("loading");
+    setError(null);
+    setResult(null);
+    setStorms(null);
+    setHail(null);
+    try {
+      const res = await fetch(`/api/gemini-roof?lat=${pinLat}&lng=${pinLng}&pinConfirmed=1`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Measurement service ${res.status}: ${text.slice(0, 200)}`);
+      }
+      const data = (await res.json()) as EstimateResult;
+      setResult(data);
+      setStep("result");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStep("error");
+    }
+  }, [pinLat, pinLng]);
+
+  function startOver(): void {
+    setStep("address");
+    setResolved(null);
+    setPinLat(null);
+    setPinLng(null);
+    setResult(null);
+    setError(null);
+    setStorms(null);
+    setHail(null);
+    setLead(null);
+  }
+
+  const effectivePitchDeg = useMemo(() => {
+    if (result?.solar.pitchDegrees != null) return result.solar.pitchDegrees;
+    return Math.atan(manualPitchOn12 / 12) * (180 / Math.PI);
+  }, [result, manualPitchOn12]);
+
+  const effectiveSqft = useMemo(() => {
+    if (!result) return null;
+    if (result.solar.sqft != null) return result.solar.sqft;
+    if (result.solar.footprintSqft != null) {
+      const slope = 1 / Math.cos((effectivePitchDeg * Math.PI) / 180);
+      return Math.round(result.solar.footprintSqft * slope);
+    }
+    return null;
+  }, [result, effectivePitchDeg]);
+
+  // Composite confidence (0–100). Inputs are all live-pipeline values.
+  const confidence = useMemo(() => {
+    if (!result) return null;
+    let score = 0;
+    const basis: string[] = [];
+    // Imagery quality contributes 0/35/55/70 (LOW/MED/HIGH/null-default)
+    const q = result.solar.imageryQuality;
+    if (q === "HIGH") {
+      score += 55;
+      basis.push("high-resolution imagery");
+    } else if (q === "MEDIUM") {
+      score += 35;
+      basis.push("medium-resolution imagery");
+    } else if (q === "LOW") {
+      score += 18;
+      basis.push("low-resolution imagery");
+    }
+    // Imagery age — 0/5/10/15 (none/old/recent/very-recent)
+    const ageYears = imageryAgeYears(result.solar.imageryDate);
+    if (ageYears != null) {
+      if (ageYears <= 1) {
+        score += 15;
+        basis.push("imagery <1y old");
+      } else if (ageYears <= 2) {
+        score += 10;
+        basis.push(`imagery ${ageYears.toFixed(1)}y old`);
+      } else if (ageYears <= 4) {
+        score += 5;
+        basis.push(`imagery ${ageYears.toFixed(1)}y old`);
+      } else {
+        basis.push(`imagery ${ageYears.toFixed(1)}y old`);
+      }
+    }
+    // No fallback applied → +20; fallback applied → 0
+    if (result.correction == null || !result.correction.applied) {
+      score += 20;
+    } else {
+      basis.push("verified using secondary footprint source");
+    }
+    // Segment count agrees with facet count → +10
+    if (
+      result.solar.segmentCount > 0 &&
+      Math.abs(result.solar.segmentCount - result.facets.length) <= 1
+    ) {
+      score += 10;
+    }
+    return { score: Math.min(100, score), basis };
+  }, [result]);
+
+  // Squares + waste factor — derived purely from V3 sqft + complexity.
+  const squaresAndWaste = useMemo(() => {
+    if (effectiveSqft == null || !result) return null;
+    const wasteByComplexity = { simple: 0.06, moderate: 0.11, complex: 0.14 } as const;
+    const waste = wasteByComplexity[result.derived.complexity];
+    const squares = effectiveSqft / 100;
+    const orderedSquares = squares * (1 + waste);
+    return {
+      base: Math.round(squares * 10) / 10,
+      waste,
+      ordered: Math.ceil(orderedSquares * 10) / 10,
+      bundles: Math.ceil(orderedSquares * 3),
+    };
+  }, [effectiveSqft, result]);
+
+  // Tear-off tonnage + dumpster size — derived from sqft + material.
+  const tearOffPlan = useMemo(() => {
+    if (effectiveSqft == null || !tearOff) return null;
+    // Roughly 2.5 lbs/sqft single-layer asphalt; 3-tab heavier than dimensional.
+    // Concrete tile ≈ 9 lbs/sqft. Metal layover → no tear-off.
+    const lbsPerSqft =
+      material === "tile-concrete" ? 9 : material === "metal-standing-seam" ? 0 : 2.5;
+    if (lbsPerSqft === 0) return null;
+    const lbs = effectiveSqft * lbsPerSqft;
+    const tons = lbs / 2000;
+    // Dumpster sizing — 10 yd ≈ 1 ton, 20 yd ≈ 2 ton, 30 yd ≈ 4 ton (mixed C&D).
+    const dumpster =
+      tons <= 1.5 ? "10-yard" : tons <= 3 ? "20-yard" : tons <= 5 ? "30-yard" : "40-yard";
+    return { tons: Math.round(tons * 10) / 10, dumpster };
+  }, [effectiveSqft, material, tearOff]);
+
+  // Penetration → line-item translation (vents, chimneys, skylights, HVAC).
+  const lineItems = useMemo(() => {
+    if (!result) return null;
+    const counts: Record<string, number> = {};
+    for (const o of result.objects) counts[o.type] = (counts[o.type] ?? 0) + 1;
+    const items: Array<{ qty: number; description: string }> = [];
+    if (counts.vent) items.push({ qty: counts.vent, description: "Plumbing vent pipe boot" });
+    if (counts.stack) items.push({ qty: counts.stack, description: "Stack flashing" });
+    if (counts.chimney) {
+      items.push({ qty: counts.chimney, description: "Chimney flashing kit (apron + step)" });
+      items.push({ qty: counts.chimney, description: "Chimney counter-flashing / cricket as required" });
+    }
+    if (counts.skylight) items.push({ qty: counts.skylight, description: "Skylight flashing kit" });
+    if (counts.hvac) items.push({ qty: counts.hvac, description: "HVAC curb flashing" });
+    if (counts.dormer) items.push({ qty: counts.dormer, description: "Dormer step + headwall flashing" });
+    // Edge linear feet → ridge/hip/valley/rake/eave line items
+    if (result.edges.ridgesHipsLf != null && result.edges.ridgesHipsLf > 0) {
+      items.push({
+        qty: Math.ceil(result.edges.ridgesHipsLf),
+        description: "Ridge / hip cap (LF)",
+      });
+    }
+    if (result.edges.valleysLf != null && result.edges.valleysLf > 0) {
+      items.push({ qty: Math.ceil(result.edges.valleysLf), description: "Valley metal (LF)" });
+    }
+    if (result.edges.rakesLf != null && result.edges.rakesLf > 0) {
+      items.push({ qty: Math.ceil(result.edges.rakesLf), description: "Rake edge / drip edge (LF)" });
+    }
+    if (result.edges.eavesLf != null && result.edges.eavesLf > 0) {
+      items.push({ qty: Math.ceil(result.edges.eavesLf), description: "Eave drip edge + starter (LF)" });
+    }
+    return items;
+  }, [result]);
+
+  // Storm-vs-imagery: count storms that occurred AFTER the imagery date.
+  const stormsAfterImagery = useMemo(() => {
+    if (!result?.solar.imageryDate) return null;
+    if (storms == null && hail == null) return null;
+    const cutoff = new Date(result.solar.imageryDate).getTime();
+    const after: Array<{ date: string; label: string; mag: string }> = [];
+    for (const s of storms ?? []) {
+      const d = new Date(s.event_begin_time).getTime();
+      if (d > cutoff) {
+        after.push({
+          date: s.event_begin_time.slice(0, 10),
+          label: s.event_type,
+          mag: s.magnitude != null ? `${s.magnitude}${s.magnitude_type ?? ""}` : "—",
         });
-    });
-
-    setAssumptions((a) => {
-      const next: Assumptions = { ...a };
-      if (solarData?.sqft) next.sqft = solarData.sqft;
-      if (solarData?.pitch) next.pitch = solarData.pitch;
-      if (visionData && visionData.confidence >= 0.5) {
-        const matMap = VISION_MATERIAL_TO_ASSUMPTION[visionData.currentMaterial];
-        if (matMap) next.material = matMap;
-        if (visionData.estimatedAgeYears) next.ageYears = visionData.estimatedAgeYears;
-        next.complexity = visionData.complexity;
-      }
-      if (!next.sqft) next.sqft = estimateRoofSize();
-      if (!next.ageYears) next.ageYears = estimateAge();
-      return next;
-    });
-  };
-
-  /** Merge structured fields from a voice-note into the estimate state.
-   *  Each branch is conservatively gated — if the model didn't return a
-   *  field, we don't touch the existing value. The rep can always edit
-   *  any field manually after the merge. */
-  const onVoiceNoteResult = (result: VoiceNoteResult) => {
-    const s = result.structured;
-    setAssumptions((a) => {
-      const next: Assumptions = { ...a };
-      if (s.material) next.material = s.material;
-      if (s.complexity) next.complexity = s.complexity;
-      if (s.serviceType) next.serviceType = s.serviceType;
-      if (s.ageYears != null) next.ageYears = s.ageYears;
-      return next;
-    });
-    if (s.customerName) setCustomerName(s.customerName);
-    if (s.insuranceClaim) setIsInsuranceClaim(true);
-    if (s.carrier) {
-      // ClaimContext['carrier'] is a typed enum — only set if it matches
-      // one of our 10 supported carriers.
-      const validCarriers: ClaimContext["carrier"][] = [
-        "state-farm", "allstate", "usaa", "citizens", "travelers",
-        "farmers", "liberty-mutual", "progressive", "nationwide", "other",
-      ];
-      if (validCarriers.includes(s.carrier as ClaimContext["carrier"])) {
-        setClaim((c) => ({ ...c, carrier: s.carrier as ClaimContext["carrier"] }));
       }
     }
-    if (s.addOns) {
-      // The 4 customer-facing add-ons map by id; ignore unknowns.
-      const idMap: Record<string, string> = {
-        iceWater: "ice-water",
-        ridgeVent: "ridge-vent",
-        gutters: "gutters",
-        skylight: "skylight",
-      };
-      setAddOns((cur) =>
-        cur.map((a) => {
-          const k = Object.entries(idMap).find(([, v]) => v === a.id)?.[0];
-          if (k && (s.addOns as Record<string, boolean | undefined>)[k]) {
-            return { ...a, enabled: true };
-          }
-          return a;
-        }),
-      );
+    for (const h of hail ?? []) {
+      const d = new Date(h.date).getTime();
+      if (d > cutoff) {
+        after.push({
+          date: h.date.slice(0, 10),
+          label: "Hail (radar-derived)",
+          mag: `${h.maxSizeInches.toFixed(2)}″`,
+        });
+      }
     }
-    // Append damage notes + timeline to the rep notes field (don't
-    // clobber existing notes — append with a newline separator).
-    const noteParts: string[] = [];
-    if (s.notes) noteParts.push(s.notes);
-    if (s.damageNotes && s.damageNotes.length) {
-      noteParts.push(`Damage: ${s.damageNotes.join("; ")}`);
-    }
-    if (s.timelineDays != null) {
-      noteParts.push(`Customer timeline: ${s.timelineDays} days`);
-    }
-    if (noteParts.length) {
-      setNotes((prev) => (prev ? `${prev}\n\n${noteParts.join(" · ")}` : noteParts.join(" · ")));
-    }
-  };
+    after.sort((a, b) => (a.date < b.date ? 1 : -1));
+    return after.slice(0, 8);
+  }, [result, storms, hail]);
 
-  const enabledAddOns = addOns.filter((a) => a.enabled).reduce((s, x) => s + x.price, 0);
-  const estimate: Estimate = {
-    id: estimateId,
-    createdAt: new Date().toISOString(),
-    staff,
-    customerName,
-    notes,
-    address: address ?? { formatted: addressText },
-    assumptions,
-    addOns,
-    total,
-    baseLow: Math.round(low + enabledAddOns),
-    baseHigh: Math.round(high + enabledAddOns),
-    isInsuranceClaim,
-    vision: vision ?? undefined,
-    solar: solar ?? undefined,
-    detailed: detailed ?? undefined,
-    lengths: lengths ?? undefined,
-    waste,
-    polygons: activePolygons ?? undefined,
-    polygonSource: polygonSource === "none" ? undefined : polygonSource,
-    photos: photos.length ? photos : undefined,
-    claim: isInsuranceClaim ? claim : undefined,
-  };
-
-  const applyTier = (tier: ProposalTier) => {
-    setAssumptions((a) => ({ ...a, material: tier.material }));
-    setAddOns((cur) => cur.map((x) => ({ ...x, enabled: tier.includedAddOnIds.includes(x.id) })));
-  };
-
-  useKeyboardShortcuts({
-    onSave: () => shown && saveEstimate(estimate),
-    onPdf: () => shown && generatePdf(estimate),
-    onEmail: () => {
-      if (!shown) return;
-      const subject = encodeURIComponent(`Roofing Estimate — ${estimate.address.formatted}`);
-      const body = encodeURIComponent(buildSummaryText(estimate));
-      window.location.href = `mailto:?subject=${subject}&body=${body}`;
-    },
-    onNew: () => reset(),
-    onFocusAddress: () => {
-      const el = document.querySelector<HTMLInputElement>("input[placeholder*='Main Street']");
-      el?.focus();
-    },
-  });
-
-  const reset = () => {
-    setAddressText("");
-    setAddress(null);
-    setAssumptions(DEFAULT_ASSUMPTIONS);
-    setAddOns(DEFAULT_ADDONS);
-    setCustomerName("");
-    setNotes("");
-    setEstimateId(newId());
-    setShown(false);
-    setSolar(null);
-    setVision(null);
-    setVisionError("");
-    setIsInsuranceClaim(false);
-    setPhotos([]);
-    setClaim({ carrier: "state-farm" });
-    setLivePolygons(null);
-    setOsmBuildingPolygon(null);
-    setSamRefinedPolygon(null);
-    setSolarMaskPolygon(null);
-    setSam3Polygon(null);
-    setSam3Source(null);
-    setRoboflowPolygon(null);
-    setMsBuildingPolygon(null);
-    setClaudeVerifications({});
-    hasUserEditedRef.current = false;
-    editOriginIsWallFootprintRef.current = false;
-  };
-
-  const mapBadges = (() => {
-    const badges: string[] = [];
-    // Labelled "Solar imagery" specifically because this date comes from
-    // Google Solar API's dataset capture, NOT the Static Maps / Maps JS
-    // tile actually rendered on screen. Reps saw the bare "Imagery 2015"
-    // chip next to a 2026-attributed satellite tile and assumed the
-    // image they were looking at was old. The Solar dataset can be
-    // 5-12 years old; the displayed Maps tile is usually current. Both
-    // datapoints matter (Solar age informs analysis confidence), but
-    // the chip needs to say which it's about.
-    if (solar?.imageryDate) badges.push(`Solar imagery ${solar.imageryDate}`);
-    if (solar && solar.imageryQuality !== "UNKNOWN") badges.push(`Quality ${solar.imageryQuality}`);
-    if (polygonSource === "edited") badges.push("Edited");
-    else if (polygonSource === "tiles3d") badges.push("3D mesh");
-    else if (polygonSource === "sam3") badges.push("SAM3 (custom)");
-    else if (polygonSource === "solar-mask") badges.push("Solar mask");
-    else if (polygonSource === "roboflow") badges.push("Roof AI");
-    else if (polygonSource === "sam") badges.push("SAM 2 refined");
-    else if (polygonSource === "osm") badges.push("OSM traced");
-    else if (polygonSource === "microsoft-buildings") badges.push("MS Footprints");
-    else if (polygonSource === "ai") badges.push("AI traced");
-    else if (solar?.segmentCount && solar.segmentCount > 0) badges.push(`${solar.segmentCount} segments`);
-    if (solar?.pitch) badges.push(`Pitch ${solar.pitch}`);
-    // Confidence indicator — lets the rep tell at a glance whether the
-    // outline is well-supported (multiple sources agreed + Claude
-    // verified) or whether they should manually double-check it.
-    if (polygonReady && polygonSource !== "none") {
-      const lvl = estimateConfidence.level;
-      const marker = lvl === "high" ? "✓" : lvl === "moderate" ? "△" : "⚠";
-      const label = lvl === "high" ? "High conf" : lvl === "moderate" ? "Moderate conf" : "Low conf — review";
-      badges.push(`${marker} ${label}`);
-    }
-    return badges;
-  })();
+  // Pricing — V3 sqft × material rate × multipliers.
+  const pricing = useMemo(() => {
+    if (effectiveSqft == null || effectiveSqft <= 0) return null;
+    const rates = MATERIAL_RATES[material];
+    const tearLow = tearOff ? rates.removeLow : 0;
+    const tearHigh = tearOff ? rates.removeHigh : 0;
+    const baseLow = effectiveSqft * rates.low * materialMult * laborMult;
+    const baseMid = effectiveSqft * rates.rate * materialMult * laborMult;
+    const baseHigh = effectiveSqft * rates.high * materialMult * laborMult;
+    return {
+      mid: Math.round(baseMid + ((tearLow + tearHigh) / 2) * effectiveSqft),
+      low: Math.round(baseLow + tearLow * effectiveSqft),
+      high: Math.round(baseHigh + tearHigh * effectiveSqft),
+      rateLabel: rates.label,
+    };
+  }, [effectiveSqft, material, tearOff, materialMult, laborMult]);
 
   return (
-    <div className="space-y-8 sm:space-y-10">
-      {/* Floating voice-note recorder — mounts once the rep has loaded
-          an address. Clicking it captures from the mic, ships to
-          /api/voice-note for Whisper transcription + Claude structuring,
-          and auto-fills the estimate fields (material, complexity,
-          carrier, customer name, damage notes, add-ons, timeline).
-          Hidden until shown=true to avoid presenting it before the rep
-          has a property in scope. */}
-      {shown && address?.lat != null && (
-        <VoiceNoteRecorder
-          addressText={address.formatted}
-          currentSqft={assumptions.sqft}
-          onResult={onVoiceNoteResult}
-        />
+    <div className="min-h-[100dvh] px-6 lg:px-10 py-8 text-slate-100">
+      <header className="max-w-6xl mx-auto mb-8">
+        <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+          {lead ? `Lead · ${lead.name ?? lead.email ?? lead.public_id}` : "New estimate"}
+        </p>
+        <h1 className="font-display text-3xl mt-2 leading-tight">
+          Roof <span className="text-cy-400">workbench</span>
+        </h1>
+      </header>
+
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+        <main className="space-y-6">
+          {step === "address" && (
+            <AddressStep
+              onResolved={(addr) => {
+                setResolved(addr);
+                setPinLat(addr.lat);
+                setPinLng(addr.lng);
+                setStep("pin");
+              }}
+            />
+          )}
+          {step === "pin" && resolved && (
+            <PinStep
+              resolved={resolved}
+              pinLat={pinLat}
+              pinLng={pinLng}
+              onPinMove={(lat, lng) => {
+                setPinLat(lat);
+                setPinLng(lng);
+              }}
+              onBack={startOver}
+              onConfirm={runEstimate}
+            />
+          )}
+          {step === "loading" && (
+            <LoadingPanel elapsed={loadingElapsed} message={loadingMessageFor(loadingElapsed)} />
+          )}
+          {step === "result" && result && resolved && (
+            <ResultPanels
+              result={result}
+              resolved={resolved}
+              effectiveSqft={effectiveSqft}
+              effectivePitchDeg={effectivePitchDeg}
+              confidence={confidence}
+              squaresAndWaste={squaresAndWaste}
+              tearOffPlan={tearOffPlan}
+              lineItems={lineItems}
+              storms={storms}
+              hail={hail}
+              stormsAfterImagery={stormsAfterImagery}
+              pinLat={pinLat}
+              pinLng={pinLng}
+              onReRun={runEstimate}
+            />
+          )}
+          {step === "error" && (
+            <div className="rounded-2xl border border-rose/40 bg-rose/5 p-6">
+              <p className="text-rose font-medium">Measurement failed</p>
+              <p className="text-sm text-slate-300 mt-2">{error}</p>
+              <button type="button" onClick={startOver} className="mt-4 text-sm text-cy-400 underline">
+                Start over
+              </button>
+            </div>
+          )}
+        </main>
+
+        <aside className="space-y-6">
+          {lead && <LeadContextCard lead={lead} />}
+          <RepInputs
+            material={material}
+            setMaterial={setMaterial}
+            manualPitchOn12={manualPitchOn12}
+            setManualPitchOn12={setManualPitchOn12}
+            pitchAutoDetected={result?.solar.pitchDegrees ?? null}
+            tearOff={tearOff}
+            setTearOff={setTearOff}
+            laborMult={laborMult}
+            setLaborMult={setLaborMult}
+            materialMult={materialMult}
+            setMaterialMult={setMaterialMult}
+          />
+          <NotesCard notes={notes} setNotes={setNotes} />
+          {pricing && <PricingCard pricing={pricing} sqft={effectiveSqft} pitchDeg={effectivePitchDeg} />}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function loadingMessageFor(elapsed: number): string {
+  return LOADING_MESSAGES.filter((m) => m.at <= elapsed).pop()?.text ?? LOADING_MESSAGES[0].text;
+}
+
+function imageryAgeYears(imageryDate: string | null): number | null {
+  if (!imageryDate) return null;
+  const t = new Date(imageryDate).getTime();
+  if (isNaN(t)) return null;
+  return (Date.now() - t) / (365.25 * 24 * 60 * 60 * 1000);
+}
+
+function pitchToOnTwelve(deg: number): string {
+  if (deg <= 0) return "flat";
+  const rise = Math.tan((deg * Math.PI) / 180) * 12;
+  return `${Math.max(1, Math.round(rise))}/12`;
+}
+
+// ─── Address autocomplete ────────────────────────────────────────────────
+
+function AddressStep({ onResolved }: { onResolved: (a: AddressResolved) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!inputRef.current) return;
+    let cancelled = false;
+    let ac: google.maps.places.Autocomplete | null = null;
+    loadGoogle()
+      .then((g) => {
+        if (cancelled || !inputRef.current) return;
+        ac = new g.maps.places.Autocomplete(inputRef.current, {
+          types: ["address"],
+          componentRestrictions: { country: "us" },
+          fields: ["formatted_address", "geometry", "address_components"],
+        });
+        ac.addListener("place_changed", () => {
+          const place = ac!.getPlace();
+          const loc = place.geometry?.location;
+          if (!loc) return;
+          const zip = place.address_components?.find((c) =>
+            c.types.includes("postal_code"),
+          )?.short_name;
+          onResolved({
+            formatted: place.formatted_address ?? inputRef.current!.value,
+            lat: loc.lat(),
+            lng: loc.lng(),
+            zip,
+          });
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [onResolved]);
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+      <label htmlFor="address" className="block text-[10px] uppercase tracking-[0.22em] text-slate-400 mb-3">
+        Property address
+      </label>
+      <input
+        ref={inputRef}
+        id="address"
+        type="text"
+        placeholder="123 Main St, Jupiter, FL 33458"
+        className="w-full bg-ink-800 border border-ink-600 rounded-xl px-4 py-3 text-base text-slate-100 placeholder-slate-500 outline-none focus:border-cy-400"
+        autoFocus
+        spellCheck={false}
+        autoComplete="off"
+      />
+      <p className="text-xs text-slate-500 mt-3">
+        Pick from the dropdown. Next step you&apos;ll drop a pin on the exact center of the roof.
+      </p>
+    </section>
+  );
+}
+
+// ─── Pin confirm ────────────────────────────────────────────────────────
+
+function PinStep({
+  resolved,
+  pinLat,
+  pinLng,
+  onPinMove,
+  onBack,
+  onConfirm,
+}: {
+  resolved: AddressResolved;
+  pinLat: number | null;
+  pinLng: number | null;
+  onPinMove: (lat: number, lng: number) => void;
+  onBack: () => void;
+  onConfirm: () => void;
+}) {
+  const mapElRef = useRef<HTMLDivElement>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
+  useEffect(() => {
+    if (!mapElRef.current) return;
+    let cancelled = false;
+    loadGoogle().then((g) => {
+      if (cancelled || !mapElRef.current) return;
+      const map = new g.maps.Map(mapElRef.current, {
+        center: { lat: resolved.lat, lng: resolved.lng },
+        zoom: 20,
+        mapTypeId: g.maps.MapTypeId.SATELLITE,
+        tilt: 0,
+        disableDefaultUI: true,
+        gestureHandling: "greedy",
+        zoomControl: true,
+        keyboardShortcuts: false,
+      });
+      const marker = new g.maps.Marker({
+        position: { lat: pinLat ?? resolved.lat, lng: pinLng ?? resolved.lng },
+        map,
+        draggable: true,
+        cursor: "grab",
+        title: "Drag to the center of the roof",
+        animation: g.maps.Animation.DROP,
+      });
+      markerRef.current = marker;
+      marker.addListener("dragend", () => {
+        const pos = marker.getPosition();
+        if (!pos) return;
+        onPinMove(pos.lat(), pos.lng());
+      });
+    });
+    return () => {
+      cancelled = true;
+      markerRef.current?.setMap(null);
+      markerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 overflow-hidden">
+      <div className="p-4 border-b border-ink-700/60">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-cy-400">
+          Drag pin to the center of the roof
+        </p>
+        <p className="text-sm text-slate-300 mt-1">{resolved.formatted}</p>
+      </div>
+      <div ref={mapElRef} className="w-full" style={{ aspectRatio: "16 / 10" }} />
+      <div className="p-4 flex justify-between gap-3 border-t border-ink-700/60">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-[11px] uppercase tracking-[0.18em] text-slate-400 hover:text-slate-200"
+        >
+          ← Different address
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="px-5 py-2.5 rounded-xl bg-cy-500 hover:bg-cy-400 text-ink-900 font-medium text-sm"
+        >
+          Run measurement →
+        </button>
+      </div>
+    </section>
+  );
+}
+
+// ─── Loading panel ──────────────────────────────────────────────────────
+
+function LoadingPanel({ elapsed, message }: { elapsed: number; message: string }) {
+  const pct = Math.min(100, Math.round((elapsed / 22) * 100));
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-8 text-center">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-cy-400">Measuring</p>
+      <h2 className="font-display text-2xl mt-3">{message}</h2>
+      <div className="mt-6 mx-auto max-w-xs h-px bg-ink-700 relative overflow-hidden">
+        <div className="absolute inset-y-0 left-0 bg-cy-400 transition-[width] duration-300" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-3 text-[10px] tracking-[0.18em] uppercase text-slate-400 tabular-nums">
+        {Math.min(elapsed, 22)} / 22 sec
+      </p>
+    </section>
+  );
+}
+
+// ─── Result panels ──────────────────────────────────────────────────────
+
+function ResultPanels({
+  result,
+  resolved,
+  effectiveSqft,
+  effectivePitchDeg,
+  confidence,
+  squaresAndWaste,
+  tearOffPlan,
+  lineItems,
+  storms,
+  hail,
+  stormsAfterImagery,
+  pinLat,
+  pinLng,
+  onReRun,
+}: {
+  result: EstimateResult;
+  resolved: AddressResolved;
+  effectiveSqft: number | null;
+  effectivePitchDeg: number;
+  confidence: { score: number; basis: string[] } | null;
+  squaresAndWaste: { base: number; waste: number; ordered: number; bundles: number } | null;
+  tearOffPlan: { tons: number; dumpster: string } | null;
+  lineItems: Array<{ qty: number; description: string }> | null;
+  storms: StormEvent[] | null;
+  hail: HailEvent[] | null;
+  stormsAfterImagery: Array<{ date: string; label: string; mag: string }> | null;
+  pinLat: number | null;
+  pinLng: number | null;
+  onReRun: () => void;
+}) {
+  const driveLink =
+    pinLat != null && pinLng != null ? `https://www.google.com/maps/?q=${pinLat},${pinLng}` : null;
+  return (
+    <div className="space-y-6">
+      {/* Painted outline */}
+      {result.paintedImageBase64 && (
+        <section className="rounded-2xl border border-ink-700 bg-ink-900/80 overflow-hidden">
+          <div className="p-3 border-b border-ink-700/60 flex justify-between items-center">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+              Roof outline
+            </p>
+            <button type="button" onClick={onReRun} className="text-[10px] uppercase tracking-[0.16em] text-cy-400 hover:text-cy-300">
+              Re-run
+            </button>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`data:image/png;base64,${result.paintedImageBase64}`} alt="Roof outline" className="w-full" />
+        </section>
       )}
 
-      {/* ─── Hero / address bar ─────────────────────────────────────── */}
-      {/* No overflow-hidden here so the autocomplete dropdown can extend
-          past the section's bottom edge. The gradient blob below uses
-          isolation: isolate to keep its rounded-3xl clipping local. */}
-      <section
-        className="glass-panel-hero p-5 sm:p-7 md:p-9 relative"
-        style={{ isolation: "isolate" }}
-      >
-        <div className="relative flex items-end justify-between gap-6 mb-6 flex-wrap">
-          <div className="flex items-end gap-3">
-            <div className="glass-eyebrow">
-              <Zap size={11} /> Quick Estimate
-            </div>
-            <div className="hidden md:flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.18em] text-slate-300">
-              <span>address</span>
-              <span className="w-3 h-px bg-slate-400/60" />
-              <span>analyze</span>
-              <span className="w-3 h-px bg-slate-400/60" />
-              <span>review</span>
-              <span className="w-3 h-px bg-slate-400/60" />
-              <span className="text-cy-300 font-semibold">deliver</span>
-            </div>
-          </div>
-          <div className="flex items-stretch gap-2 w-full sm:w-auto">
-            <input
-              className="glass-input flex-1 sm:flex-none sm:w-44 text-[13px]"
-              placeholder="Your name"
-              value={staff}
-              onChange={(e) => setStaff(e.target.value)}
-            />
-            {shown && (
-              <button
-                onClick={reset}
-                className="glass-button-secondary flex-shrink-0 text-[13px]"
-                aria-label="Start new estimate"
-              >
-                <RotateCcw size={13} />
-                <span className="hidden sm:inline">New</span>
-              </button>
-            )}
-          </div>
+      {/* Headline measurement + confidence */}
+      <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 mb-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Measurement</p>
+          {confidence && (
+            <span
+              className={`text-[10px] uppercase tracking-[0.18em] px-3 py-1 rounded-full border ${
+                confidence.score >= 80
+                  ? "border-mint/40 text-mint"
+                  : confidence.score >= 55
+                    ? "border-amber/40 text-amber"
+                    : "border-rose/40 text-rose"
+              }`}
+            >
+              {confidence.score >= 80 ? "High confidence" : confidence.score >= 55 ? "Medium confidence" : "Low confidence"} · {confidence.score}/100
+            </span>
+          )}
         </div>
-
-        <h1 className="font-display text-[28px] sm:text-4xl md:text-[44px] leading-[1.05] tracking-tight font-medium mb-1.5">
-          Where are we{" "}
-          <span className="iridescent-text">roofing</span>{" "}
-          today?
-        </h1>
-        <p className="text-[13.5px] text-slate-400 mb-6 max-w-xl">
-          Type or paste an address. Pick a suggestion — Pitch auto-measures and assesses the roof.
-        </p>
-
-        <AddressInput
-          value={addressText}
-          onChange={setAddressText}
-          onSelect={setAddress}
-          onSubmit={runEstimate}
-        />
-
-        {/* Keyboard discoverability strip — surfaces the shortcuts the
-            useKeyboardShortcuts hook already binds. Hidden on mobile
-            (touch users have no keyboard) and on small screens. */}
-        <div className="hidden md:flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-[10.5px] font-mono uppercase tracking-[0.12em] text-slate-500">
-          <span className="flex items-center gap-1.5"><span className="kbd">⌘K</span> Address</span>
-          <span className="flex items-center gap-1.5"><span className="kbd">⌘N</span> New</span>
-          <span className="flex items-center gap-1.5"><span className="kbd">⌘S</span> Save</span>
-          <span className="flex items-center gap-1.5"><span className="kbd">⌘P</span> PDF</span>
-          <span className="flex items-center gap-1.5"><span className="kbd">⌘E</span> Email</span>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Metric
+            label="Roof sqft"
+            value={effectiveSqft != null ? effectiveSqft.toLocaleString() : "—"}
+            sub={result.solar.sqft == null && effectiveSqft != null ? "from footprint + manual pitch" : null}
+          />
+          <Metric
+            label="Footprint"
+            value={result.solar.footprintSqft != null ? result.solar.footprintSqft.toLocaleString() : "—"}
+          />
+          <Metric
+            label="Pitch (avg)"
+            value={
+              result.solar.pitchDegrees != null
+                ? `${pitchToOnTwelve(result.solar.pitchDegrees)}`
+                : `${pitchToOnTwelve(effectivePitchDeg)} (manual)`
+            }
+            sub={
+              result.solar.pitchDegrees != null
+                ? `${result.solar.pitchDegrees.toFixed(1)}°`
+                : `${effectivePitchDeg.toFixed(1)}°`
+            }
+          />
+          <Metric label="Facets" value={result.facets.length.toString()} sub={`${result.derived.complexity} roof`} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
+          <span>Stories: {result.derived.stories}</span>
+          {result.derived.predominantCompass && (
+            <span>Predominant face: {result.derived.predominantCompass}</span>
+          )}
+          {confidence && confidence.basis.length > 0 && (
+            <span className="text-slate-500">Basis: {confidence.basis.join(" · ")}</span>
+          )}
         </div>
       </section>
 
-      {!shown && <EmptyState />}
-
-      {/* ─── Quantum-pulse loader: full-screen overlay while polygon resolution
-           is still in flight. Stays up until ALL of:
-             1. Solar + Vision metadata fetches complete (visionLoading)
-             2. SAM3 settles — either successfully traces a polygon, or
-                fails and the Solar-mask fallback completes (sam3InFlight)
-             3. Click-pick re-trace settles (pickingLoading) — when the rep
-                taps "Wrong building? Click to pick", the route re-runs
-                Roboflow on the new centre and that call also takes
-                5-30s. Without this gate, the rep saw the old polygon
-                hang on-screen while Roboflow worked, then flicker to
-                the new one — confusing UX. Showing the same overlay as
-                initial load makes the state unambiguous.
-           Without the sam3InFlight gate, the overlay would clear at ~3s
-           (when vision finishes) but SAM3 would still be cold-starting
-           Roboflow for another 5-30s. Reps were seeing the satellite
-           render with NO polygon, then a stale fallback polygon appear,
-           then the real SAM3 polygon flicker in late — making them
-           assume SAM3 had failed. Holding the overlay through SAM3's
-           full settle window eliminates that flicker. */}
-      {pipelineError && !pipelineLoading && !visionLoading && (
-        <div
-          className="rounded-md border border-red-400/30 bg-red-50/95 px-3 py-2 text-sm text-red-900"
-          role="alert"
-        >
-          Pipeline error: {pipelineError}. Try re-analyzing or reload.
-        </div>
+      {/* Imagery freshness warning */}
+      {result.solar.imageryDate && (
+        <ImageryFreshnessCard imageryDate={result.solar.imageryDate} stormsAfter={stormsAfterImagery} />
       )}
 
-      {(visionLoading || sam3InFlight || pickingLoading) && (
-        <div
-          // No backdrop-blur — the filter forces full-page recomposite every
-          // frame, which thrashes against Cesium's WebGL canvas underneath
-          // and made the loader animation visibly stutter. A solid fill at
-          // 88% darkness reads almost the same and stays smooth.
-          //
-          // `absolute` (not `fixed`) so the overlay anchors to the lg-env
-          // wrapper, not the viewport. When this page is hosted inside the
-          // dashboard chrome, `fixed inset-0` slid the loader UNDER the
-          // sidebar — the "GENE" of "GENERATING" got clipped, only "RATING"
-          // peeked through, and the cyan progress bar bled past the chrome.
-          // Anchoring to the parent keeps the chrome visible and the loader
-          // perfectly centered inside the content column.
-          className="absolute inset-0 z-40 flex items-center justify-center float-in"
-          style={{ background: "rgba(7,9,13,0.88)" }}
-          aria-live="polite"
-        >
-          <QuantumPulseLoader
-            text={
-              pickingLoading
-                ? "Re-tracing roof"
-                : sam3InFlight && !visionLoading
-                  ? "Tracing roof"
-                  : "Generating"
-            }
-          />
-        </div>
+      {/* Per-facet breakdown */}
+      {result.facets.length > 0 && (
+        <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+            Per-facet breakdown
+          </p>
+          <table className="w-full text-sm">
+            <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+              <tr>
+                <th className="text-left py-2">#</th>
+                <th className="text-left py-2">Face</th>
+                <th className="text-right py-2">Pitch</th>
+                <th className="text-right py-2">Roof sqft</th>
+                <th className="text-right py-2">Footprint</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums text-slate-200">
+              {result.facets.map((f, i) => (
+                <tr key={i} className="border-t border-ink-700/40">
+                  <td className="py-2">{i + 1}</td>
+                  <td className="py-2">{f.compassDirection} ({f.azimuthDegrees.toFixed(0)}°)</td>
+                  <td className="py-2 text-right">{f.pitchOnTwelve}</td>
+                  <td className="py-2 text-right">{f.slopedSqft.toFixed(0)}</td>
+                  <td className="py-2 text-right">{f.footprintSqft.toFixed(0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
-      {shown && (
-        <>
-          {/* ═══ 01 PROPERTY — satellite + photogrammetric 3D ═══════════ */}
-          <SectionHeader
-            index={1}
-            title="Property"
-            caption={address?.formatted}
-            trailing={
-              solar?.imageryDate && (
-                <span
-                  className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-slate-500"
-                  title="Date of Google Solar API's roof dataset for this location — NOT the date of the satellite tile shown below (that's served by Google Static Maps / Maps JS and is usually current)."
-                >
-                  Solar imagery {solar.imageryDate}
-                </span>
-              )
-            }
-          />
-          {/* ─── Map hero — satellite + 3D side-by-side, full width ───────
-               Strict 2-column grid: MapView (which internally stacks
-               satellite over street view) on the left, Roof3DViewer
-               on the right. The "Wrong building? Click to pick"
-               affordance moved OUT of this section into its own block
-               below — adding it here gave the grid 3 children and broke
-               the side-by-side layout (3D viewer wrapped to row 2,
-               overflowing the fixed-height section). */}
-          <section className="grid lg:grid-cols-2 gap-4 h-[420px] sm:h-[520px] lg:h-[640px] float-in relative">
-            <MapView
-              lat={address?.lat}
-              lng={address?.lng}
-              address={address?.formatted}
-              segments={renderedSourcePolygons}
-              // Penetration markers (numbered yellow circles for vents,
-              // chimneys, skylights) hidden from the rep-facing map per
-              // user feedback — they cluttered the view without adding
-              // sales value and reps confused them with the polygon
-              // outline. Vision still detects them server-side and the
-              // detailed estimate uses them for vent/flashing line items;
-              // we just don't render the markers on the satellite tile.
-              penetrations={undefined}
-              metaBadges={mapBadges}
-              editable={polygonReady && polygonSource !== "none"}
-              onPolygonsChanged={handlePolygonsChanged}
-              pitchDegrees={solar?.pitchDegrees ?? null}
-              pickingBuilding={pickingBuilding}
-              onPickBuilding={(clickLat, clickLng) => {
-                if (!address?.lat || !address?.lng) return;
-                setPickingBuilding(false);
-                setPickingLoading(true);
-                fetch(
-                  `/api/sam3-roof?lat=${address.lat}&lng=${address.lng}` +
-                    `&clickLat=${clickLat}&clickLng=${clickLng}` +
-                    `&address=${encodeURIComponent(address.formatted)}`,
-                )
-                  .then(async (r) => {
-                    if (!r.ok) return null;
-                    const data = (await r.json()) as {
-                      polygon?: Array<{ lat: number; lng: number }>;
-                      source?:
-                        | "sam3"
-                        | "footprint-only"
-                        | "footprint-occluded"
-                        | "sam3-no-footprint";
-                    };
-                    if (!data.polygon || data.polygon.length < 3) return null;
-                    return { polygon: data.polygon, source: data.source ?? "sam3" };
-                  })
-                  .then((result) => {
-                    if (result) {
-                      hasUserEditedRef.current = false;
-                      setSam3Polygon(result.polygon);
-                      setSam3Source(result.source);
-                    } else {
-                      console.warn("[page] click-override SAM3 returned no polygon");
-                    }
-                  })
-                  .catch((err) =>
-                    console.warn("[page] click-override SAM3 failed:", err),
-                  )
-                  .finally(() => setPickingLoading(false));
-              }}
-            />
-            {/* ─── Photorealistic 3D mesh (Google Map Tiles 3D via Cesium) ───
-                 Sits in column 2 of the grid, beside MapView in column 1.
-                 Mounts only after the polygon resolution has settled so
-                 Cesium isn't re-drawing the draped outline as polygons
-                 race in. `key` forces a hard remount on address change so
-                 the previous Cesium camera + tile cache can't linger.
-                 interactive=true for rep workflow (they need to pan,
-                 zoom, change angle to inspect damage). When no polygon
-                 is on-screen yet we render a placeholder div instead of
-                 nothing, so the grid layout doesn't collapse to single-
-                 column and orphan the MapView. */}
-            {polygonReady &&
-            polygonSource !== "none" &&
-            address?.lat != null &&
-            address?.lng != null ? (
-              <div
-                className="glass-panel overflow-hidden h-full relative"
-                aria-label={`3D photorealistic view of the roof at ${address.formatted ?? "this property"}`}
-                role="img"
-              >
-                <Roof3DViewer
-                  key={`${address.lat.toFixed(6)},${address.lng.toFixed(6)}`}
-                  lat={address.lat}
-                  lng={address.lng}
-                  address={address.formatted}
-                  polygons={activePolygons}
-                  polygonSource={polygonSource}
-                  imageryDate={solar?.imageryDate}
-                  expectedFootprintSqft={
-                    solar?.buildingFootprintSqft ?? null
-                  }
-                  interactive
-                />
-              </div>
-            ) : (
-              // Placeholder keeps the 2-column grid intact while SAM3
-              // is in flight. Falls back to a soft glass panel mirroring
-              // the eventual 3D mount so the layout doesn't shift when
-              // the mesh appears.
-              <div className="glass-panel h-full flex items-center justify-center text-slate-500 text-[12px] font-mono uppercase tracking-[0.14em]">
-                3D mesh loads after measurement…
-              </div>
-            )}
-          </section>
-
-          {/* "Pick the right building" affordance — rendered OUTSIDE the
-              2-column grid so it sits below the MapView+3D row at full
-              width. Previously this lived inside the grid as a third
-              child, which shoved the 3D viewer onto row 2 and made the
-              fixed-height grid section overflow. */}
-          {polygonReady && polygonSource !== "none" && (
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPickingBuilding((p) => !p)}
-                className="glass-button-secondary text-[12px] font-mono uppercase tracking-[0.14em]"
-                disabled={pickingLoading}
-              >
-                {pickingLoading
-                  ? "Re-tracing…"
-                  : pickingBuilding
-                    ? "Tap the right building (Esc to cancel)"
-                    : "Wrong building? Click to pick"}
-              </button>
-              {pickingBuilding && (
-                <span className="font-mono text-[11px] text-cy-300/70">
-                  Click anywhere on the actual house in the satellite tile.
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* The "Roof geometry" section (parametric 3D + architectural
-              blueprint card) was removed — same reason as above. The
-              2D polygon trace + MapView already conveys the geometry
-              data the rep needs, and the blueprint was duplicating
-              measurements already shown in the Measurements panel. */}
-
-          {/* ═══ 03 QUALITY & COMPLIANCE ═══════════════════════════════ */}
-          {/* Section header only when there's actually something to show
-              (carrier claim, storm correlation, outline warning, or size
-              mismatch). Otherwise we'd render a "03 Quality" header above
-              an empty region. */}
-          {(isInsuranceClaim ||
-            (polygonReady && polygonSource !== "none")) && (
-            <SectionHeader
-              index={2}
-              title="Quality & compliance"
-              caption="Auto-checks before delivery"
-            />
-          )}
-
-          {/* ─── Carrier-specific claim metadata (insurance mode only) ─── */}
-          {isInsuranceClaim && (
-            <CarrierClaimPanel
-              context={claim}
-              onChange={setClaim}
-              state={
-                /\bFL\b/.test(address?.formatted ?? "") ? "FL"
-                : /\bMN\b/.test(address?.formatted ?? "") ? "MN"
-                : /\bTX\b/.test(address?.formatted ?? "") ? "TX"
-                : null
-              }
-            />
-          )}
-
-          {/* ─── Supplement Analyzer (insurance mode only) ───────────────
-                Rep uploads carrier's initial Xactimate PDF → Qwen parses
-                → we diff against industry rule catalog (O&P, steep
-                charge, FL matching, code items) + cross-ref MRMS hail
-                data → flag missing items with copy-paste rationale.
-                Highest-leverage feature for the insurance close. */}
-          {isInsuranceClaim && (
-            <SupplementAnalyzerPanel
-              assumptions={assumptions}
-              claim={claim}
-              state={
-                /\bFL\b/.test(address?.formatted ?? "") ? "FL"
-                : /\bMN\b/.test(address?.formatted ?? "") ? "MN"
-                : /\bTX\b/.test(address?.formatted ?? "") ? "TX"
-                : null
-              }
-              propertyLat={address?.lat ?? null}
-              propertyLng={address?.lng ?? null}
-            />
-          )}
-
-          {/* ─── Imagery × storm correlation (multi-temporal) ──────────── */}
-          <ImageryStormBanner
-            imageryDate={solar?.imageryDate ?? null}
-            lat={address?.lat}
-            lng={address?.lng}
-          />
-
-          {/* ─── Outline accuracy + size-warning panels removed —
-                superseded by RoofTotalsCard / DetectedFeaturesPanel in
-                /internal. This page keeps the legacy polygon chain for
-                now; quality warnings will be re-mounted as part of a
-                later full migration to the v2 RoofData feed. */}
-
-
-          {/* ═══ 04 ESTIMATE — headline price + breakdown ═══════════════ */}
-          <SectionHeader
-            index={3}
-            title="Estimate"
-            caption={`${assumptions.material.replace(/-/g, " ")}${assumptions.serviceType ? ` · ${assumptions.serviceType.replace(/-/g, " ")}` : ""}`}
-          />
-
-          {/* ─── Headline price card — full width ──────────────────────── */}
-          <ErrorBoundary>
-            <ResultsPanel
-              address={estimate.address}
-              assumptions={assumptions}
-              total={total}
-              baseLow={estimate.baseLow}
-              baseHigh={estimate.baseHigh}
-              isInsuranceClaim={isInsuranceClaim}
-              onInsuranceChange={setIsInsuranceClaim}
-            />
-          </ErrorBoundary>
-
-          {/* ═══ 05 BREAKDOWN — tabbed rep workbench ═══════════════════
-              Was 11 panels stacked across a 2-col grid, which sprawled
-              the page well past the fold. Tabbed into 3 logical groups
-              (Numbers / Measurements & damage / Delivery) so only the
-              panels relevant to the current workflow are mounted. */}
-          <SectionHeader
-            index={4}
-            title="Breakdown & detail"
-            caption="Internal worksheet · not shown to customer"
-            trailing={
-              <div
-                role="tablist"
-                aria-label="Breakdown sections"
-                className="inline-flex items-center gap-1 p-1 rounded-full bg-white/[0.04] border border-white/[0.06]"
-              >
-                {(
-                  [
-                    { key: "numbers", label: "Numbers" },
-                    { key: "measurements", label: "Measurements & damage" },
-                    { key: "delivery", label: "Delivery" },
-                  ] as const
-                ).map((t) => {
-                  const active = breakdownTab === t.key;
-                  return (
-                    <button
-                      key={t.key}
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setBreakdownTab(t.key)}
-                      className={[
-                        "px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors",
-                        active
-                          ? "bg-cy-300/15 text-cy-300 border border-cy-300/30"
-                          : "text-white/65 hover:text-white border border-transparent",
-                      ].join(" ")}
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-            }
-          />
-
-          <div className="float-in">
-            {breakdownTab === "numbers" && (
-              <div className="grid lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
-                  <TiersPanel
-                    assumptions={assumptions}
-                    addOns={addOns}
-                    onApplyTier={applyTier}
-                  />
-                  {detailed && (
-                    <LineItemsPanel
-                      detailed={detailed}
-                      defaultOpen={
-                        isInsuranceClaim || BRAND_CONFIG.showXactimateCodes
-                      }
-                      alwaysShowXactimate={
-                        isInsuranceClaim || BRAND_CONFIG.showXactimateCodes
-                      }
-                    />
-                  )}
-                </div>
-                <div className="space-y-6">
-                  <AssumptionsEditor
-                    value={assumptions}
-                    onChange={setAssumptions}
-                  />
-                  <AddOnsPanel addOns={addOns} onChange={setAddOns} />
-                </div>
-              </div>
-            )}
-
-            {breakdownTab === "measurements" && (
-              <div className="grid lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
-                  {lengths && (
-                    <MeasurementsPanel
-                      lengths={lengths}
-                      waste={waste}
-                      defaultOpen={
-                        isInsuranceClaim || BRAND_CONFIG.showXactimateCodes
-                      }
-                    />
-                  )}
-                </div>
-                <div className="space-y-6">
-                  <PropertyContextPanel address={address} />
-                  <StormHistoryCard
-                    lat={address?.lat}
-                    lng={address?.lng}
-                  />
-                </div>
-              </div>
-            )}
-
-            {breakdownTab === "delivery" && (
-              <div className="grid lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
-                  <PhotoUploadPanel photos={photos} onChange={setPhotos} />
-                  <div className="glass-panel p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="font-display font-semibold tracking-tight">
-                        Customer &amp; Notes
-                      </div>
-                      <span className="label">internal only</span>
-                    </div>
-                    <input
-                      className="glass-input"
-                      placeholder="Customer name"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                    />
-                    <textarea
-                      className="glass-input"
-                      placeholder="Notes…"
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      style={{
-                        minHeight: 90,
-                        resize: "vertical",
-                        lineHeight: 1.5,
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-6">
-                  <div className="glass-panel p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="font-display font-semibold tracking-tight">
-                        Output
-                      </div>
-                      <span className="label">deliver</span>
-                    </div>
-                    <OutputButtons estimate={estimate} office={office} />
-                  </div>
-                  <InsightsPanel estimate={estimate} />
-                </div>
-              </div>
-            )}
+      {/* Squares + ordering plan */}
+      {squaresAndWaste && (
+        <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+            Order quantity
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Metric label="Squares (base)" value={squaresAndWaste.base.toString()} />
+            <Metric label="Waste factor" value={`${(squaresAndWaste.waste * 100).toFixed(0)}%`} sub={`${result.derived.complexity} roof`} />
+            <Metric label="Squares (order)" value={squaresAndWaste.ordered.toString()} />
+            <Metric label="Bundles" value={squaresAndWaste.bundles.toString()} sub="3-bundle / sq estimate" />
           </div>
-          {/* Floating estimate summary — fades in once the rep scrolls past
-              the headline price card so the live total + sqft + source
-              stay visible while they work through line items below. */}
-          <EstimateSticky
-            total={total}
-            sqft={assumptions.sqft}
-            pitch={assumptions.pitch}
-            sourceLabel={
-              polygonSource === "edited"
-                ? "Edited"
-                : polygonSource === "sam3"
-                  ? "SAM3"
-                  : polygonSource === "solar-mask"
-                    ? "Solar mask"
-                    : polygonSource === "roboflow"
-                      ? "Roof AI"
-                      : polygonSource === "sam"
-                        ? "SAM 2"
-                        : polygonSource === "osm"
-                          ? "OSM"
-                          : polygonSource === "microsoft-buildings"
-                            ? "MS Footprints"
-                            : polygonSource === "solar"
-                              ? "Solar facets"
-                              : polygonSource === "ai"
-                                ? "AI traced"
-                                : null
-            }
-            confidence={
-              polygonSource !== "none" ? estimateConfidence.level : null
-            }
-          />
-        </>
+        </section>
+      )}
+
+      {/* Tear-off plan */}
+      {tearOffPlan && (
+        <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">Tear-off plan</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Metric label="Debris weight" value={`${tearOffPlan.tons} tons`} />
+            <Metric label="Dumpster" value={tearOffPlan.dumpster} sub="single-layer assumption" />
+          </div>
+        </section>
+      )}
+
+      {/* Line items */}
+      {lineItems && lineItems.length > 0 && (
+        <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+            Estimated line items
+          </p>
+          <table className="w-full text-sm">
+            <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+              <tr>
+                <th className="text-left py-2">Qty</th>
+                <th className="text-left py-2">Description</th>
+              </tr>
+            </thead>
+            <tbody className="text-slate-200">
+              {lineItems.map((li, i) => (
+                <tr key={i} className="border-t border-ink-700/40">
+                  <td className="py-2 tabular-nums">{li.qty}</td>
+                  <td className="py-2">{li.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {/* Site & condition notes — rep talking points */}
+      <SiteConditionNotes ga={result.geminiAnalysis} />
+
+      {/* Storm history */}
+      <StormHistoryCard storms={storms} hail={hail} />
+
+      {/* Drive-there + jobsite ops */}
+      {driveLink && (
+        <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-3">Jobsite</p>
+          <div className="flex flex-wrap gap-2 items-center text-sm">
+            <a
+              href={driveLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-cy-500/10 border border-cy-400/30 text-cy-300 hover:bg-cy-500/20"
+            >
+              Drive to roof →
+            </a>
+            <span className="text-slate-500 tabular-nums text-xs">
+              {pinLat?.toFixed(5)}, {pinLng?.toFixed(5)}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">{resolved.formatted}</p>
+        </section>
       )}
     </div>
   );
 }
 
-/**
- * Default export — wraps HomePageInner in a <Suspense> boundary so the
- * Next.js build's prerender pass doesn't throw on HomePageInner's
- * synchronous `useSearchParams()` call. The wrapper itself is trivial
- * (renders nothing on its own) so there's no observable UX difference
- * for the rep — the inner page renders normally as soon as the search
- * params resolve (which is synchronous for static routes in practice).
- *
- * Fallback is null because:
- *   1. useSearchParams resolves synchronously on client navigation.
- *   2. The route is gated behind auth middleware anyway; an empty
- *      moment before HomePageInner mounts is invisible behind the
- *      transition from the login page.
- *   3. The full-screen QuantumPulseLoader inside HomePageInner kicks
- *      in for the actual heavy work (vision + Solar + SAM3), so there's
- *      no need for a fallback loader here.
- */
-export default function HomePage() {
-  // Wrap in `lg-env` so the dashboard-hosted estimator inherits the
-  // SAME visual environment as the legacy `/` rep estimator — aurora
-  // background blobs, noise-grain overlay, deep ink-950 base. Without
-  // this wrap the estimator would render against the dashboard's
-  // `theme-terminal` background, which doesn't match what the rep is
-  // used to from /history and from /. The `relative z-[1]` matches
-  // (internal)/layout.tsx so the aurora ::before pseudo can paint
-  // correctly behind the content. The wrapping div bleeds to the
-  // full main column width inside DashboardChrome's <main>; the
-  // inner max-w-[1280px] container mirrors the legacy layout so
-  // the estimator's own column widths and spacing read identically.
+function Metric({ label, value, sub }: { label: string; value: string; sub?: string | null }) {
   return (
-    <Suspense fallback={null}>
-      <div className="lg-env relative z-[1] -m-4 sm:-m-6 lg:-m-8 min-h-[100dvh]">
-        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 py-6 sm:py-8">
-          <HomePageInner />
-        </div>
-      </div>
-    </Suspense>
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">{label}</div>
+      <div className="font-display text-xl tabular-nums text-slate-100">{value}</div>
+      {sub && <div className="text-[11px] text-slate-500 mt-0.5">{sub}</div>}
+    </div>
   );
 }
 
-function EmptyState() {
-  const tips = [
-    {
-      icon: <Sparkles size={14} className="text-cy-300" />,
-      title: "Auto-measure on address pick",
-      body: "Roof size, pitch, material, complexity — measured and assessed by Pitch in seconds.",
-    },
-    {
-      icon: <Plus size={14} className="text-mint" />,
-      title: "Tweak anything, total updates live",
-      body: "Material, complexity, multipliers, add-ons — recompute instantly with smooth animation.",
-    },
-    {
-      icon: <Zap size={14} className="text-amber" />,
-      title: "Press ↵ to estimate",
-      body: "Or click a suggestion. Fastest path: type, ↓, ↵.",
-    },
-  ];
+function ImageryFreshnessCard({
+  imageryDate,
+  stormsAfter,
+}: {
+  imageryDate: string;
+  stormsAfter: Array<{ date: string; label: string; mag: string }> | null;
+}) {
+  const ageY = imageryAgeYears(imageryDate) ?? 0;
+  const stale = ageY > 2;
+  const hasStormsAfter = stormsAfter && stormsAfter.length > 0;
+  const tone =
+    stale || hasStormsAfter
+      ? { border: "border-amber/40", bg: "bg-amber/5", text: "text-amber", title: "Verify on-site" }
+      : { border: "border-ink-700", bg: "bg-ink-900/80", text: "text-slate-400", title: "Imagery" };
   return (
-    <section className="grid md:grid-cols-3 gap-4">
-      {tips.map((t, i) => (
-        <div
-          key={t.title}
-          className="glass-panel is-interactive p-5 float-in"
-          style={{ animationDelay: `${i * 70}ms` }}
-        >
-          <div className="flex items-center gap-2 mb-2">
-            {t.icon}
-            <span className="label">tip 0{i + 1}</span>
-          </div>
-          <div className="font-display font-medium tracking-tight text-[15px] mb-1">
-            {t.title}
-          </div>
-          <div className="text-[13px] text-slate-400 leading-relaxed">{t.body}</div>
+    <section className={`rounded-2xl border ${tone.border} ${tone.bg} p-5`}>
+      <p className={`text-[10px] uppercase tracking-[0.18em] mb-2 ${tone.text}`}>{tone.title}</p>
+      <p className="text-sm text-slate-200">
+        Satellite imagery dated <span className="tabular-nums">{imageryDate}</span>
+        {stale && <span> · {ageY.toFixed(1)} years old — visible condition may have changed.</span>}
+      </p>
+      {hasStormsAfter && stormsAfter && (
+        <div className="mt-3 pt-3 border-t border-amber/20">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-amber mb-2">
+            Severe weather since imagery
+          </p>
+          <ul className="space-y-1 text-sm text-slate-200">
+            {stormsAfter.map((s, i) => (
+              <li key={i} className="flex gap-3 tabular-nums">
+                <span className="text-slate-400 w-24">{s.date}</span>
+                <span className="flex-1">{s.label}</span>
+                <span className="text-slate-400">{s.mag}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-slate-500">
+            Damage may not be reflected in the satellite imagery — inspect on-site.
+          </p>
         </div>
-      ))}
+      )}
     </section>
   );
 }
 
-// polygonVertexComplexity removed — it fed buildDetailedEstimate /
-// deriveRoofLengthsHeuristic's segmentCount fallback, both of which were
-// retired as part of Phase 4. The Tier C pipeline (RoofData.totals.complexity)
-// is the single source of truth for complexity now.
+/** Rep-only site/condition observations from the vision pass. The
+ *  customer page never sees this content. */
+function SiteConditionNotes({
+  ga,
+}: {
+  ga: EstimateResult["geminiAnalysis"];
+}) {
+  const nothing =
+    ga.visibleDamage.length === 0 &&
+    ga.secondaryStructures.length === 0 &&
+    ga.siteObstacles.length === 0 &&
+    ga.conditionHints.length === 0 &&
+    !ga.apparentAgeBand &&
+    !ga.roofMaterial;
+  if (nothing) return null;
+  const AGE_BAND_LABEL: Record<string, string> = {
+    new_under_5y: "New (<5 yrs)",
+    mid_5_to_15y: "Mid-life (5–15 yrs)",
+    mature_15_to_25y: "Mature (15–25 yrs)",
+    end_of_life_25y_plus: "End-of-life (25+ yrs)",
+    indeterminate: "Indeterminate",
+  };
+  const prettify = (s: string) => s.replace(/_/g, " ");
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+        Site &amp; condition notes
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {ga.apparentAgeBand && (
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Apparent age</div>
+            <div className="text-sm text-slate-100">
+              {AGE_BAND_LABEL[ga.apparentAgeBand.band] ?? prettify(ga.apparentAgeBand.band)}{" "}
+              <span className="text-slate-500 text-xs">
+                ({(ga.apparentAgeBand.confidence * 100).toFixed(0)}%)
+              </span>
+            </div>
+          </div>
+        )}
+        {ga.roofMaterial && (
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Material guess</div>
+            <div className="text-sm text-slate-100">
+              {prettify(ga.roofMaterial.type)}{" "}
+              <span className="text-slate-500 text-xs">
+                ({(ga.roofMaterial.confidence * 100).toFixed(0)}%)
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {ga.visibleDamage.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-ink-700/60">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-amber mb-2">Visible damage</div>
+          <ul className="space-y-1.5 text-sm text-slate-200">
+            {ga.visibleDamage.map((d, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-amber">·</span>
+                <span className="flex-1">
+                  {prettify(d.kind)}
+                  {d.location_hint && (
+                    <span className="text-slate-500"> — {d.location_hint}</span>
+                  )}
+                </span>
+                <span className="text-slate-500 text-xs tabular-nums">
+                  {(d.confidence * 100).toFixed(0)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {ga.conditionHints.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-ink-700/60">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">Condition hints</div>
+          <div className="flex flex-wrap gap-2">
+            {ga.conditionHints.map((h, i) => (
+              <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-ink-800 border border-ink-600 text-slate-300">
+                {prettify(h.hint)} <span className="text-slate-500">{(h.confidence * 100).toFixed(0)}%</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {ga.secondaryStructures.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-ink-700/60">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">Attached additions</div>
+          <div className="flex flex-wrap gap-2">
+            {ga.secondaryStructures.map((s, i) => (
+              <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-ink-800 border border-ink-600 text-slate-300">
+                {prettify(s.kind)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {ga.siteObstacles.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-ink-700/60">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-amber mb-2">Site obstacles</div>
+          <div className="flex flex-wrap gap-2">
+            {ga.siteObstacles.map((o, i) => (
+              <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-amber/5 border border-amber/30 text-amber">
+                {prettify(o.kind)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StormHistoryCard({ storms, hail }: { storms: StormEvent[] | null; hail: HailEvent[] | null }) {
+  if (storms == null && hail == null) {
+    return (
+      <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Storm history</p>
+        <p className="mt-2 text-sm text-slate-500">Loading…</p>
+      </section>
+    );
+  }
+  const stormCount = storms?.length ?? 0;
+  const hailCount = hail?.length ?? 0;
+  const maxHail =
+    hail && hail.length > 0
+      ? hail.reduce((m, h) => Math.max(m, h.maxSizeInches), 0)
+      : null;
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">Storm history</p>
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <Metric label="Reports (5yr)" value={stormCount.toString()} sub="hail / wind / tornado" />
+        <Metric label="Hail events (3yr)" value={hailCount.toString()} sub="radar-derived" />
+        <Metric label="Max hail" value={maxHail != null ? `${maxHail.toFixed(2)}″` : "—"} />
+      </div>
+      {(storms && storms.length > 0) || (hail && hail.length > 0) ? (
+        <ul className="space-y-1.5 text-sm">
+          {[
+            ...(storms ?? []).slice(0, 4).map((s) => ({
+              date: typeof s.event_begin_time === "string" ? s.event_begin_time.slice(0, 10) : "",
+              label: s.event_type,
+              mag: s.magnitude != null ? `${s.magnitude}${s.magnitude_type ?? ""}` : "—",
+              dist: s.distance_miles,
+            })),
+            ...(hail ?? []).slice(0, 4).map((h) => ({
+              date: h.date.slice(0, 10),
+              label: "Hail (radar)",
+              mag: `${h.maxSizeInches.toFixed(2)}″`,
+              dist: h.distance_miles,
+            })),
+          ]
+            .sort((a, b) => (a.date < b.date ? 1 : -1))
+            .slice(0, 6)
+            .map((e, i) => (
+              <li key={i} className="flex gap-3 text-slate-200 tabular-nums">
+                <span className="text-slate-400 w-24">{e.date}</span>
+                <span className="flex-1">{e.label}</span>
+                <span className="text-slate-400">{e.mag}</span>
+                <span className="text-slate-500">{e.dist.toFixed(1)} mi</span>
+              </li>
+            ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-500">No severe weather reports in this radius / window.</p>
+      )}
+    </section>
+  );
+}
+
+// ─── Right-rail panels ──────────────────────────────────────────────────
+
+function LeadContextCard({ lead }: { lead: LeadRow }) {
+  return (
+    <section className="rounded-2xl border border-cy-400/30 bg-cy-500/[0.06] p-5 space-y-2">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-cy-300">Lead</p>
+      {lead.name && <div className="text-sm text-slate-100">{lead.name}</div>}
+      {lead.email && (
+        <div className="text-xs text-slate-300">
+          <a className="hover:text-slate-100" href={`mailto:${lead.email}`}>
+            {lead.email}
+          </a>
+        </div>
+      )}
+      {lead.phone && (
+        <div className="text-xs text-slate-300 tabular-nums">
+          <a className="hover:text-slate-100" href={`tel:${lead.phone}`}>
+            {lead.phone}
+          </a>
+        </div>
+      )}
+      <div className="pt-2 mt-2 border-t border-cy-400/20 space-y-1 text-[11px] text-slate-400">
+        <div>Submitted: <span className="text-slate-200 tabular-nums">{new Date(lead.created_at).toLocaleString()}</span></div>
+        {lead.source && <div>Source: <span className="text-slate-200">{lead.source}</span></div>}
+        <div>
+          Consent:{" "}
+          <span className={lead.tcpa_consent ? "text-mint" : "text-rose"}>
+            {lead.tcpa_consent ? "Email + SMS authorized" : "Not authorized"}
+          </span>
+        </div>
+        {lead.tcpa_consent_at && (
+          <div>Consent timestamp: <span className="text-slate-300 tabular-nums">{new Date(lead.tcpa_consent_at).toLocaleString()}</span></div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RepInputs({
+  material,
+  setMaterial,
+  manualPitchOn12,
+  setManualPitchOn12,
+  pitchAutoDetected,
+  tearOff,
+  setTearOff,
+  laborMult,
+  setLaborMult,
+  materialMult,
+  setMaterialMult,
+}: {
+  material: Material;
+  setMaterial: (m: Material) => void;
+  manualPitchOn12: number;
+  setManualPitchOn12: (n: number) => void;
+  pitchAutoDetected: number | null;
+  tearOff: boolean;
+  setTearOff: (b: boolean) => void;
+  laborMult: number;
+  setLaborMult: (n: number) => void;
+  materialMult: number;
+  setMaterialMult: (n: number) => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5 space-y-4">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">Rep inputs</p>
+      <div>
+        <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1.5">Material</label>
+        <select
+          value={material}
+          onChange={(e) => setMaterial(e.target.value as Material)}
+          className="w-full bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-sm text-slate-100"
+        >
+          {Object.entries(MATERIAL_RATES).map(([key, m]) => (
+            <option key={key} value={key}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1.5">Pitch</label>
+        {pitchAutoDetected != null ? (
+          <div className="text-sm text-slate-200 tabular-nums">
+            {pitchToOnTwelve(pitchAutoDetected)} · {pitchAutoDetected.toFixed(1)}°
+            <span className="ml-2 text-[10px] uppercase tracking-[0.16em] text-cy-400">auto</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={20}
+              step={0.5}
+              value={manualPitchOn12}
+              onChange={(e) => setManualPitchOn12(parseFloat(e.target.value) || 5)}
+              className="w-20 bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-sm text-slate-100 tabular-nums"
+            />
+            <span className="text-sm text-slate-400">/ 12 (manual)</span>
+          </div>
+        )}
+      </div>
+      <label className="flex items-center gap-2 text-sm text-slate-200 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={tearOff}
+          onChange={(e) => setTearOff(e.target.checked)}
+          className="w-4 h-4"
+        />
+        Include tear-off
+      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Labor ×</label>
+          <input
+            type="number"
+            min={0.5}
+            max={2.0}
+            step={0.05}
+            value={laborMult}
+            onChange={(e) => setLaborMult(parseFloat(e.target.value) || 1.0)}
+            className="w-full bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-sm tabular-nums"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Material ×</label>
+          <input
+            type="number"
+            min={0.5}
+            max={2.0}
+            step={0.05}
+            value={materialMult}
+            onChange={(e) => setMaterialMult(parseFloat(e.target.value) || 1.0)}
+            className="w-full bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-sm tabular-nums"
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function NotesCard({ notes, setNotes }: { notes: string; setNotes: (s: string) => void }) {
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400 mb-2">Notes</p>
+      <textarea
+        placeholder="Site observations, customer requests, etc."
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        rows={4}
+        className="w-full bg-ink-800 border border-ink-600 rounded-lg px-3 py-2 text-sm resize-none"
+      />
+    </section>
+  );
+}
+
+function PricingCard({
+  pricing,
+  sqft,
+  pitchDeg,
+}: {
+  pricing: { low: number; mid: number; high: number; rateLabel: string };
+  sqft: number | null;
+  pitchDeg: number;
+}) {
+  return (
+    <section className="rounded-2xl border border-cy-400/30 bg-cy-500/[0.06] p-5">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-cy-300">Headline price</p>
+      <div className="mt-3 font-display text-3xl tabular-nums text-slate-100">
+        ${pricing.mid.toLocaleString()}
+      </div>
+      <div className="mt-1 text-xs text-slate-400 tabular-nums">
+        ${pricing.low.toLocaleString()} – ${pricing.high.toLocaleString()} range
+      </div>
+      <div className="mt-4 pt-4 border-t border-cy-400/20 text-xs text-slate-300 space-y-1">
+        <div className="flex justify-between">
+          <span className="text-slate-500">Material</span>
+          <span>{pricing.rateLabel}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-500">Sqft</span>
+          <span className="tabular-nums">{sqft?.toLocaleString() ?? "—"}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-500">Pitch</span>
+          <span className="tabular-nums">
+            {pitchToOnTwelve(pitchDeg)} · {pitchDeg.toFixed(1)}°
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}

@@ -1,193 +1,238 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy · Voxaris Pitch",
-  description: "How Voxaris collects, uses, and protects information from homeowners and partner contractors using the Voxaris Pitch roofing-estimate platform.",
+  title: "Privacy Policy · Voxaris",
+  description:
+    "How Voxaris collects, uses, and protects information from homeowners and partner contractors who use the Voxaris roofing-estimate platform.",
   robots: { index: true, follow: true },
 };
 
-// Last updated — bump whenever material changes are made, so the
-// header date matches what's actually live. The TCPA / SMS rules
-// require the privacy policy to be the version in effect at the time
-// of consent; surface the date so a customer can verify.
-const LAST_UPDATED = "May 11, 2026";
+// Bump this whenever the policy text materially changes. TCPA / SMS
+// rules require the version in effect at the time of consent to be
+// retrievable, so the date is part of the audit trail.
+const LAST_UPDATED = "May 16, 2026";
 
 export default function PrivacyPage() {
   return (
-    <div className="text-slate-200 leading-relaxed space-y-8">
+    <div className="space-y-1">
       <header>
-        <h1 className="font-display text-[42px] sm:text-[56px] font-semibold tracking-[-0.025em] text-slate-50 mb-2">
-          Privacy Policy
-        </h1>
-        <p className="text-[13px] font-mono uppercase tracking-[0.14em] text-slate-500">
-          Last updated · {LAST_UPDATED}
-        </p>
+        <h1>Privacy Policy</h1>
+        <p className="meta">Last updated · {LAST_UPDATED}</p>
       </header>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Who we are
-        </h2>
+        <h2>Who we are</h2>
         <p>
-          Voxaris, Inc. (&ldquo;Voxaris,&rdquo; &ldquo;we,&rdquo; &ldquo;us&rdquo;) operates the Voxaris Pitch
-          roofing-estimate platform at pitch.voxaris.io and the embedded
-          quote widgets deployed on partner contractor websites. This
-          policy describes what information we collect, how we use it,
-          who we share it with, and the choices you have.
+          Voxaris, Inc. (&ldquo;Voxaris,&rdquo; &ldquo;we,&rdquo;
+          &ldquo;us&rdquo;) operates the Voxaris roofing-estimate platform
+          at pitch.voxaris.io and on partner-contractor subdomains. This
+          policy describes what information we collect, how we use it, who
+          we share it with, and the choices you have.
         </p>
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Information we collect
-        </h2>
+        <h2>Information we collect</h2>
         <p>When you request a roofing estimate, we collect:</p>
-        <ul className="list-disc pl-6 mt-3 space-y-1.5">
-          <li>Your name, phone number, and email address</li>
-          <li>The property address you want estimated</li>
+        <ul>
+          <li>Your name, phone number, and email address.</li>
+          <li>The property address you want estimated.</li>
           <li>
-            Your responses about roof material, preferences, and any
-            optional details you provide
+            The exact location of the pin you confirmed on a satellite map
+            of that address.
           </li>
           <li>
-            The fact that you affirmatively consented to receive
-            marketing communications (TCPA receipt), and the timestamp
-            of that consent
+            Your consents — both the consent to receive your estimate by
+            email and a text-message intro, and, if you opted in, the
+            separate consent authorizing an automated voice-intro call.
+            Each consent is stored with its disclosure text, your IP
+            address, your user-agent, and a timestamp.
           </li>
           <li>
-            Standard web telemetry (IP address, browser, device type,
-            referring page, timestamps) used to operate the site,
-            prevent abuse, and improve performance
+            Standard web telemetry (browser, device type, referring page,
+            timestamps) used to operate the site, prevent abuse, and
+            improve performance.
           </li>
         </ul>
-        <p className="mt-4">
+        <p>
           We also access public satellite imagery and government storm
-          records for the property address you provide. We do not
-          collect imagery of the inside of your home, and we do not
-          access any data on your device beyond what your browser
-          sends with each request.
+          records for the property address you provide. We do not collect
+          imagery of the inside of your home, and we do not access any
+          data on your device beyond what your browser sends with each
+          request.
         </p>
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          How we use information
-        </h2>
-        <ul className="list-disc pl-6 mt-3 space-y-1.5">
+        <h2>How we use information</h2>
+        <ul>
           <li>
-            Generate your roofing estimate (measure the roof, identify
-            material and complexity, price the work)
+            Generate your roofing estimate — measure the roof from
+            satellite imagery, identify visible roof features and likely
+            condition, and produce a price range.
           </li>
           <li>
             Deliver the estimate to you and to the partner contractor
-            you select
+            associated with the site you visited.
           </li>
           <li>
-            Send you the marketing communications you consented to —
-            calls, texts, and emails about your estimate and related
-            roofing services
+            Send you the communications you consented to — the estimate
+            itself, a brief text-message intro from the contractor, and,
+            only if you separately opted in, an automated voice-intro
+            call.
           </li>
           <li>
-            Operate, troubleshoot, and improve the platform — including
-            measuring accuracy of the estimate vs the contractor&apos;s
-            final quote so we can improve the model over time
+            Operate and improve the platform, including measuring how
+            closely an estimate matches the contractor&apos;s in-person
+            quote.
           </li>
           <li>
-            Detect and prevent fraud, abuse, and unauthorized access
+            Detect and prevent fraud, abuse, and unauthorized access —
+            including automated bot-traffic filtering at the form-submit
+            step.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Who we share with</h2>
+        <p>
+          The partner contractor associated with the site you visited —
+          and only that contractor — receives your estimate request and
+          contact information. We do not sell or rent your data to
+          third-party marketing lists. We use a limited set of service
+          providers strictly to operate the platform:
+        </p>
+        <ul>
+          <li>
+            Cloud hosting and database (Vercel, Supabase) — where the
+            application runs and where your record is stored.
+          </li>
+          <li>
+            Communications providers (Twilio for SMS; the partner
+            contractor&apos;s voice infrastructure for the optional
+            outbound voice call) — only when you have granted the
+            corresponding consent.
+          </li>
+          <li>
+            Mapping and imagery (Google Maps Platform) — to resolve your
+            address and retrieve satellite imagery of the property.
+          </li>
+          <li>
+            Error monitoring (Sentry) — to diagnose failures and improve
+            reliability. Personally identifying information is scrubbed
+            from error reports.
+          </li>
+        </ul>
+        <p>
+          We may disclose information when legally required (court order,
+          subpoena, regulatory request) or when needed to investigate
+          fraud or protect the safety of users.
+        </p>
+      </section>
+
+      <section>
+        <h2>Marketing-text-message program</h2>
+        <p>
+          By checking the first consent box on the estimate form, you
+          agree to receive an automated text-message intro from your
+          assigned partner contractor at the phone number you provided,
+          sent via Twilio, plus your estimate by email.
+        </p>
+        <ul>
+          <li>
+            <strong>Program purpose:</strong> delivering your roofing
+            estimate and a brief introduction from the contractor.
+          </li>
+          <li>
+            <strong>Frequency:</strong> varies by inquiry, typically
+            one to five messages.
+          </li>
+          <li>
+            <strong>Carrier charges:</strong> message and data rates may
+            apply per your wireless plan.
+          </li>
+          <li>
+            <strong>Opt out:</strong> reply <code>STOP</code> to any text
+            to cancel. The opt-out is honored immediately and is
+            permanent unless you re-enroll.
+          </li>
+          <li>
+            <strong>Help:</strong> reply <code>HELP</code> or email{" "}
+            <a href="mailto:support@voxaris.io">support@voxaris.io</a>.
+          </li>
+          <li>
+            <strong>Consent is not required:</strong> agreeing to receive
+            messages is not a condition of purchasing roofing services.
           </li>
         </ul>
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Who we share with
-        </h2>
+        <h2>Automated-voice-call program</h2>
         <p>
-          The contractor you pick — and only that contractor — receives
-          your estimate request and contact information. We do not sell
-          or rent your data to third-party marketing lists. We share
-          information with a limited set of service providers strictly
-          to operate the platform:
+          The second consent box is <strong>optional and separate</strong>.
+          By checking it, you authorize an automated voice-intro call from
+          your assigned partner contractor at the phone number you
+          provided, placed within a few minutes of submission.
         </p>
-        <ul className="list-disc pl-6 mt-3 space-y-1.5">
+        <ul>
           <li>
-            Cloud hosting (Vercel, Supabase) — where the application
-            runs and where your record is stored
+            <strong>What it is:</strong> a short, automated voice
+            introduction that walks you through your estimate. You may
+            hang up at any time.
           </li>
           <li>
-            Communication providers (Twilio, transactional email) —
-            for sending the SMS / email you consented to
+            <strong>Frequency:</strong> typically a single call. If you
+            re-enter the estimator for the same property, additional
+            calls may be placed.
           </li>
           <li>
-            Mapping and imagery (Google Maps Platform) — to look up
-            your address and retrieve satellite imagery
+            <strong>Recording:</strong> calls may be recorded for quality
+            and training purposes where permitted by law. State laws
+            vary; we comply with two-party-consent jurisdictions by
+            announcing recording at the start of any recorded call.
           </li>
           <li>
-            Analytics and error monitoring (PostHog, Sentry) — to
-            understand how the site is used and diagnose failures
+            <strong>Opt out:</strong> say &ldquo;remove me,&rdquo; hang
+            up, or reply <code>STOP</code> to the SMS thread for the same
+            phone number — any of those ends future automated contact.
+          </li>
+          <li>
+            <strong>Consent is not required:</strong> you may receive
+            your estimate without authorizing the voice call.
           </li>
         </ul>
-        <p className="mt-4">
-          We may disclose information when legally required (court
-          order, subpoena, regulatory request) or when needed to
-          investigate fraud or protect the safety of users.
-        </p>
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          SMS program
-        </h2>
-        <p>
-          By providing your phone number and checking the consent box,
-          you agree to receive automated text messages from Voxaris
-          and your selected contractor regarding your estimate and
-          related services. Message frequency varies based on your
-          inquiry — typically 1&ndash;5 messages per inquiry.{" "}
-          <strong className="text-slate-50">
-            Message and data rates may apply.
-          </strong>{" "}
-          Reply <code className="font-mono text-cy-300">STOP</code> to
-          unsubscribe at any time. Reply{" "}
-          <code className="font-mono text-cy-300">HELP</code> for help
-          or contact{" "}
-          <a href="mailto:support@voxaris.io" className="text-cy-300 hover:underline">
-            support@voxaris.io
-          </a>
-          . Consent to receive marketing communications is not a
-          condition of any purchase.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Your choices
-        </h2>
-        <ul className="list-disc pl-6 mt-3 space-y-1.5">
+        <h2>Your choices</h2>
+        <ul>
           <li>
-            <strong className="text-slate-50">Opt out of SMS:</strong>{" "}
-            reply STOP to any text. The opt-out is honored immediately
-            and is permanent unless you re-enroll.
+            <strong>Opt out of SMS:</strong> reply STOP to any text. The
+            opt-out is permanent unless you re-enroll.
           </li>
           <li>
-            <strong className="text-slate-50">Opt out of email:</strong>{" "}
-            use the unsubscribe link in any marketing email, or contact
-            support.
+            <strong>Opt out of voice calls:</strong> reply STOP to the
+            associated SMS thread, hang up, or say &ldquo;remove me&rdquo;
+            during the call.
           </li>
           <li>
-            <strong className="text-slate-50">Access, correct, delete:</strong>{" "}
-            email{" "}
-            <a href="mailto:privacy@voxaris.io" className="text-cy-300 hover:underline">
-              privacy@voxaris.io
-            </a>{" "}
-            from the address on file with a copy/correction/deletion
-            request. We respond within 30 days.
+            <strong>Opt out of email:</strong> use the unsubscribe link
+            in any marketing email, or contact support.
           </li>
           <li>
-            <strong className="text-slate-50">California, Colorado, Virginia residents:</strong>{" "}
-            you have specific rights under state privacy law (CCPA /
-            CPA / VCDPA), including the right to know what data we
-            hold, to delete it, and to opt out of any &ldquo;sale&rdquo;
+            <strong>Access, correct, delete:</strong> email{" "}
+            <a href="mailto:privacy@voxaris.io">privacy@voxaris.io</a>{" "}
+            from the address on file with a copy, correction, or
+            deletion request. We respond within thirty days.
+          </li>
+          <li>
+            <strong>California, Colorado, Virginia, and other state-law
+            residents:</strong>{" "}
+            you have specific rights under CCPA / CPA / VCDPA and
+            equivalent statutes, including the right to know what data
+            we hold, to delete it, and to opt out of any &ldquo;sale&rdquo;
             or &ldquo;sharing&rdquo; of personal information. We do not
             sell personal information.
           </li>
@@ -195,46 +240,38 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Data retention
-        </h2>
+        <h2>Data retention</h2>
         <p>
           We retain your inquiry and consent record for as long as the
-          partner contractor is actively engaged with your estimate,
-          plus seven years for legal-compliance and dispute-resolution
-          purposes (TCPA cases have long statutes of limitation). After
-          that, records are deleted or anonymized.
+          partner contractor is actively engaged with your estimate, plus
+          seven years for legal-compliance and dispute-resolution purposes
+          (TCPA cases have long statutes of limitation). After that,
+          records are deleted or anonymized.
         </p>
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Security
-        </h2>
+        <h2>Security</h2>
         <p>
           Records are encrypted in transit (TLS) and at rest. Access is
-          restricted to operations staff and the selected contractor.
-          We do not store payment-card data — billing for partner
-          contractors is handled by a PCI-compliant payment processor.
+          restricted to operations staff and the assigned contractor. We
+          do not store payment-card data — billing for partner contractors
+          is handled by a PCI-compliant payment processor.
         </p>
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Children
-        </h2>
+        <h2>Children</h2>
         <p>
-          Voxaris Pitch is intended for property owners 18 or older.
+          The platform is intended for property owners eighteen or older.
           We do not knowingly collect information from anyone under
-          18. If you believe a minor has submitted information,
+          eighteen. If you believe a minor has submitted information,
           contact us and we will delete the record.
         </p>
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Changes
-        </h2>
+        <h2>Changes</h2>
         <p>
           We may revise this policy as the platform evolves. Material
           changes will be reflected in the &ldquo;Last updated&rdquo;
@@ -244,19 +281,13 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="font-display text-[24px] font-semibold text-slate-50 mt-10 mb-3">
-          Contact
-        </h2>
+        <h2>Contact</h2>
         <p>
           Privacy questions:{" "}
-          <a href="mailto:privacy@voxaris.io" className="text-cy-300 hover:underline">
-            privacy@voxaris.io
-          </a>
+          <a href="mailto:privacy@voxaris.io">privacy@voxaris.io</a>
           <br />
           General support:{" "}
-          <a href="mailto:support@voxaris.io" className="text-cy-300 hover:underline">
-            support@voxaris.io
-          </a>
+          <a href="mailto:support@voxaris.io">support@voxaris.io</a>
         </p>
       </section>
     </div>

@@ -58,6 +58,464 @@ body {
   min-height: 100vh;
 }
 
+/* ─── Voxaris brand scope ─────────────────────────────────────────────
+   Per Voxaris Brand System v1.0 (May 2026):
+     Cream + Ink, single terracotta accent reserved for moments that matter.
+     DragonEF (display) + Ambit SemiBold (UI).
+     Sharp corners on interactive elements; 2px on cards; hairline 1px
+     borders; one terracotta per screen maximum.
+
+   Scoped under `.voxaris` so it covers the customer estimator, public
+   pages, future white-label subdomains — but never the dashboard. */
+
+/* Self-hosted brand fonts. Drop files at /public/fonts/DragonEF.otf and
+   /public/fonts/Ambit-SemiBold.ttf to activate. While files are absent,
+   the font-family stack below falls through to next/font Cormorant +
+   Hanken Grotesk so the brand fonts gracefully degrade and the page
+   remains laid out correctly. */
+@font-face {
+  font-family: "DragonEF";
+  src: url("/fonts/DragonEF.otf") format("opentype");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ambit";
+  src: url("/fonts/Ambit-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+.voxaris {
+  /* Color — locked to Voxaris Brand v1.0 */
+  --vx-ink:        #0F1B2D;
+  --vx-ink-soft:   #1A2A44;
+  --vx-cream:      #ECE3D0;
+  --vx-paper:      #F5EFE0;
+  --vx-muted:      #8A7E68;
+  --vx-terra:      #C76B3F;
+  --vx-terra-dark: #A8542E;
+  --vx-rule:       rgba(15, 27, 45, 0.18);
+  --vx-rule-soft:  rgba(15, 27, 45, 0.08);
+  /* Type — DragonEF display, Ambit SemiBold UI, with graceful fallback. */
+  --vx-font-display: "DragonEF", var(--font-cormorant), Georgia, serif;
+  --vx-font-ui:      "Ambit", var(--font-hanken), "Helvetica Neue", system-ui, sans-serif;
+  /* Radius — sharp by default; cards 2px */
+  --vx-radius-btn:   0;
+  --vx-radius-card:  2px;
+  /* Motion — quiet ease-out, no spring */
+  --vx-ease: cubic-bezier(0.2, 0, 0, 1);
+  --vx-fast: 150ms;
+  --vx-base: 200ms;
+
+  color-scheme: only light;
+  background: var(--vx-cream);
+  color: var(--vx-ink);
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  line-height: 1.55;
+  font-feature-settings: "kern";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  position: relative;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+.voxaris .font-serif { font-family: var(--vx-font-display); }
+.voxaris .font-body  { font-family: var(--vx-font-ui); }
+.voxaris .tabular    { font-variant-numeric: tabular-nums lining-nums; }
+/* Subtle paper grain — no purple, no gradient. */
+.voxaris::before {
+  content: "";
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0.06  0 0 0 0 0.11  0 0 0 0 0.18  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.45;
+  mix-blend-mode: multiply;
+}
+/* Ambient — no warmth gradients; cream is the only warmth (per discipline).
+   This block is intentionally minimal: a single low-opacity ink wash at
+   the bottom for compositional weight. */
+.voxaris .ambient {
+  position: absolute; inset: 0;
+  pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 100%, rgba(15, 27, 45, 0.06), transparent 70%);
+}
+.voxaris .crescent {
+  position: absolute; left: 50%; top: -180px;
+  transform: translateX(-50%);
+  width: 1900px; max-width: 170%;
+  pointer-events: none; z-index: 0; opacity: 0.45;
+}
+.voxaris .skyline {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  width: 100%; height: 120px;
+  pointer-events: none; z-index: 1;
+}
+@media (min-width: 640px) { .voxaris .skyline { height: 180px; } }
+.voxaris .ornament {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -52%);
+  width: 520px; height: 520px;
+  pointer-events: none; z-index: -1;
+  opacity: 0.05;
+}
+/* Decorative marker — DEMOTED to muted (vx-muted) per discipline:
+   "One terracotta accent per screen, maximum." Markers are decorative;
+   terracotta is reserved for the CTA + a single editorial rule. */
+.voxaris .marker {
+  width: 6px; height: 6px;
+  background: var(--vx-muted);
+  transform: rotate(45deg);
+  display: inline-block;
+}
+/* Editorial accent rule — the ONE terracotta moment per screen, used
+   sparingly under a section opening. */
+.voxaris .accent-rule {
+  display: block;
+  width: 56px; height: 2px;
+  background: var(--vx-terra);
+  margin: 0 auto;
+}
+/* Eyebrow — 8.5pt, 18% tracking, muted, uppercase. Per Brand §03. */
+.voxaris .eyebrow {
+  font-family: var(--vx-font-ui);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+.voxaris .field-label {
+  font-family: var(--vx-font-ui);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+/* Top-bar nav — flat hairline-divided items (no pill, no rounded
+   corners; pill shapes are forbidden by §06 discipline). */
+.voxaris .nav-row {
+  display: inline-flex;
+  align-items: center;
+  border-top: 1px solid var(--vx-rule);
+  border-bottom: 1px solid var(--vx-rule);
+  padding: 0;
+}
+.voxaris .nav-row a {
+  padding: 10px 22px;
+  display: inline-flex; align-items: center;
+  font-family: var(--vx-font-ui);
+  font-size: 11px; letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-ink-soft); font-weight: 600;
+  border-left: 1px solid var(--vx-rule);
+  transition: color var(--vx-fast) var(--vx-ease);
+}
+.voxaris .nav-row a:first-child { border-left: 0; }
+.voxaris .nav-row a:hover { color: var(--vx-ink); }
+/* Status badge — sharp, no pill. */
+.voxaris .badge {
+  display: inline-flex;
+  align-items: center; gap: 10px;
+  border: 1px solid var(--vx-rule);
+  background: var(--vx-cream);
+  padding: 8px 14px;
+  font-family: var(--vx-font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-ink-soft); font-weight: 600;
+}
+.voxaris .badge .dot {
+  width: 6px; height: 6px;
+  background: var(--vx-muted);
+  border-radius: 0;
+}
+/* Search card — paper surface, hairline border, 2px radius per spec. */
+.voxaris .search-card {
+  background: var(--vx-paper);
+  border: 1px solid var(--vx-rule);
+  border-radius: var(--vx-radius-card);
+  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06);
+  width: 100%;
+  position: relative;
+}
+.voxaris .addr-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center; gap: 14px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--vx-rule);
+}
+.voxaris .addr-input {
+  background: transparent; border: 0; outline: 0; width: 100%;
+  font-family: var(--vx-font-display);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--vx-ink); padding: 6px 0;
+}
+.voxaris .addr-input::placeholder { color: var(--vx-muted); font-style: italic; }
+.voxaris .slim-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--vx-rule);
+}
+.voxaris .slim-cell {
+  padding: 16px 24px;
+  border-left: 1px solid var(--vx-rule-soft);
+}
+.voxaris .slim-cell:first-child { border-left: 0; }
+.voxaris .slim-input {
+  background: transparent; border: 0; outline: 0; width: 100%;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--vx-ink); padding: 4px 0;
+}
+.voxaris .slim-input::placeholder { color: var(--vx-muted); font-weight: 600; }
+.voxaris .foot-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center; gap: 24px;
+  padding: 20px 24px;
+}
+@media (max-width: 720px) {
+  .voxaris .slim-row { grid-template-columns: 1fr; }
+  .voxaris .slim-cell { border-left: 0; border-top: 1px solid var(--vx-rule-soft); }
+  .voxaris .slim-cell:first-child { border-top: 0; }
+  .voxaris .foot-row { grid-template-columns: 1fr; gap: 14px; }
+  .voxaris .addr-input { font-size: 18px; }
+}
+.voxaris .checkbox {
+  width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;
+  appearance: none; -webkit-appearance: none;
+  border: 1px solid var(--vx-rule);
+  background: var(--vx-paper);
+  border-radius: 0;
+  display: inline-grid; place-content: center; cursor: pointer;
+  transition: background var(--vx-fast) var(--vx-ease), border-color var(--vx-fast) var(--vx-ease);
+}
+.voxaris .checkbox:hover { border-color: var(--vx-ink); }
+.voxaris .checkbox:checked { background: var(--vx-ink); border-color: var(--vx-ink); }
+.voxaris .checkbox:checked::before {
+  content: ""; width: 8px; height: 4px;
+  border-left: 1.5px solid var(--vx-cream);
+  border-bottom: 1.5px solid var(--vx-cream);
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+/* PRIMARY CTA — the one terracotta moment per screen. */
+.voxaris .btn-terra {
+  background: var(--vx-terra);
+  color: var(--vx-cream);
+  padding: 14px 28px;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border: 1px solid var(--vx-terra);
+  border-radius: var(--vx-radius-btn);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  white-space: nowrap;
+  transition: background var(--vx-base) var(--vx-ease);
+}
+.voxaris .btn-terra:hover { background: var(--vx-terra-dark); border-color: var(--vx-terra-dark); }
+.voxaris .btn-terra:focus-visible { outline: 2px solid var(--vx-ink); outline-offset: 3px; }
+.voxaris .btn-terra:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; }
+.voxaris .btn-terra .arrow { transition: transform var(--vx-base) var(--vx-ease); }
+.voxaris .btn-terra:hover:not(:disabled) .arrow { transform: translateX(4px); }
+/* SECONDARY — ink on cream. */
+.voxaris .btn-ink {
+  background: var(--vx-ink);
+  color: var(--vx-cream);
+  padding: 14px 28px;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border: 1px solid var(--vx-ink);
+  border-radius: var(--vx-radius-btn);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  white-space: nowrap;
+  transition: background var(--vx-base) var(--vx-ease);
+}
+.voxaris .btn-ink:hover { background: var(--vx-ink-soft); border-color: var(--vx-ink-soft); }
+.voxaris .btn-ink:focus-visible { outline: 2px solid var(--vx-terra); outline-offset: 3px; }
+.voxaris .btn-ink:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; }
+.voxaris .btn-ink .arrow { transition: transform var(--vx-base) var(--vx-ease); }
+.voxaris .btn-ink:hover:not(:disabled) .arrow { transform: translateX(4px); }
+/* TERTIARY — ghost. */
+.voxaris .btn-ghost {
+  background: transparent;
+  color: var(--vx-ink);
+  padding: 13px 26px;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border: 1px solid var(--vx-ink);
+  border-radius: var(--vx-radius-btn);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  white-space: nowrap;
+  transition: background var(--vx-base) var(--vx-ease);
+}
+.voxaris .btn-ghost:hover { background: var(--vx-ink); color: var(--vx-cream); }
+.voxaris a:focus-visible,
+.voxaris button:focus-visible,
+.voxaris summary:focus-visible {
+  outline: 2px solid var(--vx-terra);
+  outline-offset: 3px;
+  border-radius: 0;
+}
+@keyframes voxaris-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.voxaris .rise { opacity: 0; animation: voxaris-rise 0.9s var(--vx-ease) forwards; }
+.voxaris .rise[data-d="1"] { animation-delay: 0.05s; }
+.voxaris .rise[data-d="2"] { animation-delay: 0.18s; }
+.voxaris .rise[data-d="3"] { animation-delay: 0.32s; }
+.voxaris .rise[data-d="4"] { animation-delay: 0.46s; }
+@media (prefers-reduced-motion: reduce) {
+  .voxaris .rise, .voxaris .rise[data-d] { opacity: 1; animation: none; }
+  .voxaris .btn-ink, .voxaris .btn-terra, .voxaris .btn-ghost,
+  .voxaris .btn-ink .arrow, .voxaris .btn-terra .arrow { transition: none; }
+}
+.voxaris hr.hair        { border: 0; border-top: 1px solid var(--vx-rule-soft); margin: 0; }
+.voxaris hr.hair-strong { border: 0; border-top: 1px solid var(--vx-rule); margin: 0; }
+.voxaris ::selection { background: var(--vx-ink); color: var(--vx-cream); }
+/* Result/data card — paper surface, hairline border, 2px radius. */
+.voxaris .result-card {
+  background: var(--vx-paper);
+  border: 1px solid var(--vx-rule);
+  border-radius: var(--vx-radius-card);
+  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06);
+  position: relative;
+}
+/* Chip — sharp corners, hairline border, Ambit uppercase. */
+.voxaris .chip {
+  display: inline-flex; align-items: center; gap: 10px;
+  border: 1px solid var(--vx-rule);
+  background: var(--vx-paper);
+  padding: 9px 14px;
+  border-radius: var(--vx-radius-card);
+  font-family: var(--vx-font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+.voxaris .chip-value {
+  font-family: var(--vx-font-display);
+  font-weight: 400;
+  font-size: 17px;
+  letter-spacing: -0.005em;
+  line-height: 1;
+  text-transform: none;
+  color: var(--vx-ink);
+}
+.voxaris .chip-value.tabular { font-variant-numeric: tabular-nums lining-nums; }
+
+/* Legal-page typography — Ambit body, DragonEF display headings,
+   hairline section separators. Editorial column max-width 68ch. */
+.voxaris .legal-article {
+  font-family: var(--vx-font-ui);
+  color: var(--vx-ink-soft);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.7;
+  max-width: 68ch;
+}
+.voxaris .legal-article h1 {
+  font-family: var(--vx-font-display);
+  font-weight: 500;
+  font-size: clamp(40px, 5.5vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--vx-ink);
+  margin: 0 0 6px;
+}
+.voxaris .legal-article h2 {
+  font-family: var(--vx-font-display);
+  font-weight: 500;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--vx-ink);
+  margin: 56px 0 14px;
+}
+.voxaris .legal-article h3 {
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vx-ink);
+  margin: 24px 0 8px;
+}
+.voxaris .legal-article p { margin: 0 0 14px; }
+.voxaris .legal-article ul,
+.voxaris .legal-article ol {
+  margin: 0 0 18px;
+  padding-left: 22px;
+}
+.voxaris .legal-article li { margin: 6px 0; }
+.voxaris .legal-article ul { list-style-type: disc; }
+.voxaris .legal-article ol { list-style-type: decimal; }
+.voxaris .legal-article strong { color: var(--vx-ink); font-weight: 600; }
+.voxaris .legal-article a {
+  color: var(--vx-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--vx-terra);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color var(--vx-fast) var(--vx-ease);
+}
+.voxaris .legal-article a:hover { color: var(--vx-terra-dark); }
+.voxaris .legal-article code {
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 13px;
+  background: var(--vx-paper);
+  border: 1px solid var(--vx-rule-soft);
+  padding: 1px 6px;
+  border-radius: var(--vx-radius-card);
+  color: var(--vx-ink);
+}
+.voxaris .legal-article section { margin: 0; }
+.voxaris .legal-article .meta {
+  font-family: var(--vx-font-ui);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+.voxaris .legal-article .disclaimer {
+  font-family: var(--vx-font-ui);
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+
 /* Subtle grain to defeat banding on dark gradients */
 body::before {
   content: "";

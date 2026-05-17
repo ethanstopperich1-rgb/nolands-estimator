@@ -13,6 +13,7 @@ import NavHeader from "@/components/ui/nav-header";
 export default function InternalHeader() {
   const pathname = usePathname() ?? "/";
   const isCustomerRoute =
+    pathname === "/" ||
     pathname.startsWith("/quote") ||
     pathname.startsWith("/p/") ||
     pathname.startsWith("/embed");

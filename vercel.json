@@ -6,10 +6,6 @@
   "outputDirectory": ".next",
   "crons": [
     {
-      "path": "/api/cron/warm-sam3",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/storm-pulse",
       "schedule": "0 6 * * *"
     }

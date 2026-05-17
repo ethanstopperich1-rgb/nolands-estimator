@@ -10,21 +10,15 @@ const config: NextConfig = {
   // doesn't need to copy or alias anything. Empty `turbopack` to silence
   // the missing-config warning under Next 16.
   turbopack: {},
-  // Permanent redirects — bookmarks / external links from the
-  // /estimate-v2 era (the V3 estimator was briefly at that path before
-  // we promoted it to the canonical /estimate route).
+  // Permanent redirects — bookmarks from earlier estimator paths land
+  // on the canonical customer root (`/`) which now serves the V3
+  // pin-confirmed flow directly.
   async redirects() {
     return [
-      {
-        source: "/estimate-v2",
-        destination: "/estimate",
-        permanent: true,
-      },
-      {
-        source: "/estimate-v2/:path*",
-        destination: "/estimate/:path*",
-        permanent: true,
-      },
+      { source: "/estimate-v2", destination: "/", permanent: true },
+      { source: "/estimate-v2/:path*", destination: "/", permanent: true },
+      { source: "/estimate", destination: "/", permanent: true },
+      { source: "/estimate/:path*", destination: "/", permanent: true },
     ];
   },
   // Permit /embed and /embed.js to be loaded cross-origin by third-party

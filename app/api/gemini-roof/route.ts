@@ -672,7 +672,10 @@ export interface GeminiRoofResponseV3 {
     maxPanels: number | null;
     annualSunshineHours: number | null;
   };
-  /** Gemini's visual analysis (separate from Solar's measurement). */
+  /** Vision analysis (separate from Solar's measurement). Rep-only
+   *  fields (visibleDamage, secondaryStructures, siteObstacles,
+   *  apparentAgeBand) drive the workbench's "site & condition notes"
+   *  panel — they are NOT surfaced to the customer page. */
   geminiAnalysis: {
     facetCountEstimate: {
       count: number;
@@ -681,6 +684,10 @@ export interface GeminiRoofResponseV3 {
     } | null;
     roofMaterial: { type: string; confidence: number } | null;
     conditionHints: Array<{ hint: string; confidence: number }>;
+    visibleDamage: Array<{ kind: string; location_hint?: string; confidence: number }>;
+    secondaryStructures: Array<{ kind: string; confidence: number }>;
+    siteObstacles: Array<{ kind: string; confidence: number }>;
+    apparentAgeBand: { band: string; confidence: number } | null;
   };
   modelVersion: string;
   computedAt: string;
@@ -707,9 +714,9 @@ const CACHE_SCOPE_V3 = "gemini-roof-v3-rich-edges";
  *  vents/chimneys/skylights chips. */
 const GEMINI_OBJECTS_MODEL = process.env.GEMINI_OBJECTS_MODEL ?? "gemini-2.5-flash";
 
-const GEMINI_OBJECTS_PROMPT = `Analyze this 1280x1280 aerial satellite image of a residential roof. The target building is centered at pixel (640, 640). Only consider the central building — ignore neighboring roofs, yards, and ground objects.
+const GEMINI_OBJECTS_PROMPT = `Analyze this 1280x1280 aerial satellite image of a residential roof. The target building is centered at pixel (640, 640). Only consider the central building — ignore neighboring roofs, yards, and ground objects (except for site_obstacles below).
 
-Return four pieces of data:
+Return EIGHT pieces of data:
 
 1) objects[] — every rooftop fixture you can directly see. Types: vent, chimney, hvac_unit, skylight, plumbing_boot, satellite_dish, solar_panel. Include center pixel, bounding box, and confidence (float 0.0–1.0). Do not infer objects under tree canopy.
 
@@ -718,6 +725,14 @@ Return four pieces of data:
 3) roof_material — predominant covering material visible on the roof surface. Choose the most likely type from the enum. asphalt_shingle_architectural is the FL residential default unless you see clear tile (concrete or clay barrel) or metal seams. Confidence float.
 
 4) condition_hints[] — discrete visible signals of roof condition. Each is an observable feature, not an overall grade. Include only hints you can directly see in the imagery. Use uniform_clean only when the roof appears entirely intact with no notable issues. Empty array is valid.
+
+5) visible_damage[] — discrete damage observations. Each entry is one observation with a short location_hint (e.g. "north slope", "ridge near chimney"). Include only damage you can SEE in the imagery — do not guess. Empty array when no damage is visible.
+
+6) secondary_structures[] — attached additions whose roof plane is visibly continuous with the main house (porches, lanais, attached garages, sunrooms, additions). Skip detached structures.
+
+7) site_obstacles[] — surrounding-site features visible AROUND the central roof that would affect crew access, dumpster staging, or material delivery (heavy tree overhang, overhead utility wires crossing the roof, pool immediately adjacent, narrow side-yard, fenced property, etc.).
+
+8) apparent_age_band — ONE rough age banding from overall roof appearance (granule coverage, color uniformity, visible weathering). Use indeterminate when imagery is unclear.
 
 Confidence on every field is float 0.0–1.0 reflecting your certainty about that specific call.`;
 
@@ -856,6 +871,15 @@ interface GeminiRichDataResult {
   } | null;
   roofMaterial: { type: string; confidence: number } | null;
   conditionHints: Array<{ hint: string; confidence: number }>;
+  /** Discrete visible-damage observations — surfaced to the rep workbench
+   *  only (not the customer page). */
+  visibleDamage: Array<{ kind: string; location_hint?: string; confidence: number }>;
+  /** Attached additions whose roof plane is continuous with the main house. */
+  secondaryStructures: Array<{ kind: string; confidence: number }>;
+  /** Surrounding-site features that affect crew access or staging. */
+  siteObstacles: Array<{ kind: string; confidence: number }>;
+  /** Rough age banding from visible weathering. */
+  apparentAgeBand: { band: string; confidence: number } | null;
   /** Raw text returned by Gemini. Surfaced for the ?debug=1 path so the
    *  route can echo what the model actually emitted. */
   rawText: string | null;
@@ -870,6 +894,10 @@ async function callGeminiRichData(
     facetCountEstimate: null,
     roofMaterial: null,
     conditionHints: [],
+    visibleDamage: [],
+    secondaryStructures: [],
+    siteObstacles: [],
+    apparentAgeBand: null,
     rawText: null,
   };
   const url =
@@ -916,18 +944,30 @@ async function callGeminiRichData(
       facet_count_estimate?: GeminiRichDataResult["facetCountEstimate"];
       roof_material?: GeminiRichDataResult["roofMaterial"];
       condition_hints?: GeminiRichDataResult["conditionHints"];
+      visible_damage?: GeminiRichDataResult["visibleDamage"];
+      secondary_structures?: GeminiRichDataResult["secondaryStructures"];
+      site_obstacles?: GeminiRichDataResult["siteObstacles"];
+      apparent_age_band?: GeminiRichDataResult["apparentAgeBand"];
     };
     console.log(
       `[gemini-rich] parsed objects=${parsed.objects?.length ?? 0} ` +
         `facetEst=${parsed.facet_count_estimate ? "yes" : "no"} ` +
         `material=${parsed.roof_material ? parsed.roof_material.type : "no"} ` +
-        `hints=${parsed.condition_hints?.length ?? 0}`,
+        `hints=${parsed.condition_hints?.length ?? 0} ` +
+        `damage=${parsed.visible_damage?.length ?? 0} ` +
+        `addons=${parsed.secondary_structures?.length ?? 0} ` +
+        `obstacles=${parsed.site_obstacles?.length ?? 0} ` +
+        `age=${parsed.apparent_age_band?.band ?? "no"}`,
     );
     return {
       objects: parsed.objects ?? [],
       facetCountEstimate: parsed.facet_count_estimate ?? null,
       roofMaterial: parsed.roof_material ?? null,
       conditionHints: parsed.condition_hints ?? [],
+      visibleDamage: parsed.visible_damage ?? [],
+      secondaryStructures: parsed.secondary_structures ?? [],
+      siteObstacles: parsed.site_obstacles ?? [],
+      apparentAgeBand: parsed.apparent_age_band ?? null,
       rawText: text,
     };
   } catch (err) {
@@ -994,6 +1034,10 @@ async function handleV3Pinned(
     facetCountEstimate: null,
     roofMaterial: null,
     conditionHints: [],
+    visibleDamage: [],
+    secondaryStructures: [],
+    siteObstacles: [],
+    apparentAgeBand: null,
   };
   let geminiRawText: string | null = null;
   let geminiRichErr: string | null = null;
@@ -1031,6 +1075,10 @@ async function handleV3Pinned(
       facetCountEstimate: rich.facetCountEstimate,
       roofMaterial: rich.roofMaterial,
       conditionHints: rich.conditionHints,
+      visibleDamage: rich.visibleDamage,
+      secondaryStructures: rich.secondaryStructures,
+      siteObstacles: rich.siteObstacles,
+      apparentAgeBand: rich.apparentAgeBand,
     };
     geminiRawText = rich.rawText;
   } else {
@@ -1147,8 +1195,83 @@ async function handleV3Pinned(
           : 0.5;
   const solarBelowHigh = solarConfidence < 0.85;
   const haveRawValues = solarRawSloped > 0 && solarRawFootprint > 0;
+  const solarFullyFailed = !solar || solarRawFootprint === 0;
 
-  if (solarBelowHigh && haveRawValues) {
+  // Branch A: Solar returned nothing at all (rural 404 / zero segments).
+  // Try GIS for a footprint; without Solar pitch we can't compute sloped
+  // sqft, so the response carries footprint-only + null pitch + null
+  // sloped sqft. UI surfaces "auto-pitch unavailable" so a rep can
+  // enter pitch manually in /dashboard/estimate. Correction is recorded
+  // so the audit trail is honest: footprint is real GIS truth, pitch
+  // is unknown — no fake data injected.
+  if (solarFullyFailed) {
+    try {
+      const gis = await fetchGisFootprint(lat, lng, undefined);
+      if (gis) {
+        const gisSqft = polygonAreaSqft(gis.polygon);
+        const cosLat = Math.cos((lat * Math.PI) / 180);
+        const gisCLat =
+          gis.polygon.reduce((s, p) => s + p.lat, 0) / gis.polygon.length;
+        const gisCLng =
+          gis.polygon.reduce((s, p) => s + p.lng, 0) / gis.polygon.length;
+        const dLatM = (gisCLat - lat) * 111_320;
+        const dLngM = (gisCLng - lng) * 111_320 * cosLat;
+        const gisOffsetM = Math.hypot(dLatM, dLngM);
+        const gisIsResidential = gisSqft >= 600 && gisSqft <= 12_000;
+        const gisCentroidNearPin = gisOffsetM <= 25;
+        if (gisIsResidential && gisCentroidNearPin) {
+          finalFootprintSqft = Math.round(gisSqft);
+          correction = {
+            applied: true,
+            reason:
+              `solar_unavailable: Solar API returned no data. ` +
+              `${gis.source} footprint ${Math.round(gisSqft)} sqft used; ` +
+              `pitch unknown — rep must enter manually.`,
+            solarRawSlopedSqft: 0,
+            solarRawFootprintSqft: 0,
+            gisSource: gis.source,
+            gisFootprintSqft: Math.round(gisSqft),
+            slopeFactor: null,
+          };
+          console.log(
+            `[gemini-roof v3] solar_unavailable_gis_only ` +
+              `gis=${gis.source} sqft=${Math.round(gisSqft)} offset_m=${gisOffsetM.toFixed(0)}`,
+          );
+        } else {
+          correction = {
+            applied: false,
+            reason:
+              `solar_unavailable + GIS rejected (` +
+              (!gisIsResidential
+                ? `${Math.round(gisSqft)} sqft outside [600,12000]`
+                : `centroid ${gisOffsetM.toFixed(0)}m from pin (>25m)`) +
+              `).`,
+            solarRawSlopedSqft: 0,
+            solarRawFootprintSqft: 0,
+            gisSource: gis.source,
+            gisFootprintSqft: Math.round(gisSqft),
+            slopeFactor: null,
+          };
+        }
+      } else {
+        correction = {
+          applied: false,
+          reason:
+            "solar_unavailable + no GIS footprint (OSM + MS Buildings both empty).",
+          solarRawSlopedSqft: 0,
+          solarRawFootprintSqft: 0,
+          gisSource: null,
+          gisFootprintSqft: null,
+          slopeFactor: null,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] solar_unavailable_gis_lookup_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  } else if (solarBelowHigh && haveRawValues) {
     try {
       const hn = undefined; // pin-confirmed flow has no street-number context
       const gis = await fetchGisFootprint(lat, lng, hn);
