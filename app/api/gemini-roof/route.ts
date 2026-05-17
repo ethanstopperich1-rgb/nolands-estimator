@@ -761,26 +761,42 @@ const GEMINI_OBJECTS_PROMPT = `Analyze this 1280×1280 aerial satellite image of
 Return eight fields. Per-field rules below. Confidence on every field is float 0.0–1.0 reflecting your ACTUAL certainty (1.0 = sure; 0.7–0.9 = typical confident observation; <0.5 = genuine uncertainty).
 
 ## 1. objects[] — physical rooftop fixtures
-Identify every physical fixture sitting on the central building's roof. Return only what you can DIRECTLY SEE.
+Identify every physical fixture sitting on the central building's roof. Return ONLY what you can clearly identify.
 
-Visual cues for each type:
-- **vent** — small circular or square cap, 6–12 inches across, white / galvanized / black, often in groups along ridges
-- **plumbing_boot** — similar size to vent but with a flexible black rubber collar at the base
-- **stack** — vertical pipe sticking up from the roof near the ridge (small; treat similarly to vent)
-- **chimney** — tall masonry or metal rectangular structure, often penetrates near the ridge, may cast a long shadow
-- **hvac_unit** — large boxy unit ~3–5 feet on a side, often on flat sections, grilles or fans may be visible
-- **skylight** — clear / translucent rectangular panel, lighter than surrounding shingles, may show reflective glare
-- **satellite_dish** — round / oval disc on a mount, distinctive curved shape
-- **solar_panel** — dark rectangular array, multiple panels in a grid, blue / black surface
+### Be conservative — false positives are worse than misses
+Many residential roofs have ZERO penetrations besides one or two small plumbing vents along the ridge. A typical asphalt-shingle roof with no skylights, no chimney, and no HVAC on the roof should return objects: []. Returning fixtures that aren't really there leads to inflated repair quotes and bad-faith customer experiences. Better to miss a real vent than to invent one.
 
-Counting rules — CRITICAL:
-- A shadow cast by an object is NOT a separate object. Three skylights side by side = 3 entries, not 6. Do not return one entry for the skylight and another for its shadow.
-- The shadow of a chimney is NOT a chimney. Return the chimney once; ignore the shadow.
+If you're not certain a feature is a physical 3D fixture, do NOT include it. Use confidence < 0.5 to mark uncertain detections — those are dropped downstream.
+
+### Visual cues for each type (what they actually look like)
+- **vent** — small circular or square cap, 6–12 inches across, white / galvanized / black metal. Has a clear sharp boundary and casts a small short shadow. Usually appears in groups of 1–4 along the ridge.
+- **plumbing_boot** — similar size to vent but with a flexible black rubber collar at the base.
+- **stack** — vertical pipe sticking up from the roof near the ridge (small; treat similarly to vent).
+- **chimney** — tall masonry or metal rectangular structure with a clearly distinct surface (brick texture or metal panels), typically 2–6 ft wide on the long dimension, penetrates near the ridge, casts a long shadow.
+- **hvac_unit** — large boxy unit ~3–5 ft on a side, usually on flat sections, often with visible grilles or fans. Almost never present on a residential pitched roof.
+- **skylight** — clear / translucent rectangular panel, distinctly LIGHTER than surrounding shingles, often with reflective glare. Has a clear straight-edged rectangular outline. NOT just a lighter patch — must have a definite rectangle shape.
+- **satellite_dish** — round / oval disc on a visible mount, distinctive curved shape with a clear shadow.
+- **solar_panel** — dark rectangular array, multiple panels in a grid, blue / black surface that's distinctly different from shingle texture.
+
+### Anti-patterns — these are NOT objects, do not detect them
+- **Discolored shingle patches** — areas where shingles have weathered unevenly, granule loss patches, or staining. These have soft fuzzy edges, blend into surrounding shingles, and don't cast shadows. Skip.
+- **Algae / moss streaks** — black or green vertical streaks running down a slope from the ridge. Skip (those are condition_hints, not objects).
+- **Dirt / debris piles** — leaves, branches, debris on the roof. Skip (condition_hints).
+- **Roof texture artifacts** — granule patterns, shingle seam shadows, ridge cap shadow lines. Skip.
+- **Shadows cast by features** — the shadow of a skylight is NOT a skylight; the shadow of a chimney is NOT a chimney. Return the feature once; ignore the shadow.
+- **Pixel-level satellite imagery noise** — compression artifacts, scan lines, sensor noise. Skip.
+
+### Discrimination test
+For each candidate, ask: "Does this have a CLEAR SHARP BOUNDARY, a UNIFORM SURFACE that's visibly different from shingles, and (if it's tall) a SHADOW that matches its expected height?" If all three answers are yes, include it. If any answer is "maybe," set confidence < 0.5. If two or more are no, skip it.
+
+### Counting rules
 - Each entry must correspond to a physical 3D object on the roof.
-
-Skip objects under tree canopy (don't infer).
+- A shadow cast by an object is NOT a separate object. Three skylights side by side = 3 entries, not 6.
+- Skip objects under tree canopy (don't infer).
+- A roof with zero visible penetrations should return objects: [] — that's a valid answer.
 
 Per object: { type, center_pixel: [x, y], bounding_box: { x, y, width, height }, confidence }
+Confidence: 1.0 = sure; 0.7–0.9 = typical confident; <0.5 = uncertain (will be filtered out).
 
 ## 2. facet_count_estimate — distinct roof planes
 A plane is a single flat surface facing one direction.
@@ -1343,7 +1359,24 @@ async function handleV3Pinned(
 
   if (richResult.status === "fulfilled") {
     const rich = richResult.value;
-    objects = rich.objects.map((o) => {
+    // Confidence floor for objects — drops hallucinated detections
+    // (shingle smudges, weathering patches, shadow blobs interpreted
+    // as fixtures). The threshold is tunable; 0.55 is the current
+    // calibration after observing 4-skylight-3-vent false positives
+    // on a roof with no real penetrations.
+    const OBJECT_CONFIDENCE_FLOOR = 0.55;
+    const rawObjectCount = rich.objects.length;
+    const kept = rich.objects.filter(
+      (o) => typeof o.confidence === "number" && o.confidence >= OBJECT_CONFIDENCE_FLOOR,
+    );
+    if (rawObjectCount !== kept.length) {
+      console.log(
+        `[gemini-roof v3] objects_filtered ` +
+          `raw=${rawObjectCount} kept=${kept.length} ` +
+          `dropped=${rawObjectCount - kept.length} (confidence<${OBJECT_CONFIDENCE_FLOOR})`,
+      );
+    }
+    objects = kept.map((o) => {
       const center = Array.isArray(o.center_pixel)
         ? { x: o.center_pixel[0], y: o.center_pixel[1] }
         : o.center_pixel;
