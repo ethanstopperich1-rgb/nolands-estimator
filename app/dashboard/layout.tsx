@@ -34,7 +34,15 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     isOnDemoRoute(),
   ]);
   return (
-    <div className="theme-terminal min-h-[100dvh] text-white">
+    // `voxaris` class activates the Patek-style cream + serif design
+    // tokens (vars + utility classes in app/globals.css). The dashboard
+    // now uses the SAME design vocabulary as the customer-facing
+    // estimator — cream paper, hairline borders, DragonEF serif
+    // display, Ambit SemiBold UI, one terracotta accent per screen.
+    <div
+      className="voxaris min-h-[100dvh]"
+      style={{ background: "var(--vx-cream)", color: "var(--vx-ink)" }}
+    >
       {isDemo && <DemoBanner activeRole={role} />}
       <DashboardChrome
         offices={DEMO_OFFICES}

@@ -2511,3 +2511,177 @@ article p,
 .prose p {
   text-wrap: pretty;
 }
+
+/* ─── Dashboard & Login — Voxaris brand override ──────────────────────
+ *
+ * The customer-facing root (/) was rebuilt with the Patek-style cream +
+ * serif + brass aesthetic. The dashboard + login pages were originally
+ * built in a visionOS Liquid Glass dark theme — entirely different
+ * design vocabulary. Rather than rewrite every component, we wrap the
+ * dashboard layout + login page in a `.voxaris` parent and remap the
+ * dark-theme utility classes onto the brand tokens.
+ *
+ * All overrides are scoped under `.voxaris` so they cannot leak into
+ * the public customer surfaces (which use the customer-side classes
+ * directly without this wrapper).
+ *
+ * Authoring rules:
+ *   - !important is permitted ONLY here, because we are intentionally
+ *     overriding Tailwind utilities applied on the elements below.
+ *   - Keep every override commented so future maintainers can see why
+ *     a class is being remapped.
+ *   - Match the customer side's discipline: sharp corners (no rounded
+ *     pills), hairline borders, one terra accent per screen MAX,
+ *     no glass-blur, no glow shadows.
+ */
+
+/* Glass surfaces → cream paper cards.
+   `glass-panel` and friends are the dashboard's primary container.
+   Mirror the customer side's .search-card / .result-card: paper bg,
+   hairline border, 2px radius, tiny shadow only. */
+.voxaris .glass-panel,
+.voxaris .glass-panel-hero,
+.voxaris .glass-strong {
+  background: var(--vx-paper) !important;
+  border: 1px solid var(--vx-rule) !important;
+  border-radius: var(--vx-radius-card) !important;
+  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.voxaris .glass-panel.is-interactive:hover {
+  border-color: var(--vx-ink) !important;
+}
+.voxaris .glass-input {
+  background: var(--vx-cream) !important;
+  border: 1px solid var(--vx-rule) !important;
+  border-radius: 0 !important;
+  color: var(--vx-ink) !important;
+}
+.voxaris .glass-input::placeholder { color: var(--vx-muted) !important; }
+.voxaris .glass-button,
+.voxaris .glass-button-secondary {
+  background: var(--vx-paper) !important;
+  border: 1px solid var(--vx-rule) !important;
+  border-radius: 0 !important;
+  color: var(--vx-ink) !important;
+  transition: background var(--vx-base) var(--vx-ease) !important;
+}
+.voxaris .glass-button:hover,
+.voxaris .glass-button-secondary:hover {
+  background: var(--vx-ink) !important;
+  color: var(--vx-cream) !important;
+}
+.voxaris .glass-eyebrow {
+  font-family: var(--vx-font-ui) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  color: var(--vx-muted) !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Iridescent gradient text → flat ink + serif.
+   Iridescent rainbow text-fill on a cream background reads as broken
+   AI-slop; the brand says "no gradient text". */
+.voxaris .iridescent-text {
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: var(--vx-ink) !important;
+  color: var(--vx-ink) !important;
+  font-family: var(--vx-font-display) !important;
+}
+
+/* font-display under .voxaris should always resolve to DragonEF serif
+   (overrides any Tailwind font-display utility someone wired up). */
+.voxaris .font-display {
+  font-family: var(--vx-font-display) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Text colors — remap the dark-theme white tints onto the ink scale. */
+.voxaris .text-white { color: var(--vx-ink) !important; }
+.voxaris .text-white\/95 { color: var(--vx-ink) !important; }
+.voxaris .text-white\/90 { color: var(--vx-ink) !important; }
+.voxaris .text-white\/85 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/75 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/70 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/65 { color: var(--vx-ink-soft) !important; opacity: 0.85; }
+.voxaris .text-white\/60 { color: var(--vx-ink-soft) !important; opacity: 0.75; }
+.voxaris .text-white\/55 { color: var(--vx-muted) !important; }
+.voxaris .text-white\/50 { color: var(--vx-muted) !important; }
+.voxaris .text-white\/45 { color: var(--vx-muted) !important; }
+.voxaris .text-white\/40 { color: var(--vx-muted) !important; }
+.voxaris .text-white\/35 { color: var(--vx-muted) !important; opacity: 0.7; }
+.voxaris .text-white\/30 { color: var(--vx-muted) !important; opacity: 0.55; }
+
+/* Borders — flat hairline at brand opacity. */
+.voxaris [class*="border-white/[0.0"],
+.voxaris .border-white\/\[0\.04\],
+.voxaris .border-white\/\[0\.05\],
+.voxaris .border-white\/\[0\.06\],
+.voxaris .border-white\/\[0\.08\],
+.voxaris .border-white\/\[0\.12\],
+.voxaris .border-white\/\[0\.16\] { border-color: var(--vx-rule) !important; }
+
+/* Cyan accent → terracotta. ONE accent per screen, never glowing. */
+.voxaris .text-cy-300,
+.voxaris .text-cy-400 { color: var(--vx-terra) !important; }
+.voxaris .bg-cy-300,
+.voxaris .bg-cy-400 { background-color: var(--vx-terra) !important; color: var(--vx-cream) !important; }
+.voxaris [class*="bg-cy-300/"],
+.voxaris [class*="bg-cy-400/"] { background-color: rgba(199, 107, 63, 0.08) !important; }
+.voxaris [class*="border-cy-300/"],
+.voxaris [class*="border-cy-400/"] { border-color: rgba(199, 107, 63, 0.35) !important; }
+.voxaris .text-mint { color: var(--vx-muted) !important; }
+.voxaris [class*="bg-mint/"] { background-color: rgba(138, 126, 104, 0.10) !important; }
+.voxaris [class*="border-mint/"] { border-color: rgba(138, 126, 104, 0.30) !important; }
+.voxaris .text-amber,
+.voxaris [class*="text-amber/"] { color: var(--vx-terra-dark) !important; }
+.voxaris [class*="bg-amber/"] { background-color: rgba(199, 107, 63, 0.10) !important; }
+.voxaris [class*="border-amber/"] { border-color: rgba(199, 107, 63, 0.30) !important; }
+
+/* Drop the dark-theme aurora / cosmic background. */
+.voxaris .lg-env,
+.voxaris .theme-terminal { background: var(--vx-cream) !important; }
+.voxaris .lg-env::before,
+.voxaris .lg-env::after,
+.voxaris .theme-terminal::before,
+.voxaris .theme-terminal::after { display: none !important; }
+
+/* Strip any neon shadow / glow that escaped. Brand says no glow. */
+.voxaris [class*="shadow-[0_0_"] { box-shadow: none !important; }
+
+/* Buttons styled with the dark-theme cy gradient become brand terra. */
+.voxaris .bg-gradient-to-br {
+  background-image: none !important;
+}
+.voxaris .from-cy-300,
+.voxaris .from-cy-400 { --tw-gradient-from: var(--vx-terra) !important; }
+.voxaris .to-cy-300,
+.voxaris .to-cy-400 { --tw-gradient-to: var(--vx-terra-dark) !important; }
+
+/* Selection — match customer site (ink on cream). */
+.voxaris ::selection { background: var(--vx-ink); color: var(--vx-cream); }
+
+/* Console-section-rule (animated cyan pulses) → flat ink underline,
+   no pulse. Brand discipline forbids gratuitous motion. */
+.voxaris .console-section-rule {
+  color: var(--vx-muted) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  padding: 0 !important;
+}
+.voxaris .console-section-rule::before,
+.voxaris .console-section-rule::after { display: none !important; }
+.voxaris .console-section-rule .pulse,
+.voxaris .animate-ping { display: none !important; }
