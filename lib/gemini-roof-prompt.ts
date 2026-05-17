@@ -1,127 +1,127 @@
 /**
- * Hardcoded prompt + JSON response schema for Gemini 3 Pro Image roof
- * analysis.
+ * Hardcoded prompts + JSON response schema for the Gemini roof-analysis
+ * pipeline.
  *
- * Revised 2026-05-16 (v3.1) — sharper boundary rules and a structured
- * "follow the roof, not the shadow" heuristic, plus a float confidence
- * (0.0–1.0) instead of the enum. The previous prompt versions tended
- * to either under-trace (skipped shadowed wings) or over-trace (bled
- * into lawn/canopy). This wording locks the boundary to actual roof
- * material features (straight edges, shingle texture, eave lines) and
- * gives Gemini explicit "when uncertain, paint less" guidance.
+ * Architecture context:
+ *  - The customer drags a pin to the building's center.
+ *  - The tile is refetched centered on the pin at zoom 21.
+ *  - The target building is guaranteed to be at pixel (640, 640) in a
+ *    1280×1280 image. Pro Image does NOT need to identify which building
+ *    — the pin does that.
+ *  - Pro Image's job is paint quality. Flash's job is everything else
+ *    (objects, facets, material, condition, etc.).
  *
- * Architecture context: the customer drags a pin onto the building
- * center; the tile is refetched centered on the pin at zoom 21. The
- * target building is guaranteed to be at pixel (640, 640) in a
- * 1280×1280 image. No Gemini needs to identify which building — the
- * pin does that.
+ * Last deep-revision: 2026-05-17. Calibrated against failures we've
+ * seen in production:
+ *   1. Cyan notched out around skylight shadows (the most painful and
+ *      most recent).
+ *   2. Attached porches with separate-pitched roofs being swept into
+ *      the outline.
+ *   3. Cast shadows on the lawn being painted as if they were roof.
+ *   4. The top-side roof slope of skylight rows being skipped.
  */
 
-export const GEMINI_ROOF_PROMPT = `Edit this 1280×1280 aerial satellite image by painting a translucent cyan roof overlay on the single residential building at the exact center of the frame (pixel 640, 640). The user has confirmed this is the target building — do not second-guess which structure to annotate. Also return structured JSON identifying rooftop objects.
+// ─── Pro Image paint prompt ─────────────────────────────────────────────
+//
+// Goal: a magazine-clean cyan overlay on every visible roof plane of the
+// central building. The prompt is structured as: one sentence task, then
+// four numbered RULES (front-loaded — the most important behavior the
+// model needs to internalize), then DO PAINT / DO NOT PAINT lists, then
+// a shadow-vs-edge discrimination table, then a self-check.
+//
+// Why this structure: Pro Image is a generation model, not a chat-style
+// reasoner. It pays the most attention to the FIRST clear instruction
+// blocks. Long prose paragraphs at the front bury the most important
+// rule. Numbered rules + tables are skimmable; the model carries them
+// further into the generation pass.
+export const GEMINI_ROOF_PROMPT = `Edit this 1280×1280 aerial satellite image. Paint a magazine-clean translucent cyan overlay on every visible roof plane of the single residential building at the exact center of the frame (pixel 640, 640). The user has already confirmed this is the target — do not second-guess which structure to annotate.
 
-## Layer 1 — Roof overlay (image output)
+## STYLE
+- Fill: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan.
+- Outline: cyan #38C5EE at full opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring.
+- The effect is PAINTED on the roof, not pasted over it. Preserve photographic realism everywhere outside the painted area.
 
-### Rule #1: each roof plane is ONE solid, continuous polygon. No exceptions.
+## RULE 1 — One continuous polygon per plane. No exceptions.
+Every distinct roof plane (each unique direction the roof faces) is painted as ONE solid, gap-free polygon. **No notches. No triangular cutouts. No holes around fixtures. No bite-outs along inside edges. No indentations that follow shadow lines.**
 
-When you paint a roof plane, the cyan must fill the ENTIRE plane as a single continuous shape — eave to ridge, gable to gable. **No notches. No cutouts. No bite-outs along the inside edge. No triangular gaps that follow shadow lines. No holes around skylights or vents (those small fixtures sit ON the painted surface — paint right over them with the cyan and let the texture show through).**
+If two planes meet at an interior edge (ridge, hip, or valley), the two cyan colors meet edge-to-edge with a single crisp stroke between them. If a plane is an L or T shape, the polygon is continuous — it just has corners.
 
-The painted shape per roof plane is a CONVEX OR L-SHAPED POLYGON whose boundary is composed only of real roof edges:
-- **Eaves** (where the roof meets open air at the bottom of a slope)
-- **Ridges** (the highest line where two planes meet at the peak)
-- **Hips** (sloped line running down a corner from the peak)
-- **Valleys** (sloped line between two planes meeting in a V from above)
-- **Rakes** (sloped edge along the open side of a gable)
-- **Gable ends** (the vertical-facing wall at the end of a ridge)
+## RULE 2 — Only six things are legal cyan boundaries
+The cyan painted area's outer + interior boundaries consist ONLY of these six edge types:
+- **Eave** — horizontal outer perimeter at the BOTTOM of a slope, where the roof meets the gutter / open air below
+- **Ridge** — highest horizontal line where two opposing slopes meet at the peak
+- **Hip** — sloped diagonal from a peak corner down to a building corner (hip roofs only)
+- **Valley** — sloped inward-V where two adjacent planes meet (dormers, intersecting wings)
+- **Rake** — sloped open-gable edge where the roof drops to air on one side
+- **Gable end** — the vertical end-wall face of a gable triangle (visible from above as a line)
 
-That is the COMPLETE list of legal cyan boundaries. If a candidate boundary is none of those six things, it is not an edge — keep painting through it.
+If a candidate boundary is none of these six, it is NOT an edge. Keep painting through it.
 
-### Rule #2: shadow lines are NOT roof edges. They are darker shingle.
+## RULE 3 — Paint OVER fixtures and shadows that sit on the roof
+Small things on the roof do not interrupt the cyan. The roof continues underneath them.
 
-Shadows cast onto the roof by skylights, chimneys, dormers, vents, the ridge itself, or nearby trees create sharp dark lines that look like edges but ARE NOT. The shingle material is continuous underneath the shadow. The plane is still the same plane.
+- **Vents, plumbing boots, stacks** — small caps. Paint right over.
+- **Chimneys** — the brick/stucco mass itself is NOT roof, so the cyan stops at the chimney's footprint walls. The shingles surrounding the chimney are still roof — paint them.
+- **Skylights** — clear/translucent glass rectangles. The roof material is underneath the glass. Paint cyan over the skylight; the 40% opacity lets the glass show through.
+- **HVAC units, satellite dishes, solar panels** — the metal/glass body is not roof, but the roof under and around them is. Paint up to the unit's footprint.
+- **Cast shadows ON the roof** (from skylights, chimneys, dormers, ridges, neighboring trees) — the shingle material is identical inside and outside the shadow. Paint THROUGH the shadow.
 
-Common failure pattern to avoid:
-A row of skylights along the south slope casts a row of triangular shadows pointing away from the sun. The model sees five sharp triangular dark shapes and "cuts" them out of the cyan, leaving five triangular holes in the overlay. **DO NOT do this.** Paint cyan straight through every one of those triangles. The roof slope above, below, between, and through the shadows is the same plane. The overlay across that slope should be one single rectangle with no triangular notches.
+⚠ The single most common failure pattern: a row of three skylights along the south slope casts three triangular shadows pointing east. The model sees three sharp dark triangles and "cuts" them out of the cyan, leaving three triangular notches. DO NOT do this. The plane is one continuous rectangle of cyan — paint through every shadow.
 
-Test: if you are about to stop the cyan at a dark line, ask yourself which of the six legal edges it is. If you can't name one, keep painting.
+⚠ The second most common failure: skipping the roof slope ABOVE each skylight (between the skylight and the ridge). The roof above the skylight is the same plane as the roof below it. Paint a single continuous fill from eave to ridge, through the skylight, through its shadow.
 
-### Rule #3: distinguishing shadow vs. real edge.
+## RULE 4 — Stop at the actual eave, not at the shadow on the lawn
+At the perimeter, the cyan stops where the roof material visibly ends — where shingles meet gutter / open air / gable wall.
 
-A real roof edge is a 3D geometric transition between surfaces facing different directions. In a satellite photo this shows as:
-- A change in shingle texture orientation (granules align differently across the line)
-- A change in average brightness because one plane catches more sun than the other (gradual, NOT a sharp triangular shape)
-- A continuous line that spans a meaningful distance — typically at least 10–20% of the roof width
+The cast shadow of the eave extends 5–15 feet past the eave onto the lawn. Stop the cyan at the eave itself, not at the shadow's edge on the grass. The lawn shadow is gray-green / gray-brown, has no shingle texture, and sits on a different surface (grass, pavement).
 
-A shadow is a darkness pattern projected by a feature. It shows as:
-- A sharp-edged dark patch with one or two straight boundaries (the rest is irregular)
-- IDENTICAL shingle texture inside and outside the shadow
-- A shape that points away from the sun (e.g. a triangular patch pointing east from a skylight in afternoon light)
-- A length that's proportional to the height of the object casting it (~0.5–2× the object size, not the full roof)
+## DO PAINT
+- The main roof of the central building
+- Attached porches, sunrooms, lanais, and garages whose roof plane is visibly CONTINUOUS with the main house (same pitch, same shingle pattern, no horizontal seam at the wall)
+- Additions whose roof reads as part of the main structure (same height, same shingle direction)
 
-When the patch is small, sharp-cornered, and matches the orientation of a nearby skylight/chimney/vent, it is a shadow. Paint through it.
+## DO NOT PAINT
+- Lawn, driveway, sidewalk, patio, pool deck, pool, fence
+- Tree canopy beside or over the house — foliage is bumpy, organic, irregular; no straight edges and no shingle texture
+- Cast shadows on the ground
+- Neighboring buildings — if ANY strip of lawn, walkway, or driveway separates them from the central house, they are different buildings
+- Detached sheds, garages, or carports with ground between them and the main house
+- Porches with a VISIBLY SHALLOWER separate roof — the giveaway is a clean horizontal seam at the wall where the porch roof tucks UNDER the main eave, plus a slope that reads flatter than the main roof
+- Breezeways with their own separate structure
 
-### Outer boundary rules — where the cyan ends.
+## TREE CANOPY EXCEPTION — when to paint through it
+- IF the eave line aligns across the canopy gap AND visible roof on each side lines up in a clear continuation: paint THROUGH the canopy as if it were transparent.
+- IF most of the roof is hidden by trees: paint only what you can see.
+- IF you genuinely can't tell whether a dark patch is roof-under-canopy or canopy-over-lawn: do NOT paint it.
 
-The overlay's outer edge must sit on one of the six legal edges where the roof material meets non-roof (sky, gutter, open air past the eave). Do NOT extend the cyan onto:
-- **Cast shadows on the ground.** Shadows are soft-edged, desaturated gray-green or gray-brown, sit on grass or pavement, and have no shingle texture.
-- **Tree canopy next to the house.** Foliage is bumpy, organic, irregular, clustered. No straight edges, no shingle pattern.
-- **Lawn, driveway, pool, pool deck, patio, sidewalk, fence.**
-- **Neighboring houses.** If there is any strip of ground (lawn, walkway, driveway) between the central roof and another rooftop, the other rooftop is a different building.
-- **Detached sheds or garages** separated from the main house by ground.
-- **Attached porches with a SEPARATE lower-pitched roof.** Many homes have a covered porch whose roof is visibly shallower (often near-flat) and meets the main house at a horizontal seam where the porch roof tucks UNDER the main roof's eave. Leave it OFF the cyan overlay. The clue: a clean horizontal seam at the wall plus a visibly shallower slope.
-- **Carports and breezeways** whose roof structure is separate from the main house.
+Slightly incomplete is correct when uncertain. Over-painting onto lawn/trees is wrong.
 
-Attached porches, attached garages, sunrooms, and additions whose roof plane is visibly CONTINUOUS with the main house — same pitch, same shingle pattern, same height seam — ARE part of the target and should be overlaid. Continuity of plane, not physical attachment.
+## SHADOW vs REAL EDGE — discrimination
+| Real edge | Shadow on roof |
+|-----------|----------------|
+| Continuous line spanning a significant fraction of the roof | Short, sharp, often triangular |
+| Shingle texture orientation changes across the line | IDENTICAL shingle texture on both sides |
+| Plane brightness may differ gradually (sun angle on different facings) | Hard-edged dark patch with one or two straight sides |
+| Sits at a geometric 3D transition between surfaces | Sits next to whatever feature casts it (skylight, chimney, dormer) |
+| Eaves / ridges horizontal; hips / valleys / rakes sloped | Geometry follows sun angle, not roof structure |
 
-### Filling small gaps under tree canopy.
+If you cannot name the candidate boundary as one of the six legal edges (eave/ridge/hip/valley/rake/gable end), it is a shadow. Paint through it.
 
-When tree branches partially cover the roof, paint cyan across the covered area as if the canopy were transparent — but only when the roof clearly continues underneath (visible roof on each side of the canopy lines up, eave line stays consistent, covered span is small). If most of the roof is hidden by trees, only paint what you can see. If unsure, paint less.
+## SELF-CHECK BEFORE RETURNING
+Walk your painted image once more:
+1. Any cyan boundary that follows a shadow line? → Extend cyan across that boundary.
+2. Triangular or sharp-cornered notches along any plane's inside edge? → Fill them.
+3. Small unpainted holes around vents, chimneys, skylights, HVAC, dishes, or panels? → Paint over them (only the chimney mass / panel body itself stays uncovered).
+4. Each distinct roof plane represented as ONE continuous polygon? → Merge disconnected pieces of the same plane.
+5. Cyan extending past the eave onto the lawn shadow? → Pull it back to the eave.
 
-### Painting style.
+A human architect outlining each plane on a printout draws clean, continuous polygons. Match that.`;
 
-Use translucent cyan #38C5EE at ~40% opacity. Add a crisp 2–3 pixel #38C5EE full-opacity outline along each legal outer edge AND along each legal interior edge (ridges, hips, valleys) where one cyan plane meets another. Shingle texture, ridge caps, vents, and small fixtures must remain clearly visible through the fill. The effect is painted, not pasted.
-
-### Self-check before returning.
-
-Before you finish, scan your output:
-1. Does any cyan boundary follow a shadow line? Fix it — fill that area in.
-2. Are there any triangular, sharp-cornered notches along the inside edge of any painted plane? Fix them — fill them in.
-3. Are there small holes around skylights, vents, or chimneys? Fix them — paint over the fixtures.
-4. Is each roof plane represented by ONE continuous polygon? If a single plane is showing as multiple disconnected shapes, merge them.
-
-The painted shape per plane should be the same polygon a human architect would draw if asked to outline that plane on a printout. No funny notches, no shadow-shaped indentations.
-
-## Layer 2 — Rooftop & site detection (JSON output)
-
-Identify roof fixtures, visible damage, and surrounding site context. Use the schema below.
-
-Rules:
-- Only include rooftop objects on the central building's roof. Skip anything on neighboring roofs, in yards, or on the ground.
-- Only include things you can directly see. Do NOT infer objects under tree canopy — the gap-filling rule applies to the overlay only.
-- Coordinates are in image pixel space (0–1279 on each axis, origin top-left).
-- Bounding box should tightly enclose the object.
-- Confidence is a float between 0.0 and 1.0 reflecting certainty about both object type and presence.
-
-For visible_damage, report each discrete signal you can SEE in the imagery — do not guess. Each entry is one discrete observation (e.g. "lifted shingles in the north slope"). Confidence reflects how clearly the damage is visible from this satellite angle.
-
-For secondary_structures, list attached additions that share a continuous roof plane with the main house — porches, lanais, attached garages, sunrooms, additions. Skip detached structures.
-
-For site_obstacles, list things visible around the roof that would affect crew access or material staging — heavy tree overhang, overhead utility wires crossing the roof, pool immediately adjacent, narrow side-yard access, fence enclosing the property.
-
-For apparent_age_band, choose ONE band based on overall roof appearance — granule coverage, color uniformity, visible weathering. This is a rough banding, not a precise age.
-
-## Aesthetic
-
-Magazine-quality roof inspection report. Clean geometric cyan on photographic aerial source. The cyan should feel painted onto the roof, not pasted over it.`;
-
-/**
- * Comprehensive JSON schema for the Gemini Flash sidecar call. Returns:
- *   - objects[]: rooftop fixtures (vents, chimneys, skylights, etc.)
- *   - facet_count_estimate: Gemini's visual count of distinct roof planes
- *   - roof_material: predominant covering material
- *   - condition_hints[]: visible signs of wear, staining, damage, age
- *
- * Confidence is a float (0.0–1.0) on every field that can be wrong.
- */
+// ─── Flash rich-data schema (objects + facets + material + condition + …) ──
+//
+// This is the response schema for the Flash sidecar call that runs in
+// parallel with the Pro Image paint call. Pro Image is busy painting;
+// Flash carries all the structured-data work.
 export const GEMINI_ROOF_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -330,8 +330,8 @@ export const GEMINI_ROOF_SCHEMA = {
       required: ["band", "confidence"],
     },
   },
-  // Only `objects` is required at the top level — Gemini Flash sometimes
-  // omits the optional sub-objects if it can't confidently fill them.
-  // We want partial responses to still parse cleanly.
+  // Only `objects` is required at the top level — Flash sometimes omits
+  // the optional sub-objects if it can't confidently fill them. We want
+  // partial responses to still parse cleanly.
   required: ["objects"],
 } as const;

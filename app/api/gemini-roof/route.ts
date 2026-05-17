@@ -756,27 +756,108 @@ const CACHE_SCOPE_V3 = "gemini-roof-v3-rich-edges";
  *  vents/chimneys/skylights chips. */
 const GEMINI_OBJECTS_MODEL = process.env.GEMINI_OBJECTS_MODEL ?? "gemini-2.5-flash";
 
-const GEMINI_OBJECTS_PROMPT = `Analyze this 1280x1280 aerial satellite image of a residential roof. The target building is centered at pixel (640, 640). Only consider the central building — ignore neighboring roofs, yards, and ground objects (except for site_obstacles below).
+const GEMINI_OBJECTS_PROMPT = `Analyze this 1280×1280 aerial satellite image of a residential property. The target building is centered at pixel (640, 640). Only consider the central building — ignore neighbors, yards, and ground objects (except for site_obstacles below).
 
-Return EIGHT pieces of data:
+Return eight fields. Per-field rules below. Confidence on every field is float 0.0–1.0 reflecting your ACTUAL certainty (1.0 = sure; 0.7–0.9 = typical confident observation; <0.5 = genuine uncertainty).
 
-1) objects[] — every rooftop fixture you can directly see. Types: vent, chimney, hvac_unit, skylight, plumbing_boot, satellite_dish, solar_panel. Include center pixel, bounding box, and confidence (float 0.0–1.0). Do not infer objects under tree canopy.
+## 1. objects[] — physical rooftop fixtures
+Identify every physical fixture sitting on the central building's roof. Return only what you can DIRECTLY SEE.
 
-2) facet_count_estimate — how many distinct roof planes are visible on the central building (count gable ends, hip sides, dormer sides, addition wings separately). Also classify complexity: simple (2–4 planes), moderate (5–10), complex (11+). Confidence reflects how confidently you can resolve plane boundaries given imagery clarity. IMPORTANT: shadows cast by skylights, chimneys, ridges, or dormers across the surrounding shingles are NOT separate facets — they are dark patches on a single plane. Count the underlying plane once. Likewise, an attached porch with a visibly SHALLOWER pitch than the main roof is its own structure — do NOT count its planes as facets of the central building.
+Visual cues for each type:
+- **vent** — small circular or square cap, 6–12 inches across, white / galvanized / black, often in groups along ridges
+- **plumbing_boot** — similar size to vent but with a flexible black rubber collar at the base
+- **stack** — vertical pipe sticking up from the roof near the ridge (small; treat similarly to vent)
+- **chimney** — tall masonry or metal rectangular structure, often penetrates near the ridge, may cast a long shadow
+- **hvac_unit** — large boxy unit ~3–5 feet on a side, often on flat sections, grilles or fans may be visible
+- **skylight** — clear / translucent rectangular panel, lighter than surrounding shingles, may show reflective glare
+- **satellite_dish** — round / oval disc on a mount, distinctive curved shape
+- **solar_panel** — dark rectangular array, multiple panels in a grid, blue / black surface
 
-3) roof_material — predominant covering material visible on the roof surface. Choose the most likely type from the enum. asphalt_shingle_architectural is the FL residential default unless you see clear tile (concrete or clay barrel) or metal seams. Confidence float.
+Counting rules — CRITICAL:
+- A shadow cast by an object is NOT a separate object. Three skylights side by side = 3 entries, not 6. Do not return one entry for the skylight and another for its shadow.
+- The shadow of a chimney is NOT a chimney. Return the chimney once; ignore the shadow.
+- Each entry must correspond to a physical 3D object on the roof.
 
-4) condition_hints[] — discrete visible signals of roof condition. Each is an observable feature, not an overall grade. Include only hints you can directly see in the imagery. Use uniform_clean only when the roof appears entirely intact with no notable issues. Empty array is valid.
+Skip objects under tree canopy (don't infer).
 
-5) visible_damage[] — discrete damage observations. Each entry is one observation with a short location_hint (e.g. "north slope", "ridge near chimney"). Include only damage you can SEE in the imagery — do not guess. Empty array when no damage is visible.
+Per object: { type, center_pixel: [x, y], bounding_box: { x, y, width, height }, confidence }
 
-6) secondary_structures[] — attached additions whose roof plane is visibly continuous with the main house (porches, lanais, attached garages, sunrooms, additions). Skip detached structures.
+## 2. facet_count_estimate — distinct roof planes
+A plane is a single flat surface facing one direction.
+- Simple gable: 2 planes (front + back)
+- Simple hip: 4 planes
+- L-shaped house: 4–6 planes
+- Complex hip + dormers: 8+ planes
 
-7) site_obstacles[] — surrounding-site features visible AROUND the central roof that would affect crew access, dumpster staging, or material delivery (heavy tree overhang, overhead utility wires crossing the roof, pool immediately adjacent, narrow side-yard, fenced property, etc.).
+Do NOT count as separate planes:
+- **Shadows cast on a plane** by skylights, chimneys, dormers, ridges, or trees. These are dark patches on a single plane, not new planes. If three skylight shadows make three triangular dark zones on the south slope, the south slope is still ONE plane.
+- **Attached porches / carports with a visibly shallower separate roof.** Those are separate structures. Their planes do not count.
 
-8) apparent_age_band — ONE rough age banding from overall roof appearance (granule coverage, color uniformity, visible weathering). Use indeterminate when imagery is unclear.
+Classification:
+- simple: 2–4 planes
+- moderate: 5–10 planes
+- complex: 11+ planes
 
-Confidence on every field is float 0.0–1.0 reflecting your certainty about that specific call.`;
+Return: { count, complexity, confidence }
+
+## 3. roof_material — predominant covering
+Choose the SINGLE most likely material. asphalt_shingle_architectural is the FL residential default unless you see clear evidence of another.
+
+Visual cues:
+- **asphalt_shingle_3tab** — uniform thin shingles, often gray, distinctive 3-tab pattern visible
+- **asphalt_shingle_architectural** — thicker dimensional shingles, varied granule pattern, slight shadow lines between courses
+- **concrete_tile** — uniform rectangular tiles in rows, often gray or earth-toned
+- **clay_tile_barrel** — half-cylinder S-curve tiles, distinctive ripple pattern, often terracotta / red
+- **clay_tile_flat** — flat rectangular clay tiles, terracotta colored
+- **metal_standing_seam** — long parallel vertical seams every 12–24 inches, shiny or matte metal
+- **metal_corrugated** — ribbed metal with regular wavy texture
+- **wood_shake** — irregular brown wood pieces in varied widths
+- **slate** — dark gray / black tiles, often irregular sizes
+- **membrane_flat** — smooth flat surface (TPO / EPDM), often gray or white, no shingle pattern
+- **unknown** — only when imagery is too poor to tell
+
+Return: { type, confidence }
+
+## 4. condition_hints[] — discrete visible signs of wear
+List ONLY observable features. Empty array is valid (and correct when the roof is intact). Use uniform_clean only when the entire roof has no notable issues.
+
+Allowed hints: moss_or_algae, dark_streaking, shingle_wear_granule_loss, missing_tabs, patches_or_repairs, tarp_visible, ponding_water, tree_debris, rust_staining, uniform_clean
+
+Per hint: { hint, confidence }
+
+## 5. visible_damage[] — discrete damage observations
+Each entry is ONE observation. Include only what you can SEE. Empty array is correct for healthy roofs.
+
+Allowed kinds: lifted_shingles, missing_shingles, exposed_underlayment, ridge_cap_lifting, visible_sagging, displaced_tiles, blistering, hail_bruising_pattern, wind_streak_pattern, patched_area
+
+Per damage: { kind, location_hint?: "north slope" / "ridge near chimney" / etc, confidence }
+
+## 6. secondary_structures[] — attached, continuous additions
+List ATTACHED additions whose roof plane is visibly CONTINUOUS with the main house (same pitch, same shingles, no horizontal seam at the wall).
+
+Allowed kinds: attached_garage, attached_carport, screened_lanai, covered_porch, sunroom, addition_wing, shed_attached
+
+Skip detached structures and porches with their own visibly shallower roofs (those are separate structures, not additions).
+
+Per structure: { kind, confidence }
+
+## 7. site_obstacles[] — crew access / staging concerns
+Surrounding features that would affect a roofing crew's access, dumpster staging, or material delivery.
+
+Allowed kinds: heavy_tree_overhang, overhead_utility_wires, pool_adjacent, narrow_side_yard, fenced_property, shared_driveway, steep_grade
+
+Per obstacle: { kind, confidence }
+
+## 8. apparent_age_band — rough age guess
+One band based on overall appearance (granule coverage uniformity, color uniformity, visible weathering). Rough banding, not a precise age.
+
+- new_under_5y — uniform sharp color, no streaking, clean granules
+- mid_5_to_15y — minor weathering, slightly faded color, no major issues
+- mature_15_to_25y — visible weathering, color variation, possible minor wear
+- end_of_life_25y_plus — heavy wear, granule loss, severely faded color
+- indeterminate — imagery too poor or roof too obscured
+
+Return: { band, confidence }`;
 
 // ─── Gemini line-detection sidecar (third Flash call) ──────────────────
 //
@@ -792,39 +873,52 @@ Confidence on every field is float 0.0–1.0 reflecting your certainty about tha
 
 const GEMINI_LINES_MODEL = "gemini-2.5-flash";
 
-const GEMINI_LINES_PROMPT = `Trace the COMPLETE roof outline of the residential building at the center of this 1280x1280 aerial satellite image (pixel 640, 640) and classify every line. This is a comprehensive perimeter + interior trace, not a sample. A typical result has 6–14 lines total.
+const GEMINI_LINES_PROMPT = `Trace every visible roof edge on the central building in this 1280×1280 aerial satellite image (centered at pixel 640, 640).
 
-THE FIVE LINE TYPES:
-- ridge: the HIGHEST horizontal line where two opposing slopes meet at the peak. Most homes have at least one.
-- hip: a SLOPED diagonal running from a peak corner down to a building corner. Hip roofs have 4. Gable roofs have 0.
-- valley: a SLOPED V where two pitched planes meet inwardly. Present when there are dormers, additions, or intersecting roof sections. Many simple homes have 0.
-- rake: the SLOPED diagonal edge along an open gable end (the roof drops to air on one side, with the gable wall visible below). Gable-end homes have 2 per gable = 4 typical.
-- eave: the HORIZONTAL outer perimeter edge where the roof meets the gutter at the BOTTOM of each slope. Every house has eaves. A standard rectangular gable has 2 long eaves (front + back). A hip roof has 4 (one per slope).
+You are doing comprehensive perimeter + interior edge classification. Coverage is the success metric — UNDER-TRACING IS THE FAILURE MODE.
 
-EXPECTED OUTPUT for a typical residential roof:
-- At least 2 EAVE lines (every house has them — front and back at minimum)
-- At least 1 RIDGE line (the highest line; required on every pitched roof)
-- 2–4 RAKE lines on gable houses, 4 HIP lines on hip houses
-- 0–2 VALLEY lines on most homes
+## The five edge types
+- **ridge** — HIGHEST horizontal line where two opposing slopes meet at the peak
+- **hip** — sloped diagonal from a peak corner down to a building corner (hip roofs only; gable roofs have zero)
+- **valley** — sloped inward-V where two pitched planes meet (dormers, intersecting wings)
+- **rake** — sloped open-gable edge where the roof drops to air on one side
+- **eave** — HORIZONTAL outer perimeter at the BOTTOM of each slope, where the roof meets the gutter
 
-CRITICAL RULES:
-1. Trace the COMPLETE outer perimeter. Every segment of the visible roof boundary corresponds to one of: eave, rake, hip end, or gable end. Do NOT skip any perimeter segment.
-2. If you can see the roof outline in cyan in this image (a prior painting pass may have drawn it), USE that outline as your guide — each visible cyan line is a line you should return.
-3. Eaves and rakes alternate around the perimeter of a standard rectangular house. If you returned 4 rakes and 0 eaves (or vice versa), you are wrong — re-examine.
-4. A line is a STRAIGHT segment between two pixel endpoints. For a curved or stepped edge, return multiple short segments.
-5. Return BOTH endpoints in image pixel space (0–1279, origin top-left).
-6. Only consider the central building. Skip neighboring roofs, ground, vegetation.
+## Expected coverage
+Every house has eaves. Every pitched roof has at least one ridge or one set of hips.
 
-DISTINGUISHING:
-- If a line runs along the BOTTOM of a slope where roof meets gutter / open air below → eave (horizontal).
-- If a line runs along the TOP of two opposing slopes at the highest point → ridge (horizontal).
-- If a line is the open side of a gable (roof drops to wall + air) → rake (sloped).
-- If a line is the corner of a hip running peak→corner → hip (sloped).
-- If a line is the inward V of two slopes meeting → valley (sloped).
+| Roof shape | Typical edge mix | Total |
+|------------|-----------------|-------|
+| Simple gable | 1 ridge + 2 long eaves + 4 rakes | 7 |
+| Simple hip | 4 hips + 4 eaves | 8 |
+| Cross-gable | 2+ ridges + 4–6 eaves + 4–8 rakes | 10–16 |
+| Hip + dormer | 4 hips + 4 eaves + 1–2 valleys + 1–2 small ridges per dormer | 10–14 |
 
-A typical 4-eave 1-ridge gable home returns at least 1 ridge + 4 rakes + 2 eaves = 7 lines. A typical 4-slope hip home returns 4 hips + 4 eaves = 8 lines. Aim for completeness — under-tracing is the failure mode, not over-tracing.
+If you return zero eaves, you are wrong — re-examine. Every visible roof has visible eaves.
+If you return zero ridges AND zero hips, you are wrong — every pitched roof has at least one of those.
 
-Confidence is float 0.0–1.0 reflecting how clearly you can see and classify each line.`;
+## Self-consistency rule
+Eaves and rakes ALTERNATE around the perimeter of a rectangular house. The perimeter pattern is eave → rake → eave → rake → eave → rake → eave → rake (back to start). If you returned 4 rakes and 0 eaves, OR 4 eaves and 0 rakes, you are wrong.
+
+## Classification — pick by orientation + position
+| Line position + orientation | Type |
+|-----------------------------|------|
+| Horizontal, at the BOTTOM of a slope (meets gutter / open air below) | **eave** |
+| Horizontal, at the TOP of two opposing slopes (highest point) | **ridge** |
+| Sloped, peak corner → building corner | **hip** |
+| Sloped, inward V between two slopes | **valley** |
+| Sloped, on the open side of a gable (roof drops to a wall + air) | **rake** |
+
+## Rules
+1. Return EVERY visible edge. Aim for completeness.
+2. A line is a STRAIGHT segment between two pixel endpoints. For curves or steps, return multiple short segments.
+3. Coordinates are pixel space (0–1279), origin top-left.
+4. Only the central building. Skip neighbors, ground, vegetation.
+
+## Output
+Per line: { type, start_pixel: [x, y], end_pixel: [x, y], confidence: 0.0–1.0 }
+
+Confidence reflects how clearly you can see and classify each line.`;
 
 const GEMINI_LINES_SCHEMA = {
   type: "OBJECT",
@@ -861,28 +955,35 @@ interface GeminiLineDetection {
  *  the Pro Image pass already did the hard "is this a roof edge"
  *  decision and marked it with cyan paint. Flash just identifies +
  *  classifies what's already visually highlighted. */
-const GEMINI_LINES_FROM_PAINTED_PROMPT = `This image is an aerial photo of a residential roof with cyan strokes already drawn on every roof edge by a prior model pass. Your job: identify each cyan line and classify it.
+const GEMINI_LINES_FROM_PAINTED_PROMPT = `This image is an aerial roof with cyan strokes drawn on every legal edge by a prior model pass. Your job: enumerate and classify every cyan line.
 
-THE CYAN LINES YOU NEED TO IDENTIFY:
-- The outer cyan PERIMETER of the painted region — every segment of this perimeter is an eave, rake, or gable end.
-- Any THIN cyan strokes drawn INSIDE the painted region — these are ridges, hips, or valleys where two roof planes meet.
+The cyan strokes ARE your answer — you don't need to detect edges from scratch. Pro Image already did that decision. You just identify and classify each visible cyan line.
 
-CLASSIFICATION RULES:
-- HORIZONTAL cyan line at the TOP boundary between two painted regions = ridge
-- HORIZONTAL cyan line at the BOTTOM outer perimeter = eave
-- SLOPED diagonal cyan line that runs from a peak point down to a building corner = hip
-- SLOPED inward-V cyan line where two painted regions meet from above = valley
-- SLOPED cyan line on the open side of a gable (perimeter line that drops diagonally) = rake
+## Two kinds of cyan to find
+1. **Outer perimeter cyan** — every segment around the outside of the painted region. Each segment is an eave, rake, or gable end.
+2. **Interior cyan** — thin strokes drawn inside the painted region. These are ridges, hips, or valleys where two planes meet.
 
-INSTRUCTIONS:
-1. Return EVERY visible cyan line. A typical home has 6–14 lines total.
-2. For each line: type + start_pixel [x, y] + end_pixel [x, y] + confidence (0.0–1.0).
-3. A single straight segment between two endpoints = one line. For curves or steps, return multiple short segments.
-4. The cyan strokes are your ground truth. If you see a cyan line, you MUST return it — even if you'd disagree with the classification, classify it by its geometric role (orientation + position).
-5. Coordinates are pixel space (0–1279), origin top-left.
-6. Only consider the central building's cyan markup. Ignore any cyan that may be on neighboring structures.
+## Classification cheat sheet
+| Cyan line position + orientation | Type |
+|----------------------------------|------|
+| Horizontal, at the TOP boundary between two painted regions | **ridge** |
+| Horizontal, on the BOTTOM outer perimeter | **eave** |
+| Sloped diagonal, peak point → building corner | **hip** |
+| Sloped inward V between two painted regions | **valley** |
+| Sloped, on the open side of a gable (perimeter line that drops diagonally) | **rake** |
 
-Coverage is the success metric. Under-tracing (returning fewer lines than the painting shows) is the dominant failure mode — be exhaustive.`;
+## Rules
+1. Return EVERY visible cyan line. The cyan IS the ground truth. If you see a cyan line, you MUST return it.
+2. Classify by geometric role (orientation + position), not by what you'd guess from the underlying image.
+3. A line is a STRAIGHT segment between two pixel endpoints. Curves or steps → multiple short segments.
+4. Coordinates are pixel space (0–1279), origin top-left.
+5. Only the central building's cyan markup. Ignore any incidental cyan on neighbors.
+6. A typical home has 6–14 cyan lines total.
+
+## Output
+Per line: { type, start_pixel: [x, y], end_pixel: [x, y], confidence: 0.0–1.0 }
+
+Coverage is success. Under-tracing (returning fewer lines than the painting shows) is the dominant failure mode — be exhaustive.`;
 
 async function callGeminiLines(
   tileBase64: string,
