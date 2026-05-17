@@ -79,7 +79,10 @@ const PROTECTED_API_PREFIXES = [
 // `/` is the customer-facing root (V3 holy-grail flow). Everything
 // internal lives under /dashboard/* and is gated below by Supabase auth.
 const PROTECTED_PAGE_PATHS = new Set<string>();
-const PROTECTED_PAGE_PREFIXES = ["/dashboard"];
+// /internal/* hosts rep-only printable views (notably the EagleView-
+// style roof report template that the Playwright PDF generator scrapes).
+// Same Basic Auth + staff-cookie surface as /dashboard.
+const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/internal"];
 
 function isProtected(pathname: string, method: string): boolean {
   // POST /api/proposals — staff-only (prevents unauthenticated proposal spam).

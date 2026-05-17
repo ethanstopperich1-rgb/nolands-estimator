@@ -306,7 +306,7 @@ export function getDemoLeads(slug: DemoOfficeSlug): Lead[] {
         assigned_to: i % 2 === 0 ? `demo-rep-${slug}` : null,
         assigned_at: i % 2 === 0 ? createdAt : null,
         // V3 roof payload — demo rows are pre-V3, leave null. Real
-        // leads from /estimate-v2 carry painted_url + sqft + edges.
+        // leads from /estimate carry painted_url + sqft + edges.
         roof_v3_json: null,
         created_at: createdAt,
         updated_at: createdAt,

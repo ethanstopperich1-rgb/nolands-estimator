@@ -152,7 +152,7 @@ export default function CallsTable({
       </div>
 
       <div className="text-[11px] text-white/40 font-mono tabular text-center">
-        Showing up to 50 most recent calls. Older calls available via Analytics export (coming).
+        Showing up to 50 most recent calls.
       </div>
 
       {/* Drawer */}

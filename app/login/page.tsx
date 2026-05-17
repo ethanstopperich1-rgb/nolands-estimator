@@ -15,7 +15,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, ArrowRight, Sparkles, Lock, User } from "lucide-react";
+import { Loader2, ArrowRight, Lock, User } from "lucide-react";
 
 function LoginForm() {
   const router = useRouter();
@@ -66,14 +66,14 @@ function LoginForm() {
   return (
     <div className="lg-env min-h-screen flex flex-col items-center justify-center px-4 py-12 relative">
       <div className="mb-8 flex flex-col items-center gap-3">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-2xl bg-gradient-to-br from-cy-300/80 to-violet-300/60 flex items-center justify-center shadow-[0_8px_28px_-8px_rgba(125,211,252,0.55)]">
-            <Sparkles className="w-4 h-4 text-[#051019]" />
-          </div>
-          <span className="iridescent-text font-semibold tracking-tight text-[22px]">
-            Voxaris Pitch
-          </span>
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/logo-wordmark-alpha.png"
+          alt="Voxaris"
+          width={1672}
+          height={941}
+          className="h-9 sm:h-12 w-auto object-contain"
+        />
         <div className="glass-eyebrow">Operator Console</div>
       </div>
 
@@ -156,10 +156,10 @@ function LoginForm() {
           Staff credentials only. Customers can reach the public estimator
           at{" "}
           <a
-            href="/estimate-v2"
+            href="/estimate"
             className="underline text-white/55 hover:text-white"
           >
-            /estimate-v2
+            /estimate
           </a>
           .
         </p>

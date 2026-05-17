@@ -5,11 +5,30 @@ import { withSentryConfig } from "@sentry/nextjs";
 const config: NextConfig = {
   reactStrictMode: true,
   typedRoutes: false,
+  // Headless Chromium (`@sparticuz/chromium`) + `playwright-core` are
+  // native binaries that must NOT be bundled into the serverless
+  // function. Marking them external keeps the report function under
+  // Vercel's 250 MB unzipped limit. Without this, `next build`
+  // succeeds locally but the deployed `/api/leads/[publicId]/report`
+  // hits a 500 at runtime because the binary can't be resolved from
+  // inside the bundle.
+  serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
   // Cesium loads its workers/assets at runtime from CDN (see Roof3DViewer.tsx
   // — sets CESIUM_BASE_URL before any Cesium code runs), so the bundler
   // doesn't need to copy or alias anything. Empty `turbopack` to silence
   // the missing-config warning under Next 16.
   turbopack: {},
+  // Permanent redirects — bookmarks from earlier estimator paths land
+  // on the canonical customer root (`/`) which now serves the V3
+  // pin-confirmed flow directly.
+  async redirects() {
+    return [
+      { source: "/estimate-v2", destination: "/", permanent: true },
+      { source: "/estimate-v2/:path*", destination: "/", permanent: true },
+      { source: "/estimate", destination: "/", permanent: true },
+      { source: "/estimate/:path*", destination: "/", permanent: true },
+    ];
+  },
   // Permit /embed and /embed.js to be loaded cross-origin by third-party
   // roofer websites. Default Next.js sets X-Frame-Options: DENY which would
   // block any iframe; we explicitly allow it for the embed surface only.

@@ -405,7 +405,11 @@ export default async function OverviewPage() {
               ].join(" ")}
             >
               {metrics.supplementVsPrevMonthPct > 0 ? "▲" : "▼"}{" "}
-              {Math.abs(metrics.supplementVsPrevMonthPct)}% vs {prevMonthLabel()}
+              {Math.abs(metrics.supplementVsPrevMonthPct)}% vs {(() => {
+                const d = new Date();
+                d.setMonth(d.getMonth() - 1);
+                return d.toLocaleDateString("en-US", { month: "short" });
+              })()}
             </div>
           )}
         </Link>
@@ -494,146 +498,6 @@ function shortTime(iso: string): string {
 
 function monthLabel(): string {
   return new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  sublabel,
-  value,
-  href,
-  accent,
-  dense,
-  deltaPct,
-}: {
-  icon: typeof Users;
-  label: string;
-  sublabel: string;
-  value: string;
-  href: string;
-  accent: "cy" | "mint" | "amber";
-  dense?: boolean;
-  deltaPct?: number;
-}) {
-  const accentColor =
-    accent === "mint"
-      ? "text-mint"
-      : accent === "amber"
-        ? "text-amber"
-        : "text-cy-300";
-  const accentBg =
-    accent === "mint"
-      ? "bg-mint/15 border-mint/25"
-      : accent === "amber"
-        ? "bg-amber/15 border-amber/25"
-        : "bg-cy-300/15 border-cy-300/25";
-  const glow =
-    accent === "mint"
-      ? "shadow-[0_0_14px_-4px_rgba(95,227,176,0.55)]"
-      : accent === "amber"
-        ? "shadow-[0_0_14px_-4px_rgba(243,177,75,0.55)]"
-        : "shadow-[0_0_14px_-4px_rgba(125,211,252,0.55)]";
-
-  return (
-    <Link
-      href={href}
-      className="glass-panel is-interactive p-5 lg:p-6 block group relative overflow-hidden"
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div
-          className={`w-9 h-9 rounded-2xl flex items-center justify-center border ${accentBg} ${glow}`}
-        >
-          <Icon className={`w-4 h-4 ${accentColor}`} />
-        </div>
-        <ArrowUpRight className="w-3.5 h-3.5 text-white/30 group-hover:text-white/70 transition-colors" />
-      </div>
-      <div className="text-[10.5px] font-mono tabular uppercase tracking-[0.16em] text-white/45 mb-1">
-        {label}
-      </div>
-      <div
-        className={[
-          "font-semibold font-mono tabular tracking-tight text-white",
-          dense ? "text-xl lg:text-2xl" : "text-3xl lg:text-[34px]",
-        ].join(" ")}
-      >
-        {value}
-      </div>
-      <div className="flex items-center gap-2 mt-1.5">
-        <div className="text-[11.5px] text-white/45">{sublabel}</div>
-        {typeof deltaPct === "number" && deltaPct !== 0 && (
-          <span
-            className={[
-              "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-mono tabular font-medium",
-              deltaPct > 0
-                ? "bg-mint/12 text-mint border border-mint/25"
-                : "bg-red-500/12 text-red-300 border border-red-400/25",
-            ].join(" ")}
-          >
-            {deltaPct > 0 ? (
-              <ArrowUp className="w-2.5 h-2.5" />
-            ) : (
-              <ArrowDown className="w-2.5 h-2.5" />
-            )}
-            {Math.abs(deltaPct)}%
-            <span className="text-white/40 ml-0.5">vs {prevMonthLabel()}</span>
-          </span>
-        )}
-      </div>
-    </Link>
-  );
-}
-
-function prevMonthLabel(): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() - 1);
-  return d.toLocaleDateString("en-US", { month: "short" });
-}
-
-function JumpLink({
-  href,
-  icon: Icon,
-  label,
-  sub,
-}: {
-  href: string;
-  icon: typeof PhoneCall;
-  label: string;
-  sub: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group flex items-center gap-3 px-3 py-2.5 rounded-2xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all"
-    >
-      <div className="w-7 h-7 rounded-xl bg-cy-300/10 border border-cy-300/20 flex items-center justify-center text-cy-300 group-hover:bg-cy-300/15 transition-colors">
-        <Icon className="w-3.5 h-3.5" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] text-white/90 font-medium leading-tight">{label}</div>
-        <div className="text-[11px] text-white/45 leading-tight mt-0.5">{sub}</div>
-      </div>
-      <ArrowUpRight className="w-3.5 h-3.5 text-white/30 group-hover:text-white/70 transition-colors" />
-    </Link>
-  );
-}
-
-function ActivityIcon({ kind }: { kind: ActivityItem["kind"] }) {
-  const config =
-    kind === "lead"
-      ? { Ic: Users, color: "text-cy-300", bg: "bg-cy-300/10 border-cy-300/20" }
-      : kind === "call"
-        ? { Ic: PhoneCall, color: "text-mint", bg: "bg-mint/10 border-mint/20" }
-        : kind === "proposal"
-          ? { Ic: FileText, color: "text-amber", bg: "bg-amber/10 border-amber/20" }
-          : { Ic: Activity, color: "text-white/55", bg: "bg-white/[0.04] border-white/[0.08]" };
-  const Ic = config.Ic;
-  return (
-    <div
-      className={`w-7 h-7 rounded-xl border flex items-center justify-center flex-shrink-0 ${config.bg}`}
-    >
-      <Ic className={`w-3.5 h-3.5 ${config.color}`} />
-    </div>
-  );
 }
 
 function StandbyState({ title, body }: { title: string; body: string }) {

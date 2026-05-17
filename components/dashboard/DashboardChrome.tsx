@@ -14,7 +14,6 @@ import {
   Sparkles,
   Menu,
   X,
-  Radio,
   Check,
   AlertTriangle,
   CloudHail,
@@ -204,17 +203,10 @@ export default function DashboardChrome({
               </div>
             )}
 
-            <div className="flex items-center gap-2 text-[12px] text-white/65">
-              <div className="relative flex items-center justify-center">
-                <span className="absolute w-3 h-3 rounded-full bg-mint/40 animate-ping" />
-                <span className="relative w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_8px_rgba(95,227,176,0.6)]" />
-              </div>
-              <Radio className="w-3.5 h-3.5 text-mint/80" />
-              <span>
-                <span className="text-mint font-medium">Sydney</span>
-                <span className="text-white/45"> · standing by</span>
-              </span>
-            </div>
+            {/* The "Sydney standing by" pulse used to live here, but the
+                footer at the bottom of the chrome already renders the
+                same indicator. Two pulsing dots per page read as broken
+                / dev-mode. Footer is the single source of truth. */}
           </div>
 
           <div className="flex items-center gap-5">

@@ -181,17 +181,14 @@ function EmptyState() {
   return (
     <div className="glass-panel p-10 flex flex-col items-center text-center gap-3">
       <CloudHail className="w-8 h-8 text-cy-300" />
-      <div className="text-lg font-semibold tracking-tight">No canvass targets yet</div>
+      <div className="text-lg font-semibold tracking-tight">
+        No canvass targets yet
+      </div>
       <p className="text-sm text-white/60 max-w-md leading-relaxed">
-        Canvass targets are created automatically when{" "}
-        <span className="text-cy-300 font-mono">/api/cron/storm-pulse</span>{" "}
-        detects a qualifying storm (≥ 0.5&quot; hail) inside one of your watched
-        regions. Trigger the cron manually or wait for the 06:00 UTC daily run.
+        Storm canvass runs automatically. We&apos;ll surface ranked door-knock
+        targets here within 24 hours of the next qualifying hail event
+        (≥ 0.5&quot; hail) inside one of your watched regions.
       </p>
-      <code className="mt-2 inline-block text-[11px] font-mono text-white/55 bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-1.5">
-        curl -H &quot;Authorization: Bearer $CRON_SECRET&quot;
-        https://pitch.voxaris.io/api/cron/storm-pulse
-      </code>
     </div>
   );
 }

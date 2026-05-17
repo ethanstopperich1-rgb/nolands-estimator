@@ -266,6 +266,17 @@ function loadingMessageFor(elapsed: number): string {
   return LOADING_MESSAGES.filter((m) => m.at <= elapsed).pop()?.text ?? LOADING_MESSAGES[0].text;
 }
 
+/** Live-format a phone input as the customer types: "(555) 555-5555".
+ *  Strips non-digits, caps at 10 digits, then re-builds the standard
+ *  US grouping. Tolerates partial input — no flicker at the seams. */
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 10);
+  if (digits.length === 0) return "";
+  if (digits.length <= 3) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 // ─── Hero (Voxaris brand) ───────────────────────────────────────────────
 
 function HeroScreen({
@@ -517,10 +528,11 @@ function HeroScreen({
                   id="ph"
                   className="slim-input tabular"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(formatPhone(e.target.value))}
                   placeholder="(239) 555-0117"
                   inputMode="tel"
                   autoComplete="tel"
+                  maxLength={14}
                   required
                 />
               </div>
