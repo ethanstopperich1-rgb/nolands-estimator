@@ -801,66 +801,49 @@ function LoadingScreen({ elapsed, message }: { elapsed: number; message: string 
       <div className="ambient" />
       <PinHeader />
 
-      {/* Centralized layout — flex column anchored to the page center.
-          All content (status, headline, fact, progress, counters) sits
-          in a single stacked group at the vertical midpoint. */}
-      <div className="relative z-10 flex-1 flex items-center justify-center px-6 lg:px-10 pb-10 w-full">
+      {/* Fully centered loading layout — fact is the hero, progress
+          bar sits directly under it. No headline above; the eyebrow
+          status line is the only chrome. */}
+      <div className="relative z-10 flex-1 flex items-center justify-center px-6 lg:px-10 py-10 w-full">
         <div
-          className="w-full mx-auto text-center"
-          style={{ maxWidth: "640px" }}
+          className="w-full mx-auto text-center flex flex-col items-center justify-center"
+          style={{ maxWidth: "880px" }}
         >
-          {/* Tiny status — the "what we're doing right now" line. */}
-          <div className="eyebrow mb-4">Measuring · {message}</div>
+          {/* Status line — small, muted, sits well above the fact. */}
+          <div className="eyebrow mb-10">Measuring · {message}</div>
 
-          {/* Headline framing — stable, sets the moment. */}
-          <h2
-            className="font-serif tracking-tight mx-auto"
-            style={{
-              fontSize: "clamp(28px, 4.2vw, 44px)",
-              lineHeight: 1.06,
-              fontWeight: 500,
-              color: "var(--vx-ink)",
-              maxWidth: "22ch",
-            }}
+          {/* Fact — the hero. Cross-fade keyed on index. */}
+          <div
+            key={factIndex}
+            className="rise w-full"
+            style={{ maxWidth: "780px" }}
+            data-d="1"
           >
-            A few seconds.{" "}
-            <span className="italic font-light" style={{ color: "var(--vx-ink-soft)" }}>
-              Worth knowing while you wait.
-            </span>
-          </h2>
-
-          {/* Fact carousel — cross-fade keyed on index. */}
-          <div className="my-10 lg:my-12">
-            <div
-              key={factIndex}
-              className="rise"
-              style={{ maxWidth: "60ch", margin: "0 auto" }}
-              data-d="1"
+            <p
+              className="font-serif mx-auto"
+              style={{
+                fontSize: "clamp(28px, 4.4vw, 44px)",
+                lineHeight: 1.3,
+                fontWeight: 400,
+                color: "var(--vx-ink)",
+                fontStyle: "italic",
+              }}
             >
-              <p
-                className="font-serif mx-auto"
-                style={{
-                  fontSize: "clamp(22px, 3vw, 30px)",
-                  lineHeight: 1.4,
-                  fontWeight: 400,
-                  color: "var(--vx-ink)",
-                  fontStyle: "italic",
-                }}
-              >
-                {fact}
-              </p>
-            </div>
+              {fact}
+            </p>
           </div>
 
-          {/* Progress + counter — stacked directly under the fact. */}
+          {/* Progress bar — thicker, terracotta accent, sized to match
+              the editorial weight of the fact. */}
           <div
-            className="mx-auto"
+            className="mt-12 w-full"
             style={{
-              maxWidth: "420px",
-              height: "1px",
+              maxWidth: "640px",
+              height: "3px",
               background: "var(--vx-rule)",
               position: "relative",
               overflow: "hidden",
+              borderRadius: "2px",
             }}
           >
             <div
