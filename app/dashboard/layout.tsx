@@ -34,15 +34,15 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     isOnDemoRoute(),
   ]);
   return (
-    // `voxaris` class activates the Patek-style cream + serif design
-    // tokens (vars + utility classes in app/globals.css). The dashboard
-    // now uses the SAME design vocabulary as the customer-facing
-    // estimator — cream paper, hairline borders, DragonEF serif
-    // display, Ambit SemiBold UI, one terracotta accent per screen.
-    <div
-      className="voxaris min-h-[100dvh]"
-      style={{ background: "var(--vx-cream)", color: "var(--vx-ink)" }}
-    >
+    // theme-terminal: the dark operator-console theme this dashboard's
+    // page-level components (scoreboard, glass-panel, iridescent-text,
+    // text-white/* tokens) were originally designed against. Ethan's
+    // 2026-05-17 commit switched this to `.voxaris` (cream/serif) which
+    // applied the customer-facing brand here too — but the individual
+    // dashboard pages (overview, leads, analytics, etc.) still reference
+    // dark-theme CSS that doesn't have cream equivalents yet. Reverted
+    // to theme-terminal until the cream redesign is finished page-by-page.
+    <div className="theme-terminal min-h-[100dvh] text-white">
       {isDemo && <DemoBanner activeRole={role} />}
       <DashboardChrome
         offices={DEMO_OFFICES}

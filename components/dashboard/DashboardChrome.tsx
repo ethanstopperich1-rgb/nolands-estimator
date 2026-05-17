@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   PhoneCall,
   Users,
-  FileText,
   BarChart3,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -66,8 +65,10 @@ const NAV: NavItem[] = [
     labelByRole: { rep: "My calls" } },
   { segment: "/leads", label: "Leads", icon: Users, match: "prefix", minRole: "rep",
     labelByRole: { rep: "My leads" } },
-  { segment: "/proposals", label: "Proposals", icon: FileText, match: "prefix", minRole: "rep",
-    labelByRole: { rep: "My estimates" } },
+  // Proposals route was deleted during the V3 refactor — entry hidden
+  // from the sidebar until the proposal UI is rebuilt on top of the new
+  // `roof_v3_json` lead payload. Lead drawer + workbench cover the gap
+  // for now (each lead row has full V3 detail accessible from /dashboard/estimate).
   { segment: "/analytics", label: "Analytics", icon: BarChart3, match: "prefix", minRole: "manager" },
   { segment: "/settings", label: "Settings", icon: SettingsIcon, match: "prefix", internalOnly: true, minRole: "manager" },
   { segment: "/admin", label: "Admin", icon: ShieldCheck, match: "prefix", internalOnly: true, minRole: "admin" },
