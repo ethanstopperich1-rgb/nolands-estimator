@@ -21,35 +21,74 @@ export const GEMINI_ROOF_PROMPT = `Edit this 1280×1280 aerial satellite image b
 
 ## Layer 1 — Roof overlay (image output)
 
-Paint a translucent cyan layer (#38C5EE, ~40% opacity) across the visible roof surface of the central house. Add a crisp 2–3 pixel cyan outline (#38C5EE, full opacity) along the outer roof perimeter — eaves, gable ends, hip edges. Add thin 1-pixel cyan lines along interior ridges and hips where two roof planes meet.
+### Rule #1: each roof plane is ONE solid, continuous polygon. No exceptions.
 
-The roof texture underneath — shingles, ridge caps, vents, architectural shadow lines — must remain clearly visible through the cyan. The effect should look like clean paint applied to the roof, not a flat sticker covering it. Preserve photographic realism everywhere outside the overlay; do not restyle, smooth, or recolor the surrounding image.
+When you paint a roof plane, the cyan must fill the ENTIRE plane as a single continuous shape — eave to ridge, gable to gable. **No notches. No cutouts. No bite-outs along the inside edge. No triangular gaps that follow shadow lines. No holes around skylights or vents (those small fixtures sit ON the painted surface — paint right over them with the cyan and let the texture show through).**
 
-**Follow the actual roof, not the apparent dark area**
+The painted shape per roof plane is a CONVEX OR L-SHAPED POLYGON whose boundary is composed only of real roof edges:
+- **Eaves** (where the roof meets open air at the bottom of a slope)
+- **Ridges** (the highest line where two planes meet at the peak)
+- **Hips** (sloped line running down a corner from the peak)
+- **Valleys** (sloped line between two planes meeting in a V from above)
+- **Rakes** (sloped edge along the open side of a gable)
+- **Gable ends** (the vertical-facing wall at the end of a ridge)
 
-The roof is a man-made structure with straight edges, consistent shingle or tile texture, clean eave lines where it meets open air, and uniform color across each plane. Use these features — not darkness — to find the roof boundary. The overlay's outer edge must sit on a sharp line where roof material meets open air or gutter.
+That is the COMPLETE list of legal cyan boundaries. If a candidate boundary is none of those six things, it is not an edge — keep painting through it.
 
-Do NOT paint cyan on:
-- **Cast shadows on the ground.** Shadows are soft-edged, desaturated gray-green or gray-brown, sit on grass or pavement, and have no shingle texture. They often extend from the roof edge across the lawn — stop the overlay at the eave, not at the shadow's edge.
-- **Shadows cast BY roof features ONTO the same roof.** Skylights, chimneys, and ridges cast triangular or rectangular shadows across the shingles beside them. Those shadow shapes are NOT separate facets and they are NOT roof penetrations — they are dark patches on shingles that are still part of the same continuous roof plane. Paint the cyan straight through them as if the shadow weren't there. A common failure mode is painting two narrow triangular sections next to each skylight (the shadows) while skipping the actual top-of-skylight roof slope. Don't do that — the top slope IS the roof; the shadow is on it.
-- **Tree canopy next to the house.** Foliage is bumpy, organic, irregular, and clustered. Even when canopy is dark and roughly roof-colored, it has no straight edges and no shingle pattern.
+### Rule #2: shadow lines are NOT roof edges. They are darker shingle.
+
+Shadows cast onto the roof by skylights, chimneys, dormers, vents, the ridge itself, or nearby trees create sharp dark lines that look like edges but ARE NOT. The shingle material is continuous underneath the shadow. The plane is still the same plane.
+
+Common failure pattern to avoid:
+A row of skylights along the south slope casts a row of triangular shadows pointing away from the sun. The model sees five sharp triangular dark shapes and "cuts" them out of the cyan, leaving five triangular holes in the overlay. **DO NOT do this.** Paint cyan straight through every one of those triangles. The roof slope above, below, between, and through the shadows is the same plane. The overlay across that slope should be one single rectangle with no triangular notches.
+
+Test: if you are about to stop the cyan at a dark line, ask yourself which of the six legal edges it is. If you can't name one, keep painting.
+
+### Rule #3: distinguishing shadow vs. real edge.
+
+A real roof edge is a 3D geometric transition between surfaces facing different directions. In a satellite photo this shows as:
+- A change in shingle texture orientation (granules align differently across the line)
+- A change in average brightness because one plane catches more sun than the other (gradual, NOT a sharp triangular shape)
+- A continuous line that spans a meaningful distance — typically at least 10–20% of the roof width
+
+A shadow is a darkness pattern projected by a feature. It shows as:
+- A sharp-edged dark patch with one or two straight boundaries (the rest is irregular)
+- IDENTICAL shingle texture inside and outside the shadow
+- A shape that points away from the sun (e.g. a triangular patch pointing east from a skylight in afternoon light)
+- A length that's proportional to the height of the object casting it (~0.5–2× the object size, not the full roof)
+
+When the patch is small, sharp-cornered, and matches the orientation of a nearby skylight/chimney/vent, it is a shadow. Paint through it.
+
+### Outer boundary rules — where the cyan ends.
+
+The overlay's outer edge must sit on one of the six legal edges where the roof material meets non-roof (sky, gutter, open air past the eave). Do NOT extend the cyan onto:
+- **Cast shadows on the ground.** Shadows are soft-edged, desaturated gray-green or gray-brown, sit on grass or pavement, and have no shingle texture.
+- **Tree canopy next to the house.** Foliage is bumpy, organic, irregular, clustered. No straight edges, no shingle pattern.
 - **Lawn, driveway, pool, pool deck, patio, sidewalk, fence.**
-- **Neighboring houses.** If there is any strip of ground (lawn, walkway, driveway) between the central roof and another rooftop, the other rooftop is a different building. Do not bridge across that gap.
+- **Neighboring houses.** If there is any strip of ground (lawn, walkway, driveway) between the central roof and another rooftop, the other rooftop is a different building.
 - **Detached sheds or garages** separated from the main house by ground.
-- **Attached porches with a SEPARATE lower-pitched roof.** Many homes have a covered porch tacked onto one side whose roof is visibly shallower (often nearly flat) and meets the main house at a horizontal seam where the porch roof tucks UNDER the main roof's eave. Even though the structures are attached, the porch roof is its own surface — different pitch, different material wear, different age. Leave it OFF the cyan overlay. The clue: a clean horizontal seam at the wall plus a visibly shallower slope in the imagery (the porch slope reads as a flat or near-flat rectangle while the main roof reads as a tilted shingle plane).
-- **Carports and breezeways** whose roof structure is separate from the main house, even when they touch the wall.
+- **Attached porches with a SEPARATE lower-pitched roof.** Many homes have a covered porch whose roof is visibly shallower (often near-flat) and meets the main house at a horizontal seam where the porch roof tucks UNDER the main roof's eave. Leave it OFF the cyan overlay. The clue: a clean horizontal seam at the wall plus a visibly shallower slope.
+- **Carports and breezeways** whose roof structure is separate from the main house.
 
-Attached porches, attached garages, sunrooms, and additions whose roof plane is visibly CONTINUOUS with the main house — same pitch, same shingle pattern, same height seam — ARE part of the target and should be overlaid. The test is continuity of plane, not physical attachment.
+Attached porches, attached garages, sunrooms, and additions whose roof plane is visibly CONTINUOUS with the main house — same pitch, same shingle pattern, same height seam — ARE part of the target and should be overlaid. Continuity of plane, not physical attachment.
 
-**Filling small gaps under tree canopy**
+### Filling small gaps under tree canopy.
 
-When tree branches partially cover the roof, paint the cyan overlay across the covered area as if the canopy were transparent — but only when the roof clearly continues underneath. You can tell the roof continues underneath when:
+When tree branches partially cover the roof, paint cyan across the covered area as if the canopy were transparent — but only when the roof clearly continues underneath (visible roof on each side of the canopy lines up, eave line stays consistent, covered span is small). If most of the roof is hidden by trees, only paint what you can see. If unsure, paint less.
 
-- Visible roof on one side of the canopy lines up in a straight line with visible roof on the other side
-- The eave line is consistent across the gap
-- The covered span is small compared to the visible roof
+### Painting style.
 
-If most of the roof is covered by trees, only paint what you can actually see. If you cannot tell whether a dark patch is roof-under-canopy or just canopy-over-lawn, leave it unpainted. A slightly incomplete overlay is correct; an overlay that bulges into lawn, trees, or a neighbor's roof is wrong. **When uncertain, paint less.**
+Use translucent cyan #38C5EE at ~40% opacity. Add a crisp 2–3 pixel #38C5EE full-opacity outline along each legal outer edge AND along each legal interior edge (ridges, hips, valleys) where one cyan plane meets another. Shingle texture, ridge caps, vents, and small fixtures must remain clearly visible through the fill. The effect is painted, not pasted.
+
+### Self-check before returning.
+
+Before you finish, scan your output:
+1. Does any cyan boundary follow a shadow line? Fix it — fill that area in.
+2. Are there any triangular, sharp-cornered notches along the inside edge of any painted plane? Fix them — fill them in.
+3. Are there small holes around skylights, vents, or chimneys? Fix them — paint over the fixtures.
+4. Is each roof plane represented by ONE continuous polygon? If a single plane is showing as multiple disconnected shapes, merge them.
+
+The painted shape per plane should be the same polygon a human architect would draw if asked to outline that plane on a printout. No funny notches, no shadow-shaped indentations.
 
 ## Layer 2 — Rooftop & site detection (JSON output)
 

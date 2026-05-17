@@ -16,6 +16,7 @@
  */
 
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 import { rateLimit } from "@/lib/ratelimit";
 import { fetchWithTimeout } from "@/lib/safe-fetch";
 import { getCached, setCached } from "@/lib/cache";
@@ -178,8 +179,49 @@ async function fetchGoogleStaticTile(
   if (!res.ok) {
     throw new Error(`google_static_${res.status}`);
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  return { base64: buf.toString("base64"), mimeType: "image/png" };
+  const raw = Buffer.from(await res.arrayBuffer());
+
+  // ─── Shadow-lift preprocessing ────────────────────────────────────────
+  // Lifts dark areas (skylight-cast shadows, tree shadows on roof,
+  // dormer shadows) before the tile reaches Gemini so the model is less
+  // tempted to treat sharp shadow boundaries as roof edges. We're not
+  // washing out the image — we're reducing the contrast between
+  // "lit shingle" and "shadowed shingle" so they read as the same
+  // surface.
+  //
+  // Pipeline:
+  //   - gamma(1.25): lifts midtones (the typical shingle exposure)
+  //     more than highlights or pure black. Shadow detail comes up
+  //     without blowing out bright roof areas.
+  //   - linear(0.92, 18): subtle contrast reduction + 18-unit black-
+  //     point lift. RGB(20,20,30) → ~(36,36,46); RGB(220,210,200) →
+  //     ~(220,211,202). Asymmetric lift = relative shadow brightening.
+  //   - modulate({ saturation: 0.92 }): slight desaturation reduces
+  //     the chance Gemini latches onto color edges that aren't real
+  //     plane transitions.
+  //
+  // Failure modes are bounded: the only downside of this preprocessing
+  // is a slightly flatter input image. The Gemini overlay still
+  // renders correctly on top of the ORIGINAL tile in the browser
+  // (we're only sending the lifted version to Gemini, not displaying
+  // it). Try/catch ensures a sharp failure just falls back to the raw
+  // tile — the route never breaks.
+  let processed: Buffer = raw;
+  try {
+    processed = await sharp(raw)
+      .gamma(1.25)
+      .linear(0.92, 18)
+      .modulate({ saturation: 0.92 })
+      .png()
+      .toBuffer();
+  } catch (err) {
+    console.warn(
+      "[gemini-roof] shadow-lift preprocessing failed; using raw tile:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  return { base64: processed.toString("base64"), mimeType: "image/png" };
 }
 
 /**
