@@ -1,5 +1,10 @@
 node_modules
 .next
+
+# Reference clone of microsoft/playwright (--depth=1). Kept locally for
+# source spelunking; the runtime dep is `playwright`/`playwright-core` from
+# npm (see package.json). Never commit the upstream tree.
+vendor/
 .env
 .env.local
 *.tsbuildinfo
