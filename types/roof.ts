@@ -299,7 +299,6 @@ export interface PricedEstimate {
 
 import type { AddressInfo, Estimate as LegacyEstimate } from "./estimate";
 import type { PhotoMeta } from "./photo";
-import type { ClaimContext } from "../lib/carriers";
 
 export interface EstimateV2 {
   version: 2;
@@ -314,7 +313,6 @@ export interface EstimateV2 {
   priced: PricedEstimate;
   isInsuranceClaim?: boolean;
   photos?: PhotoMeta[];
-  claim?: ClaimContext;
 }
 
 export type LoadedEstimate =

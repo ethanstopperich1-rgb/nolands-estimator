@@ -25,84 +25,61 @@ import { NextResponse, type NextRequest } from "next/server";
  * mistake.
  *
  * Public surfaces NOT protected (customer-facing, intentional):
- *   /quote                  customer estimator wizard
+ *   /                       customer V3 holy-grail estimator
  *   /embed                  iframe embed for partner sites
- *   /p/[id]                 customer-facing proposal share link
  *   /api/leads              lead capture (BotID-guarded)
  *   /api/sms/*              Twilio webhooks (HMAC-validated)
- *   /api/places/*           address autocomplete (used by /quote)
- *   /api/solar              roof size + pitch (used by /quote)
- *   /api/sam3-roof          primary polygon source (used by /quote)
- *   /api/solar-mask         fallback polygon (used by /quote)
- *   /api/microsoft-building fallback polygon (used by /quote)
- *   /api/building           OSM building lookup (used by /quote)
- *   /api/storms             storm history (used by /quote)
- *   /api/hail-mrms          radar hail (used by /quote)
- *   /api/weather            weather context (used by /quote)
+ *   /api/places/*           address autocomplete (used by /)
+ *   /api/gemini-roof        V3 truth pipeline (used by / + /dashboard/estimate)
+ *   /api/solar              auxiliary Solar lookups (used by /)
+ *   /api/building           OSM building lookup
+ *   /api/storms             storm history
+ *   /api/hail-mrms          radar hail
+ *   /api/weather            weather context
  *
  * Protected surfaces (staff-only, gated below):
- *   /                       internal estimator (rep tool)
- *   /history                rep history
- *   /admin                  admin tools
- *   /eval-trace             eval mode
- *   /api/photos             rep photo uploads (writes Vercel Blob — $$$ abuse risk)
- *   /api/voice-note         rep dictation (Whisper + Qwen — $$$ abuse risk)
- *   /api/supplement         PDF parse + Qwen (rep tool, $$$ abuse risk)
- *   /api/eval-truth/*       eval-mode capture (writes Vercel Blob)
+ *   /dashboard/*            internal dashboard (Supabase-gated)
+ *   /api/photos             rep photo uploads (Vercel Blob)
+ *   /api/voice-note         rep dictation (Whisper)
+ *   /api/supplement         PDF parse (rep tool)
  *   /api/insights           rep insights panel
- *   /api/vision             Claude vision (rep tool, $$$ abuse risk)
+ *   /api/vision             Claude vision (rep tool)
  *   /api/verify-polygon     Claude vision QA (rep tool)
  *   /api/verify-polygon-multiview  same
- *   /api/roboflow           Roboflow inference (rep tool, $$$ abuse risk)
- *   /api/sam-refine         Replicate SAM2 (rep tool, $$$ abuse risk)
- *   /api/estimates          rep proposal persistence (stub)
- *   POST /api/proposals     staff-only — same-origin + Basic Auth or session
- *   /api/aerial             currently unused by any caller — gated until
- *                           an intentional customer call site exists
+ *   /api/estimates          rep estimate persistence (stub)
+ *   /api/aerial             unused; gated until a call site exists
  */
 
 const PROTECTED_API_PREFIXES = [
   "/api/photos",
   "/api/voice-note",
   "/api/supplement",
-  "/api/eval-truth",
   "/api/insights",
   "/api/vision",
   "/api/verify-polygon",
-  "/api/roboflow",
-  "/api/sam-refine",
   "/api/estimates",
-  // /api/aerial moved to protected — was previously in the public-OK
-  // list because middleware.ts assumed /quote used it, but a repo grep
-  // (Cursor review) confirmed no callers. Gating it eliminates a free
-  // cost-abuse surface (Google Aerial View render quota) until / if
-  // we wire an actual customer-facing caller.
+  // /api/aerial — no current call site; gated to avoid abuse on the
+  // Google Aerial View render quota.
   "/api/aerial",
 ];
 
 /**
  * INTENTIONALLY PUBLIC (do NOT add these to PROTECTED_*):
  *
- *   /quote, /embed, /p/*       customer-facing surfaces (the entire reason
- *                              the product exists)
- *   /login, /auth/*            sign-in flow itself — gating /login behind
- *                              auth would lock everyone out
- *   /privacy, /terms           legal pages must be reachable without auth
- *                              for TCPA + state-law compliance
- *   /api/leads, /api/sms/*     public ingest endpoints (BotID + Twilio HMAC)
- *   /api/places/*              address autocomplete used by /quote
- *   /api/solar, /api/solar-mask, /api/sam3-roof, /api/microsoft-building,
- *   /api/building, /api/storms, /api/hail-mrms, /api/weather  → /quote stack
- *   /api/healthz               operator probe (gated by HEALTHZ_TOKEN if set)
- *   GET /api/proposals/*       anonymous proposal read for /p/[id] share links
+ *   /, /embed                  customer-facing surfaces
+ *   /login, /auth/*            sign-in flow
+ *   /privacy, /terms           legal pages (TCPA + state-law compliance)
+ *   /api/leads, /api/sms/*     public ingest endpoints (BotID / Twilio HMAC)
+ *   /api/places/*              address autocomplete
+ *   /api/gemini-roof           V3 truth pipeline
+ *   /api/solar, /api/building, /api/storms, /api/hail-mrms, /api/weather
  *
- * If a future PR adds an /api/<new> that /quote depends on, add it to the
- * "intentionally public" comment in the file header — do not silently
- * leave it ungated. Likewise, anything new and rep-only goes in
- * PROTECTED_API_PREFIXES below.
+ * Anything new and rep-only goes in PROTECTED_API_PREFIXES above.
  */
-const PROTECTED_PAGE_PATHS = new Set<string>(["/"]);
-const PROTECTED_PAGE_PREFIXES = ["/history", "/admin", "/eval-trace", "/dashboard"];
+// `/` is the customer-facing root (V3 holy-grail flow). Everything
+// internal lives under /dashboard/* and is gated below by Supabase auth.
+const PROTECTED_PAGE_PATHS = new Set<string>();
+const PROTECTED_PAGE_PREFIXES = ["/dashboard"];
 
 function isProtected(pathname: string, method: string): boolean {
   // POST /api/proposals — staff-only (prevents unauthenticated proposal spam).
@@ -190,23 +167,9 @@ export function middleware(req: NextRequest): NextResponse {
     return res;
   }
 
-  // Root-domain landing: redirect unauthenticated visitors to the
-  // customer-facing /quote page so a buyer pasting the bare URL
-  // (`pitch.voxaris.io/`) doesn't hit the staff-auth 503. Authenticated
-  // staff still land on the internal estimator at `/` via the redirect-
-  // skip below.
-  if (pathname === "/") {
-    if (hasSupabaseSession(req)) {
-      return NextResponse.next();
-    }
-    if (req.headers.get("authorization")?.startsWith("Basic ")) {
-      // Let Basic-Auth-armed staff through to the internal estimator;
-      // the protected-route logic below handles credential validation.
-      return NextResponse.next();
-    }
-    const dest = new URL("/quote", req.url);
-    return NextResponse.redirect(dest, 307);
-  }
+  // `/` is the customer-facing root (V3 holy-grail flow). No auth, no
+  // redirect — it renders the Patek-style estimator directly. Internal
+  // staff use /dashboard/* (Supabase-gated) for their tools.
 
   if (!isProtected(pathname, req.method)) {
     return NextResponse.next();

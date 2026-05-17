@@ -48,27 +48,24 @@ When tree branches partially cover the roof, paint the cyan overlay across the c
 
 If most of the roof is covered by trees, only paint what you can actually see. If you cannot tell whether a dark patch is roof-under-canopy or just canopy-over-lawn, leave it unpainted. A slightly incomplete overlay is correct; an overlay that bulges into lawn, trees, or a neighbor's roof is wrong. **When uncertain, paint less.**
 
-## Layer 2 — Rooftop object detection (JSON output)
+## Layer 2 — Rooftop & site detection (JSON output)
 
-Identify every object you can directly see on the central building's roof. Use this schema:
+Identify roof fixtures, visible damage, and surrounding site context. Use the schema below.
 
-{
-  "objects": [
-    {
-      "type": "vent | chimney | hvac_unit | skylight | plumbing_boot | satellite_dish | solar_panel",
-      "center_pixel": [x, y],
-      "bounding_box": { "x": <int>, "y": <int>, "width": <int>, "height": <int> },
-      "confidence": 0.0
-    }
-  ]
-}
-
-Rules for the JSON:
-- Only include objects on the central building's roof. Skip anything on neighboring roofs, in yards, or on the ground.
-- Only include objects you can directly see. Do NOT infer objects under tree canopy — the gap-filling rule applies to the overlay only, not to object detection.
+Rules:
+- Only include rooftop objects on the central building's roof. Skip anything on neighboring roofs, in yards, or on the ground.
+- Only include things you can directly see. Do NOT infer objects under tree canopy — the gap-filling rule applies to the overlay only.
 - Coordinates are in image pixel space (0–1279 on each axis, origin top-left).
 - Bounding box should tightly enclose the object.
 - Confidence is a float between 0.0 and 1.0 reflecting certainty about both object type and presence.
+
+For visible_damage, report each discrete signal you can SEE in the imagery — do not guess. Each entry is one discrete observation (e.g. "lifted shingles in the north slope"). Confidence reflects how clearly the damage is visible from this satellite angle.
+
+For secondary_structures, list attached additions that share a continuous roof plane with the main house — porches, lanais, attached garages, sunrooms, additions. Skip detached structures.
+
+For site_obstacles, list things visible around the roof that would affect crew access or material staging — heavy tree overhang, overhead utility wires crossing the roof, pool immediately adjacent, narrow side-yard access, fence enclosing the property.
+
+For apparent_age_band, choose ONE band based on overall roof appearance — granule coverage, color uniformity, visible weathering. This is a rough banding, not a precise age.
 
 ## Aesthetic
 
@@ -191,6 +188,104 @@ export const GEMINI_ROOF_SCHEMA = {
         },
         required: ["hint", "confidence"],
       },
+    },
+    visible_damage: {
+      type: "ARRAY",
+      description:
+        "Discrete damage observations visible in the imagery. Each entry is one observation, not an overall grade. Empty array when no damage is visible.",
+      items: {
+        type: "OBJECT",
+        properties: {
+          kind: {
+            type: "STRING",
+            enum: [
+              "lifted_shingles",
+              "missing_shingles",
+              "exposed_underlayment",
+              "ridge_cap_lifting",
+              "visible_sagging",
+              "displaced_tiles",
+              "blistering",
+              "hail_bruising_pattern",
+              "wind_streak_pattern",
+              "patched_area",
+            ],
+          },
+          location_hint: {
+            type: "STRING",
+            description: "Short phrase describing where on the roof (e.g. 'north slope', 'ridge near chimney').",
+          },
+          confidence: { type: "NUMBER" },
+        },
+        required: ["kind", "confidence"],
+      },
+    },
+    secondary_structures: {
+      type: "ARRAY",
+      description:
+        "Attached additions whose roof plane is visibly continuous with the main house and should be included in the measurement.",
+      items: {
+        type: "OBJECT",
+        properties: {
+          kind: {
+            type: "STRING",
+            enum: [
+              "attached_garage",
+              "attached_carport",
+              "screened_lanai",
+              "covered_porch",
+              "sunroom",
+              "addition_wing",
+              "shed_attached",
+            ],
+          },
+          confidence: { type: "NUMBER" },
+        },
+        required: ["kind", "confidence"],
+      },
+    },
+    site_obstacles: {
+      type: "ARRAY",
+      description:
+        "Surrounding-site features that affect crew access, dumpster staging, or material delivery.",
+      items: {
+        type: "OBJECT",
+        properties: {
+          kind: {
+            type: "STRING",
+            enum: [
+              "heavy_tree_overhang",
+              "overhead_utility_wires",
+              "pool_adjacent",
+              "narrow_side_yard",
+              "fenced_property",
+              "shared_driveway",
+              "steep_grade",
+            ],
+          },
+          confidence: { type: "NUMBER" },
+        },
+        required: ["kind", "confidence"],
+      },
+    },
+    apparent_age_band: {
+      type: "OBJECT",
+      description:
+        "Rough age banding from visible weathering, granule coverage, and color uniformity. Not a precise age.",
+      properties: {
+        band: {
+          type: "STRING",
+          enum: [
+            "new_under_5y",
+            "mid_5_to_15y",
+            "mature_15_to_25y",
+            "end_of_life_25y_plus",
+            "indeterminate",
+          ],
+        },
+        confidence: { type: "NUMBER" },
+      },
+      required: ["band", "confidence"],
     },
   },
   // Only `objects` is required at the top level — Gemini Flash sometimes

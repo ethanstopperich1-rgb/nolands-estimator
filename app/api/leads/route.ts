@@ -7,6 +7,7 @@ import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
 import { attachLeadContext } from "@/lib/sms-conversation";
 import {
   createServiceRoleClient,
+  resolveOfficeBySlug,
   resolveOfficeIdBySlug,
   supabaseServiceRoleConfigured,
 } from "@/lib/supabase";
@@ -43,9 +44,18 @@ interface LeadPayload {
    *  /quote sends this via the embed config / branded subdomain;
    *  defaults to "voxaris" (the seed office). */
   office?: string;
-  /** TCPA consent — required. The client form gates the submit button
-   *  but a direct POST could bypass it; we enforce server-side too. */
+  /** Legacy single-consent boolean. Kept for back-compat with older
+   *  client embeds; new code should send `marketingConsent` instead.
+   *  When `tcpaConsent === true` and neither granular flag is set, we
+   *  treat it as marketingConsent only (no voice). */
   tcpaConsent?: boolean;
+  /** Granular consent 1 — required. Authorizes email + SMS intro.
+   *  Without this we refuse to capture the lead. */
+  marketingConsent?: boolean;
+  /** Granular consent 2 — optional. Authorizes an outbound automated
+   *  voice call. When false/missing, the server skips dispatch even if
+   *  INTERNAL_DISPATCH_SECRET is configured and an estimate is present. */
+  voiceConsent?: boolean;
   /** Exact disclosure text shown to the customer at consent time. We
    *  store this verbatim so we can prove what they agreed to if asked
    *  by FTC / a partner contractor in a compliance audit. */
@@ -134,15 +144,20 @@ export async function POST(req: Request) {
 
   // TCPA consent enforcement — server-side gate. The client form gates
   // the submit button via React state, but a direct POST could bypass
-  // that check. We REQUIRE tcpaConsent === true before any SMS or
-  // automated outreach fires for this lead.
-  if (body.tcpaConsent !== true) {
+  // that check. We REQUIRE the marketing consent before any SMS or
+  // email outreach fires. Voice consent is granular and OPTIONAL: it
+  // only authorizes the outbound automated voice call, which is gated
+  // separately below.
+  const marketingConsent =
+    body.marketingConsent === true || body.tcpaConsent === true;
+  const voiceConsent = body.voiceConsent === true;
+  if (!marketingConsent) {
     return NextResponse.json(
       {
-        error: "tcpa_consent_required",
+        error: "marketing_consent_required",
         message:
-          "TCPA consent is required before submitting marketing-eligible " +
-          "contact information. Check the consent box and resubmit.",
+          "Marketing consent is required before submitting contact info. " +
+          "Check the consent box and resubmit.",
       },
       { status: 400 },
     );
@@ -205,9 +220,17 @@ export async function POST(req: Request) {
   // set (dev / preview), this silently no-ops and the legacy webhook
   // flow below still fires. office slug → office_id lookup is cached
   // 1h in resolveOfficeIdBySlug.
+  // Office-aware branding — used by SMS intro + the voice-agent persona.
+  // We resolve once here so the SMS template + dispatch payload can both
+  // address the customer as the actual office name ("Nolands Roofing"
+  // not "Voxaris").
+  const officeBranding = supabaseServiceRoleConfigured()
+    ? await resolveOfficeBySlug(officeSlug)
+    : null;
+
   if (supabaseServiceRoleConfigured()) {
     try {
-      const officeId = await resolveOfficeIdBySlug(officeSlug);
+      const officeId = officeBranding?.id ?? (await resolveOfficeIdBySlug(officeSlug));
       if (!officeId) {
         console.warn(`[leads] no active office for slug='${officeSlug}'`);
       } else {
@@ -268,6 +291,25 @@ export async function POST(req: Request) {
               ip_address: consentIp,
               user_agent: consentUserAgent,
             });
+            // Separate voice-consent receipt — only written when the
+            // customer explicitly opted in to the outbound automated
+            // voice call. Stored under `call_recording` to match the
+            // existing consents enum; the disclosure_text disambiguates.
+            if (voiceConsent) {
+              await supabase.from("consents").insert({
+                office_id: officeId,
+                lead_id: data.id,
+                consent_type: "call_recording",
+                disclosure_text:
+                  "Customer authorized an automated outbound voice intro call from " +
+                  (officeBranding?.displayName ?? "the assigned business") +
+                  " at the phone number provided. Recording may apply. Reply STOP to opt out.",
+                email: emailNorm,
+                phone: body.phone?.trim() || null,
+                ip_address: consentIp,
+                user_agent: consentUserAgent,
+              });
+            }
 
             // Companion proposals row — when the final /quote submit
             // carries a full Estimate snapshot, persist it so the
@@ -398,7 +440,11 @@ export async function POST(req: Request) {
         ? `Your estimate range: $${body.estimateLow.toLocaleString()}-$${body.estimateHigh.toLocaleString()}. `
         : "";
     const firstName = body.name.split(/\s+/)[0];
-    const smsBody = `Hi ${firstName}, this is Voxaris Roofing. We got your estimate request for ${body.address}. ${estimateLine}Reply with any questions or text BOOK to schedule a free inspection. — Voxaris`;
+    // Office-aware SMS intro. Falls back to "Voxaris Pitch" if the
+    // office row didn't resolve (dev / preview without Supabase).
+    const officeName = officeBranding?.displayName ?? "Voxaris Pitch";
+    const agentName = officeBranding?.livekitAgentName ?? "Sydney";
+    const smsBody = `Hi ${firstName}, this is ${agentName} from ${officeName}. We got your estimate request for ${body.address}. ${estimateLine}Reply with any questions or text BOOK to schedule a free inspection. Reply STOP to opt out.`;
 
     // Run both writes in parallel and don't await — keep the API
     // response fast.
@@ -473,7 +519,21 @@ export async function POST(req: Request) {
   // update of an earlier step-1 capture.
   const hasEstimate =
     typeof body.estimateLow === "number" && typeof body.estimateHigh === "number";
-  if (phoneE164 && process.env.INTERNAL_DISPATCH_SECRET && hasEstimate) {
+  // VOICE-CONSENT GATE — even with INTERNAL_DISPATCH_SECRET configured
+  // and an estimate present, the dispatch only fires when the customer
+  // explicitly checked the second consent box (or, for back-compat,
+  // when an older client sent just `tcpaConsent` and no granular
+  // voiceConsent flag at all — old behavior: single consent covered
+  // everything). New clients MUST opt in.
+  const dispatchAllowed =
+    voiceConsent ||
+    (body.voiceConsent === undefined && body.marketingConsent === undefined);
+  if (
+    phoneE164 &&
+    process.env.INTERNAL_DISPATCH_SECRET &&
+    hasEstimate &&
+    dispatchAllowed
+  ) {
     const origin = new URL(req.url).origin;
     const dispatchSecret = process.env.INTERNAL_DISPATCH_SECRET;
     // Hold the dispatch for a beat so the customer has a moment to
