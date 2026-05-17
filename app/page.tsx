@@ -112,6 +112,8 @@ interface V3Response {
     siteObstacles: Array<{ kind: string; confidence: number }>;
     apparentAgeBand: { band: string; confidence: number } | null;
   };
+  modelVersion?: string;
+  computedAt?: string;
 }
 
 const LOADING_MESSAGES: Array<{ at: number; text: string }> = [
@@ -191,13 +193,23 @@ function VoxarisFlow() {
     setErrorMsg(null);
     setResult(null);
     try {
-      const res = await fetch(
-        // skipCache=1 on every customer request — caching was producing
-        // stale numbers when we shipped pipeline fixes. The endpoint is
-        // ~25–50s; a fresh pass is the right trade for accuracy.
-        `/api/gemini-roof?lat=${pinLat}&lng=${pinLng}&pinConfirmed=1&skipCache=1`,
-        { cache: "no-store" },
-      );
+      // skipCache=1 on every customer request — caching was producing
+      // stale numbers when we shipped pipeline fixes. The endpoint is
+      // ~25–50s; a fresh pass is the right trade for accuracy.
+      //
+      // leadPublicId triggers server-side persistence via waitUntil()
+      // so the rep workbench can render "See report" instantly from
+      // the leads.roof_v3_json column without re-running the pipeline.
+      const params = new URLSearchParams({
+        lat: String(pinLat),
+        lng: String(pinLng),
+        pinConfirmed: "1",
+        skipCache: "1",
+      });
+      if (leadPublicId) params.set("leadPublicId", leadPublicId);
+      const res = await fetch(`/api/gemini-roof?${params.toString()}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(`Estimate service ${res.status}: ${text.slice(0, 200)}`);
@@ -1005,15 +1017,15 @@ function ResultScreen({
         </div>
 
         {/* Above-the-fold row — image LEFT, price + CTA RIGHT on lg+.
-            On mobile this stacks vertically with the image first. Goal
-            is for price + "Get a rep to my door" to be visible without
-            the customer having to scroll. */}
-        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_440px] gap-8 lg:gap-10 items-start">
+            `items-center` keeps the two columns vertically balanced so
+            the painted image doesn't tower over the price card. The
+            grid auto-rows-fr makes them visually paired blocks. */}
+        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-10 items-center justify-items-center w-full">
           {/* Painted image */}
           {paintedImageBase64 ? (
             <div
-              className="result-card overflow-hidden mx-auto lg:mx-0 w-full"
-              style={{ maxWidth: "520px", aspectRatio: "1 / 1" }}
+              className="result-card overflow-hidden mx-auto w-full"
+              style={{ maxWidth: "480px", aspectRatio: "1 / 1" }}
             >
               <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
               <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
@@ -1031,7 +1043,7 @@ function ResultScreen({
           )}
 
           {/* Right column: price + voice-consent CTA, stacked. */}
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-5 w-full" style={{ maxWidth: "440px" }}>
             {price && (
               <div
                 className="result-card text-center"
@@ -1346,7 +1358,7 @@ function Wordmark({
     <span className="inline-flex items-center">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/brand/logo-wordmark-alpha.png"
+        src="/brand/voxaris-ai-wordmark.png"
         alt="Voxaris AI"
         style={{
           height: `${dim}px`,

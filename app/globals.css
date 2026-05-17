@@ -2605,21 +2605,38 @@ article p,
   letter-spacing: -0.01em !important;
 }
 
-/* Text colors — remap the dark-theme white tints onto the ink scale. */
+/* Text colors — remap the dark-theme white tints onto the ink scale.
+ * Mid-range tints (35–55) previously mapped to --vx-muted (#8A7E68) which
+ * scored ~3.4:1 on cream — barely legible. Lifted to ink-soft so body
+ * text in dashboard sections (overview eyebrows, call-detail labels,
+ * etc.) is actually readable. */
 .voxaris .text-white { color: var(--vx-ink) !important; }
 .voxaris .text-white\/95 { color: var(--vx-ink) !important; }
 .voxaris .text-white\/90 { color: var(--vx-ink) !important; }
-.voxaris .text-white\/85 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/85 { color: var(--vx-ink) !important; }
+.voxaris .text-white\/80 { color: var(--vx-ink) !important; }
 .voxaris .text-white\/75 { color: var(--vx-ink-soft) !important; }
 .voxaris .text-white\/70 { color: var(--vx-ink-soft) !important; }
-.voxaris .text-white\/65 { color: var(--vx-ink-soft) !important; opacity: 0.85; }
-.voxaris .text-white\/60 { color: var(--vx-ink-soft) !important; opacity: 0.75; }
-.voxaris .text-white\/55 { color: var(--vx-muted) !important; }
-.voxaris .text-white\/50 { color: var(--vx-muted) !important; }
-.voxaris .text-white\/45 { color: var(--vx-muted) !important; }
-.voxaris .text-white\/40 { color: var(--vx-muted) !important; }
-.voxaris .text-white\/35 { color: var(--vx-muted) !important; opacity: 0.7; }
-.voxaris .text-white\/30 { color: var(--vx-muted) !important; opacity: 0.55; }
+.voxaris .text-white\/65 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/60 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/55 { color: var(--vx-ink-soft) !important; opacity: 0.92; }
+.voxaris .text-white\/50 { color: var(--vx-ink-soft) !important; opacity: 0.88; }
+.voxaris .text-white\/45 { color: var(--vx-ink-soft) !important; opacity: 0.82; }
+.voxaris .text-white\/40 { color: var(--vx-ink-soft) !important; opacity: 0.75; }
+.voxaris .text-white\/35 { color: var(--vx-ink-soft) !important; opacity: 0.65; }
+.voxaris .text-white\/30 { color: var(--vx-ink-soft) !important; opacity: 0.55; }
+
+/* Glass-panel bg-white/* tints — the dashboard's "lighter than the
+ * background" inner cards. On cream we want them to look like raised
+ * paper, not invisible. Map to vx-paper (a slightly cooler cream). */
+.voxaris .bg-white\/\[0\.02\],
+.voxaris .bg-white\/\[0\.03\],
+.voxaris .bg-white\/\[0\.04\],
+.voxaris .bg-white\/\[0\.05\],
+.voxaris .bg-white\/\[0\.06\],
+.voxaris .bg-white\/\[0\.08\] {
+  background-color: var(--vx-paper) !important;
+}
 
 /* Borders — flat hairline at brand opacity. */
 .voxaris [class*="border-white/[0.0"],
@@ -2730,7 +2747,7 @@ article p,
  * cream sidebar, not the dashboard's default h-9 (~36px) which
  * disappears against the brand sidebar surface. Bumped to h-12 (~48px)
  * which matches the customer page's page-header wordmark scale. */
-.voxaris aside img[src="/brand/logo-wordmark-alpha.png"] {
+.voxaris aside img[src="/brand/voxaris-ai-wordmark.png"] {
   height: 48px !important;
   width: auto !important;
 }

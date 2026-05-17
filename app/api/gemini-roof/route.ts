@@ -16,6 +16,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import sharp from "sharp";
 import { rateLimit } from "@/lib/ratelimit";
 import { fetchWithTimeout } from "@/lib/safe-fetch";
@@ -24,6 +25,11 @@ import { fetchGisFootprint } from "@/lib/reconcile-roof-polygon";
 import { polygonAreaSqft } from "@/lib/polygon";
 import { rotateAllFacets } from "@/lib/solar-facets";
 import { classifyEdges } from "@/lib/roof-engine";
+import {
+  createServiceRoleClient,
+  supabaseServiceRoleConfigured,
+} from "@/lib/supabase";
+import type { Json } from "@/types/supabase";
 import type { Facet, Edge, Material } from "@/types/roof";
 import {
   buildTileMetadata,
@@ -130,6 +136,9 @@ interface ParsedInputs {
   pinConfirmed: boolean;
   /** When true, echo raw Gemini-text into the response for diagnostics. */
   debug: boolean;
+  /** When set, the route persists the V3 result to leads.roof_v3_json
+   *  via waitUntil() so the rep workbench can "See report" instantly. */
+  leadPublicId: string | null;
 }
 
 function parseInputs(req: Request, body: unknown): ParsedInputs | NextResponse {
@@ -141,10 +150,14 @@ function parseInputs(req: Request, body: unknown): ParsedInputs | NextResponse {
     const skipCache = u.searchParams.get("skipCache") === "1";
     const pinConfirmed = u.searchParams.get("pinConfirmed") === "1";
     const debug = u.searchParams.get("debug") === "1";
+    const leadPublicId = u.searchParams.get("leadPublicId");
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return NextResponse.json({ error: "lat & lng required" }, { status: 400 });
     }
-    return { lat, lng, address, skipCache, pinConfirmed, debug };
+    return {
+      lat, lng, address, skipCache, pinConfirmed, debug,
+      leadPublicId: leadPublicId && /^lead_[0-9a-f]{32}$/i.test(leadPublicId) ? leadPublicId : null,
+    };
   }
   const b = body as {
     lat?: number;
@@ -153,6 +166,7 @@ function parseInputs(req: Request, body: unknown): ParsedInputs | NextResponse {
     skipCache?: boolean;
     pinConfirmed?: boolean;
     debug?: boolean;
+    leadPublicId?: string;
   };
   if (!b || !Number.isFinite(b.lat) || !Number.isFinite(b.lng)) {
     return NextResponse.json({ error: "lat & lng required" }, { status: 400 });
@@ -164,6 +178,10 @@ function parseInputs(req: Request, body: unknown): ParsedInputs | NextResponse {
     skipCache: !!b.skipCache,
     pinConfirmed: !!b.pinConfirmed,
     debug: !!b.debug,
+    leadPublicId:
+      typeof b.leadPublicId === "string" && /^lead_[0-9a-f]{32}$/i.test(b.leadPublicId)
+        ? b.leadPublicId
+        : null,
   };
 }
 
@@ -757,7 +775,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // the paint-only pipeline + flat-segment filter (pool cage / lanai)
 // + flat 15% customer waste. Old cached results carry stale sqft and
 // inflated prices.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-only";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-rich";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1290,6 +1308,81 @@ async function callGeminiRichData(
 }
 
 /**
+ * Persists the V3 result to leads.roof_v3_json so the rep workbench
+ * can render "See report" instantly. Painted image (base64) is moved
+ * to Supabase Storage; the row carries the URL plus the structured
+ * summary. Mirrors the shape /api/leads/[publicId]/roof-v3 produces
+ * so downstream readers don't care which path filled the row.
+ *
+ * Best-effort — wrapped in waitUntil() by the caller. Any failure
+ * logs and silently no-ops; the customer doesn't see persistence
+ * errors.
+ */
+async function persistEstimateToLead(
+  leadPublicId: string,
+  result: GeminiRoofResponseV3,
+): Promise<void> {
+  if (!supabaseServiceRoleConfigured()) return;
+  const supabase = createServiceRoleClient();
+
+  // Upload painted PNG to Storage so the JSON row stays small.
+  let paintedUrl: string | null = null;
+  if (result.paintedImageBase64) {
+    try {
+      const bytes = Buffer.from(result.paintedImageBase64, "base64");
+      const objectKey = `${leadPublicId}.png`;
+      const up = await supabase.storage
+        .from("painted-roofs")
+        .upload(objectKey, bytes, {
+          contentType: "image/png",
+          upsert: true,
+        });
+      if (!up.error) {
+        const { data: pub } = supabase.storage
+          .from("painted-roofs")
+          .getPublicUrl(objectKey);
+        paintedUrl = pub.publicUrl;
+      } else {
+        console.warn(
+          "[gemini-roof v3] painted_upload_failed",
+          up.error.message,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] painted_upload_threw",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const { paintedImageBase64: _drop, ...rest } = result;
+  void _drop;
+  const roofV3Json = {
+    ...rest,
+    painted_url: paintedUrl,
+    generated_at: new Date().toISOString(),
+    generated_via: "customer-flow",
+  } as unknown as Json;
+
+  const { error } = await supabase
+    .from("leads")
+    .update({ roof_v3_json: roofV3Json })
+    .eq("public_id", leadPublicId);
+  if (error) {
+    console.warn(
+      "[gemini-roof v3] lead_update_failed",
+      error.message,
+      `publicId=${leadPublicId}`,
+    );
+    return;
+  }
+  console.log(
+    `[gemini-roof v3] persisted_to_lead publicId=${leadPublicId} painted=${paintedUrl ? "yes" : "no"}`,
+  );
+}
+
+/**
  * V3 handler — pin-confirmed customer flow ("the holy grail").
  *
  * The customer has dragged a pin onto the center of their roof. We:
@@ -1308,6 +1401,7 @@ async function handleV3Pinned(
   lng: number,
   skipCache: boolean,
   debug: boolean = false,
+  leadPublicId: string | null = null,
 ): Promise<NextResponse> {
   if (!skipCache) {
     const cached = await getCached<GeminiRoofResponseV3>(CACHE_SCOPE_V3, lat, lng);
@@ -1330,24 +1424,26 @@ async function handleV3Pinned(
     callSolar(lat, lng, googleKey),
   ]);
 
-  // Customer-facing sales tool runs the minimum pipeline:
-  //   - Multimodal paint (Pro Image) — gives the customer their cyan-
-  //     traced roof. This is the wow factor and the slowest call.
-  //   - Solar API (above) — gives sqft + pitch.
+  // Pipeline architecture:
+  //   - Multimodal paint (Pro Image, ~25–50s) — the cyan overlay.
+  //     THIS PROMPT IS LOCKED. It's not hallucinating and the visual
+  //     wow factor is critical. Do not modify GEMINI_ROOF_PROMPT
+  //     unless objects are misbehaving again.
+  //   - Rich-data Flash (~8–15s) runs IN PARALLEL — free latency
+  //     since paint dominates total wall clock. Provides facet count
+  //     correction (Solar undercounts on some imagery), penetration
+  //     objects (vents, skylights, chimneys), roof material guess.
+  //     Strict confidence floor 0.60 to prevent the "4 skylights, 3
+  //     vents on a clean roof" hallucinations seen before.
+  //   - Line-trace Flash calls REMAIN REMOVED — edge LFs from those
+  //     never aligned with EagleView and weren't shown to the customer.
   //
-  // The Flash calls (rich-data / objects, lines-on-raw, lines-on-
-  // painted) were dropped from the customer path on 2026-05-17. They
-  // added 2–3 tail-latency hazards (any one hanging could push the
-  // route past its budget and yield a FUNCTION_INVOCATION_TIMEOUT),
-  // cost ~$0.04 extra per estimate, and produced data the customer
-  // never sees (edge LFs, penetration adders). The customer price now
-  // uses a flat 12% waste assumption + sqft × rate — sufficient for a
-  // non-binding visual estimate. The rep workbench gets the real
-  // numbers later when they open the lead (if/when we re-enable the
-  // background enrichment job).
+  // Two-call parallel mode keeps total latency ≈ paint latency (the
+  // user's hard constraint of < 45s) while restoring the data points
+  // the rep workbench needs.
   let paintedImageBase64: string | null = null;
-  const objects: GeminiRoofResponseV3["objects"] = [];
-  const geminiAnalysis: GeminiRoofResponseV3["geminiAnalysis"] = {
+  let objects: GeminiRoofResponseV3["objects"] = [];
+  let geminiAnalysis: GeminiRoofResponseV3["geminiAnalysis"] = {
     facetCountEstimate: null,
     roofMaterial: null,
     conditionHints: [],
@@ -1356,23 +1452,77 @@ async function handleV3Pinned(
     siteObstacles: [],
     apparentAgeBand: null,
   };
-  const geminiRawText: string | null = null;
-  const geminiRichErr: string | null = null;
-  try {
-    const painted = await callGeminiMultimodal(tile.base64, geminiKey);
-    paintedImageBase64 = painted.paintedImageBase64;
-  } catch (err) {
+  let geminiRawText: string | null = null;
+  let geminiRichErr: string | null = null;
+  const [paintedResult, richResult] = await Promise.allSettled([
+    callGeminiMultimodal(tile.base64, geminiKey),
+    callGeminiRichData(tile.base64, geminiKey),
+  ]);
+
+  if (paintedResult.status === "fulfilled") {
+    paintedImageBase64 = paintedResult.value.paintedImageBase64;
+  } else {
     console.warn(
       "[gemini-roof v3] painted_call_failed",
-      err instanceof Error ? err.message : String(err),
+      paintedResult.reason instanceof Error
+        ? paintedResult.reason.message
+        : String(paintedResult.reason),
     );
+  }
+
+  if (richResult.status === "fulfilled") {
+    const rich = richResult.value;
+    // Strict 0.60 confidence floor — anything below is likely a
+    // shingle smudge, weathering patch, or shadow blob being read
+    // as a fixture. Calibrated after the "4 skylights, 3 vents" case.
+    const OBJECT_CONFIDENCE_FLOOR = 0.60;
+    const rawObjectCount = rich.objects.length;
+    const kept = rich.objects.filter(
+      (o) => typeof o.confidence === "number" && o.confidence >= OBJECT_CONFIDENCE_FLOOR,
+    );
+    if (rawObjectCount !== kept.length) {
+      console.log(
+        `[gemini-roof v3] objects_filtered ` +
+          `raw=${rawObjectCount} kept=${kept.length} ` +
+          `dropped=${rawObjectCount - kept.length} (confidence<${OBJECT_CONFIDENCE_FLOOR})`,
+      );
+    }
+    objects = kept.map((o) => {
+      const center = Array.isArray(o.center_pixel)
+        ? { x: o.center_pixel[0], y: o.center_pixel[1] }
+        : o.center_pixel;
+      return {
+        type: o.type,
+        centerPx: center,
+        bboxPx: o.bounding_box,
+        confidence: o.confidence,
+      };
+    });
+    geminiAnalysis = {
+      facetCountEstimate: rich.facetCountEstimate,
+      roofMaterial: rich.roofMaterial,
+      conditionHints: rich.conditionHints,
+      visibleDamage: rich.visibleDamage,
+      secondaryStructures: rich.secondaryStructures,
+      siteObstacles: rich.siteObstacles,
+      apparentAgeBand: rich.apparentAgeBand,
+    };
+    geminiRawText = rich.rawText;
+  } else {
+    geminiRichErr =
+      richResult.reason instanceof Error
+        ? `${richResult.reason.name}: ${richResult.reason.message}`
+        : String(richResult.reason);
+    console.warn("[gemini-roof v3] rich_data_call_failed", geminiRichErr);
   }
 
   const linesValue: GeminiLineDetection[] | null = null;
 
   console.log(
     `[gemini-roof v3] pinned (${lat.toFixed(5)},${lng.toFixed(5)}) ` +
-      `painted=${paintedImageBase64 ? "yes" : "no"} (paint-only mode)`,
+      `painted=${paintedImageBase64 ? "yes" : "no"} ` +
+      `objects=${objects.length} ` +
+      `facets_gemini=${geminiAnalysis.facetCountEstimate?.count ?? "null"}`,
   );
 
   // Filter out flat / near-flat Solar segments before summing sqft.
@@ -1779,6 +1929,20 @@ async function handleV3Pinned(
   // stable for a given building. If a rep re-pins, the lat/lng
   // changes and the cache key changes.
   await setCached(CACHE_SCOPE_V3, lat, lng, result, 60 * 60 * 24 * 30);
+
+  // Mirror the result to the lead row so the rep workbench / lead
+  // drawer can render "See report" instantly without re-running the
+  // pipeline. Async via waitUntil() — customer response not blocked
+  // on Supabase write or Storage upload.
+  if (leadPublicId) {
+    waitUntil(persistEstimateToLead(leadPublicId, result).catch((err) => {
+      console.warn(
+        "[gemini-roof v3] persist_to_lead_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }));
+  }
+
   if (debug) {
     // Echo the raw Gemini text + any caught error in the response.
     // Diagnostic-only — never shown to customers, never cached.
@@ -1982,7 +2146,7 @@ export async function GET(req: Request): Promise<NextResponse> {
   if (parsed instanceof NextResponse) return parsed;
   try {
     return await (parsed.pinConfirmed
-      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug)
+      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
       : handle(parsed.lat, parsed.lng, parsed.skipCache));
   } catch (err) {
     console.error("[gemini-roof] unhandled", err);
@@ -2006,7 +2170,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (parsed instanceof NextResponse) return parsed;
   try {
     return await (parsed.pinConfirmed
-      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug)
+      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
       : handle(parsed.lat, parsed.lng, parsed.skipCache));
   } catch (err) {
     console.error("[gemini-roof] unhandled", err);

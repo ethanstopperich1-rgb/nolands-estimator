@@ -96,7 +96,7 @@ export default function PublicHeader({
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/logo-wordmark-alpha.png"
+            src="/brand/voxaris-ai-wordmark.png"
             alt="Voxaris Pitch"
             width={1672}
             height={941}

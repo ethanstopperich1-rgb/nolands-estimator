@@ -40,12 +40,15 @@ export default function LeadsTable({
   const [, startTransition] = useTransition();
   const router = useRouter();
 
-  // Row-click navigates straight to /dashboard/estimate?leadId=<publicId>
-  // The drawer (which is still defined below for the rare cases where
-  // you need the historical-context view — calls, proposals, etc.) now
-  // opens only via the "Details" button per row, not on row click.
-  function openWorkbench(publicId: string) {
-    router.push(`/dashboard/estimate?leadId=${encodeURIComponent(publicId)}`);
+  // Row click opens the lead detail drawer with contact + property +
+  // V3 report. The drawer's "See report" button is the path into the
+  // full workbench when the rep wants more. Since we now pre-generate
+  // the V3 estimate at customer-flow time (persisted to roof_v3_json),
+  // the drawer renders the painted overlay + numbers instantly without
+  // re-running the pipeline.
+  void router;
+  function openDrawer(leadId: string) {
+    setOpenId(leadId);
   }
 
   const sources = useMemo(() => {
@@ -178,17 +181,17 @@ export default function LeadsTable({
               {filtered.map((l) => (
                 <tr
                   key={l.id}
-                  onClick={() => openWorkbench(l.public_id)}
+                  onClick={() => openDrawer(l.id)}
                   onKeyDown={(e) => {
                     if (e.target !== e.currentTarget) return; // ignore bubbled keys from the status <select>
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      openWorkbench(l.public_id);
+                      openDrawer(l.id);
                     }
                   }}
                   tabIndex={0}
                   role="button"
-                  aria-label={`Open workbench for ${l.name}`}
+                  aria-label={`Open lead detail for ${l.name}`}
                   className="border-b border-white/[0.04] last:border-b-0 cursor-pointer hover:bg-white/[0.03] focus:bg-white/[0.05] focus:outline-none focus-visible:ring-1 focus-visible:ring-cy-300/40 transition-colors"
                 >
                   <td className="px-4 py-3 text-white/85 font-mono tabular text-[12.5px] whitespace-nowrap">
@@ -392,7 +395,7 @@ function LeadDrawer({
               href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
               className="glass-button-primary !px-3 !py-1.5 text-[12.5px] inline-flex items-center gap-1.5 whitespace-nowrap"
             >
-              Open workbench
+              See report
               <ExternalLink className="w-3.5 h-3.5" />
             </Link>
             <button

@@ -168,7 +168,7 @@ export function BoltStyleHero({
           <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 h-20 sm:h-24 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <img
-                src="/brand/logo-wordmark-alpha.png"
+                src="/brand/voxaris-ai-wordmark.png"
                 alt="Voxaris Pitch"
                 width={1672}
                 height={941}

@@ -77,7 +77,7 @@ function LoginForm() {
         <div className="mb-10 flex flex-col items-center gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/logo-wordmark-alpha.png"
+            src="/brand/voxaris-ai-wordmark.png"
             alt="Voxaris"
             className="h-9 sm:h-11 w-auto object-contain"
           />

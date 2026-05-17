@@ -29,7 +29,7 @@ if (fs.existsSync(envPath)) {
 }
 
 import { classifyEdges } from "../../lib/roof-engine";
-import { rotateAllFacets } from "../../lib/roof-geometry";
+import { rotateAllFacets } from "../../lib/solar-facets";
 import type { Facet, Material } from "../../types/roof";
 
 const NEWCOMB = { lat: 28.5844052, lng: -81.17330439999999 };

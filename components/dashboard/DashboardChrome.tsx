@@ -134,7 +134,7 @@ export default function DashboardChrome({
         <Link href={basePath} className="flex items-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/logo-wordmark-alpha.png"
+            src="/brand/voxaris-ai-wordmark.png"
             alt="Voxaris Pitch"
             className="h-7 w-auto select-none"
             draggable={false}
@@ -562,7 +562,7 @@ function SidebarContent({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/logo-wordmark-alpha.png"
+          src="/brand/voxaris-ai-wordmark.png"
           alt="Voxaris Pitch"
           className="h-9 w-auto select-none drop-shadow-[0_6px_18px_rgba(125,211,252,0.18)]"
           draggable={false}

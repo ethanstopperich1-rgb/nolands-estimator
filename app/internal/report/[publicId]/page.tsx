@@ -168,7 +168,7 @@ export default async function ReportPage({
             <div className="cover-head">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/brand/logo-wordmark-alpha.png"
+                src="/brand/voxaris-ai-wordmark.png"
                 alt="Voxaris"
                 className="wordmark-img"
               />
@@ -479,7 +479,7 @@ function PageHeader({ subtitle }: { subtitle: string }) {
   return (
     <header className="page-header">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/logo-wordmark-alpha.png" alt="Voxaris" className="wordmark-img-sm" />
+      <img src="/brand/voxaris-ai-wordmark.png" alt="Voxaris" className="wordmark-img-sm" />
       <div className="page-eyebrow">{subtitle}</div>
     </header>
   );
