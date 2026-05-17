@@ -1040,7 +1040,7 @@ function WasteAnalysisCard({
     avgPitchDeg: effectivePitchDeg,
     totalSqft: effectiveSqft,
   });
-  const customerPrice = calculateCustomerPrice(effectiveSqft, waste);
+  const customerPrice = calculateCustomerPrice(effectiveSqft, waste, result.objects);
 
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
@@ -1152,6 +1152,71 @@ function WasteAnalysisCard({
           installation patterns. The customer sees a single total with waste rolled in;
           the percentage itself is intentionally not displayed.
         </p>
+      </div>
+
+      {customerPrice.penetrations.lines.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-ink-700/60">
+          <div className="flex justify-between items-baseline mb-3">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              Penetration adders
+            </p>
+            <span className="text-sm tabular-nums text-slate-200">
+              +${customerPrice.penetrationsSubtotal.toLocaleString()}
+            </span>
+          </div>
+          <table className="w-full text-sm tabular-nums">
+            <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+              <tr>
+                <th className="text-left py-2">Type</th>
+                <th className="text-right py-2">Qty</th>
+                <th className="text-right py-2">Per-fixture</th>
+                <th className="text-right py-2">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody className="text-slate-200">
+              {customerPrice.penetrations.lines.map((line) => (
+                <tr key={line.type} className="border-t border-ink-700/40">
+                  <td className="py-2">{line.type.replace(/_/g, " ")}</td>
+                  <td className="py-2 text-right">{line.count}</td>
+                  <td className="py-2 text-right">${line.unit}</td>
+                  <td className="py-2 text-right">
+                    ${line.subtotal.toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
+            Per-penetration adders for flashing materials + labor. The $7/sqft
+            line already includes generic flashing — these line items cover
+            specialty kits (chimney saddle, skylight flashing, HVAC curb) that
+            scale with fixture count, not roof area.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-5 pt-4 border-t border-ink-700/60">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-3">
+          Total breakdown
+        </p>
+        <div className="space-y-1 text-sm tabular-nums">
+          <div className="flex justify-between text-slate-300">
+            <span>
+              Shingles ({effectiveSqft.toLocaleString()} sqft @ ${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)})
+            </span>
+            <span>${customerPrice.shinglesSubtotal.toLocaleString()}</span>
+          </div>
+          {customerPrice.penetrationsSubtotal > 0 && (
+            <div className="flex justify-between text-slate-300">
+              <span>Penetration flashing</span>
+              <span>+${customerPrice.penetrationsSubtotal.toLocaleString()}</span>
+            </div>
+          )}
+          <div className="flex justify-between text-slate-100 font-medium border-t border-ink-700/60 pt-2 mt-2">
+            <span>Customer total</span>
+            <span>${customerPrice.total.toLocaleString()}</span>
+          </div>
+        </div>
       </div>
     </section>
   );

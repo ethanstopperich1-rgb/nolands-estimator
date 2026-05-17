@@ -940,8 +940,10 @@ function ResultScreen({
 
   const price = useMemo(() => {
     if (sqft == null || waste == null) return null;
-    return calculateCustomerPrice(sqft, waste);
-  }, [sqft, waste]);
+    // Pass detected roof objects so per-penetration flashing adders
+    // (chimney, skylight, HVAC, vents, etc.) roll into the total.
+    return calculateCustomerPrice(sqft, waste, objects);
+  }, [sqft, waste, objects]);
 
   const objectCounts = objects.reduce<Record<string, number>>((acc, o) => {
     acc[o.type] = (acc[o.type] ?? 0) + 1;

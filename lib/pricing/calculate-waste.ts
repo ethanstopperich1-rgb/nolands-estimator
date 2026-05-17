@@ -115,30 +115,107 @@ export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 7.0;
 export const RATE_LOW_PER_SQFT = 6.3;
 export const RATE_HIGH_PER_SQFT = 7.7;
 
+// ─── Penetration adders ─────────────────────────────────────────────────
+//
+// Per-object flashing + labor adders applied on top of sqft × rate ×
+// (1 + waste). The $7/sqft turnkey rate folds GENERIC flashing material
+// into the per-sqft cost, but per-penetration labor + specialty kits
+// scale with the number of objects on the roof — not with sqft. A roof
+// with three skylights and a chimney has the same sqft as one with
+// nothing on it, but a meaningfully different real cost.
+//
+// Numbers calibrated to 2026 Central Florida architectural reroof. Each
+// figure includes both the flashing material AND the per-fixture labor
+// allocation.
+//
+// Sources of these numbers: FL distributor pricing sheets for vent
+// boots / chimney kits / skylight kits, plus typical crew per-fixture
+// time (5-30 min depending on type). Numbers are conservative — a
+// crew can underrun them on a clean roof, but over-runs (rot under
+// the chimney, broken skylight glass, etc.) are also possible.
+export const PENETRATION_ADDERS: Record<string, number> = {
+  vent: 25,
+  plumbing_boot: 25,
+  stack: 35,
+  chimney: 700,
+  skylight: 280,
+  hvac_unit: 200,
+  satellite_dish: 90,
+  // Solar panels stay in place during reroof — no flashing replacement
+  // required, just protection during work. Small allocation per panel.
+  solar_panel: 50,
+};
+
+export interface PenetrationBreakdown {
+  /** Counts of each object type from V3 result.objects[]. Unknown
+   *  types are tolerated — they contribute $0. */
+  counts: Record<string, number>;
+  /** Total dollar adder across all penetrations. */
+  total: number;
+  /** Per-line itemization for the rep workbench. */
+  lines: Array<{ type: string; count: number; unit: number; subtotal: number }>;
+}
+
+export function calculatePenetrationAdders(
+  objects: Array<{ type: string }>,
+): PenetrationBreakdown {
+  const counts: Record<string, number> = {};
+  for (const obj of objects) {
+    counts[obj.type] = (counts[obj.type] ?? 0) + 1;
+  }
+  let total = 0;
+  const lines: PenetrationBreakdown["lines"] = [];
+  for (const [type, count] of Object.entries(counts)) {
+    const unit = PENETRATION_ADDERS[type] ?? 0;
+    const subtotal = unit * count;
+    total += subtotal;
+    lines.push({ type, count, unit, subtotal });
+  }
+  // Sort by subtotal descending so the most expensive line items rise
+  // to the top of the rep's view.
+  lines.sort((a, b) => b.subtotal - a.subtotal);
+  return { counts, total, lines };
+}
+
 export interface PriceResult {
   /** sqft × (1 + waste) — what the customer pays the rate against. */
   effectiveSqft: number;
-  /** sqft × (1 + waste) × $7.00, rounded. */
+  /** Shingle line: effectiveSqft × $7.00. */
+  shinglesSubtotal: number;
+  /** Penetration adders: Σ(count × per-fixture cost). */
+  penetrationsSubtotal: number;
+  /** shinglesSubtotal + penetrationsSubtotal, rounded. */
   total: number;
-  /** Low end at $6.30/sqft. */
+  /** Low end: effectiveSqft × $6.30 + penetrations. */
   totalLow: number;
-  /** High end at $7.70/sqft. */
+  /** High end: effectiveSqft × $7.70 + penetrations. */
   totalHigh: number;
-  /** The waste object that fed the math, so the internal workbench can
-   *  show how the number was reached. */
+  /** The waste object that fed the math. */
   waste: WasteResult;
+  /** Per-fixture itemization. Empty when no objects on roof. */
+  penetrations: PenetrationBreakdown;
 }
 
 export function calculateCustomerPrice(
   totalSqft: number,
   waste: WasteResult,
+  objects: Array<{ type: string }> = [],
 ): PriceResult {
   const effectiveSqft = Math.round(totalSqft * (1 + waste.suggestedPercent / 100));
+  const shinglesSubtotal = Math.round(
+    effectiveSqft * ARCHITECTURAL_SHINGLE_RATE_PER_SQFT,
+  );
+  const penetrations = calculatePenetrationAdders(objects);
+  const shinglesLow = Math.round(effectiveSqft * RATE_LOW_PER_SQFT);
+  const shinglesHigh = Math.round(effectiveSqft * RATE_HIGH_PER_SQFT);
   return {
     effectiveSqft,
-    total: Math.round(effectiveSqft * ARCHITECTURAL_SHINGLE_RATE_PER_SQFT),
-    totalLow: Math.round(effectiveSqft * RATE_LOW_PER_SQFT),
-    totalHigh: Math.round(effectiveSqft * RATE_HIGH_PER_SQFT),
+    shinglesSubtotal,
+    penetrationsSubtotal: penetrations.total,
+    total: shinglesSubtotal + penetrations.total,
+    totalLow: shinglesLow + penetrations.total,
+    totalHigh: shinglesHigh + penetrations.total,
     waste,
+    penetrations,
   };
 }
