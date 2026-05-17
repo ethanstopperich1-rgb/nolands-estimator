@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { X, ExternalLink, Loader2, Search } from "lucide-react";
 import Link from "next/link";
 import {
@@ -37,6 +38,15 @@ export default function LeadsTable({
   const [query, setQuery] = useState<string>("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const router = useRouter();
+
+  // Row-click navigates straight to /dashboard/estimate?leadId=<publicId>
+  // The drawer (which is still defined below for the rare cases where
+  // you need the historical-context view — calls, proposals, etc.) now
+  // opens only via the "Details" button per row, not on row click.
+  function openWorkbench(publicId: string) {
+    router.push(`/dashboard/estimate?leadId=${encodeURIComponent(publicId)}`);
+  }
 
   const sources = useMemo(() => {
     const s = new Set<string>();
@@ -168,17 +178,17 @@ export default function LeadsTable({
               {filtered.map((l) => (
                 <tr
                   key={l.id}
-                  onClick={() => setOpenId(l.id)}
+                  onClick={() => openWorkbench(l.public_id)}
                   onKeyDown={(e) => {
                     if (e.target !== e.currentTarget) return; // ignore bubbled keys from the status <select>
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      setOpenId(l.id);
+                      openWorkbench(l.public_id);
                     }
                   }}
                   tabIndex={0}
                   role="button"
-                  aria-label={`Open lead ${l.name}`}
+                  aria-label={`Open workbench for ${l.name}`}
                   className="border-b border-white/[0.04] last:border-b-0 cursor-pointer hover:bg-white/[0.03] focus:bg-white/[0.05] focus:outline-none focus-visible:ring-1 focus-visible:ring-cy-300/40 transition-colors"
                 >
                   <td className="px-4 py-3 text-white/85 font-mono tabular text-[12.5px] whitespace-nowrap">
