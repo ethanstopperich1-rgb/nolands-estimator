@@ -203,35 +203,8 @@ export default async function AnalyticsPage() {
               materials mix, and outcome breakdown — auto-refreshes as new events land.
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <KpiPill label="Pipeline" value={data.funnel.leads} accent="cy" />
-            <KpiPill label="Won" value={data.funnel.won} accent="mint" />
-          </div>
         </div>
       </header>
-
-      {!data.hasData && (
-        <div className="glass-panel p-7 lg:p-9 flex items-center gap-5">
-          <div className="relative flex items-center justify-center flex-shrink-0">
-            <span className="absolute w-16 h-16 rounded-full bg-mint/10 animate-ping" />
-            <div className="relative w-14 h-14 rounded-2xl bg-mint/15 border border-mint/25 flex items-center justify-center shadow-[0_0_22px_-4px_rgba(95,227,176,0.55)]">
-              <Radio className="w-5 h-5 text-mint" />
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[15px] text-white/90 font-medium">Sydney is standing by.</div>
-            <p className="text-[13px] text-white/55 max-w-2xl leading-relaxed mt-1">
-              No activity in the rolling 30-day window for this office. The instant a customer
-              hits <span className="font-mono text-white/75">pitch.voxaris.io/quote</span> or
-              dials in, every panel below populates in real time.
-            </p>
-          </div>
-          <span className="hidden lg:flex text-[10.5px] font-mono tabular text-mint/85 uppercase tracking-[0.16em] items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_6px_rgba(95,227,176,0.55)] animate-pulse" />
-            Listening
-          </span>
-        </div>
-      )}
 
       {/* Funnel */}
       <section className="glass-panel p-6 lg:p-7">
@@ -386,30 +359,6 @@ export default async function AnalyticsPage() {
           )}
         </section>
       </div>
-    </div>
-  );
-}
-
-function KpiPill({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent: "cy" | "mint";
-}) {
-  const color = accent === "mint" ? "text-mint" : "text-cy-300";
-  const border = accent === "mint" ? "border-mint/25" : "border-cy-300/25";
-  const bg = accent === "mint" ? "bg-mint/[0.07]" : "bg-cy-300/[0.07]";
-  return (
-    <div
-      className={`flex items-baseline gap-2 px-3.5 py-2 rounded-2xl border ${border} ${bg} backdrop-blur-xl`}
-    >
-      <span className={`font-mono tabular text-[20px] font-semibold ${color}`}>{value}</span>
-      <span className="text-[10.5px] font-mono tabular text-white/55 uppercase tracking-[0.14em]">
-        {label}
-      </span>
     </div>
   );
 }

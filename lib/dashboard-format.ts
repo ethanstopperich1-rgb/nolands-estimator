@@ -141,6 +141,10 @@ export function fmtLeadSource(raw: string | null | undefined): string {
     "quote-wizard-confirmed": "Web · confirmed quote",
     "quote_form": "Web · quote form",
     "embed": "Embed widget",
+    // The V3 estimator. New submissions use `estimate`; historical rows
+    // captured during the pre-rename era use `estimate-v2` — both map
+    // to the same human label so the dashboard reads cleanly.
+    "estimate": "Web · V3 estimator",
     "estimate-v2": "Web · V3 estimator",
     "sydney_inbound": "Sydney · inbound call",
     "sydney_outbound": "Sydney · outbound call",

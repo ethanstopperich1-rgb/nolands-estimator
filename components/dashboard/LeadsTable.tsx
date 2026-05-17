@@ -330,7 +330,7 @@ function LeadDrawer({
   // For leads that came in WITHOUT a V3 payload (legacy /quote leads,
   // Sydney-captured leads, etc.), let the rep one-click the full
   // painted-roof analysis from the drawer. Fires the same pipeline
-  // /estimate-v2 uses and writes the result back to the leads row.
+  // /estimate uses and writes the result back to the leads row.
   const [genStatus, setGenStatus] = useState<"idle" | "running" | "error">(
     "idle",
   );
@@ -401,7 +401,7 @@ function LeadDrawer({
         </section>
 
         {/* ─── Property + directions ───────────────────────────────────
-            Google Maps directions link mirrors the /estimate-v2 flow —
+            Google Maps directions link mirrors the /estimate flow —
             rep can tap once and get turn-by-turn from their location to
             the customer's roof. Falls back to address-text routing when
             lat/lng aren't on the row. */}
@@ -466,7 +466,7 @@ function LeadDrawer({
           </section>
         )}
 
-        {/* ─── V3 ROOF ANALYSIS — mirrors /estimate-v2 panels ──────── */}
+        {/* ─── V3 ROOF ANALYSIS — mirrors /estimate panels ──────── */}
         {(() => {
           const v3 = lead.roof_v3_json as Record<string, unknown> | null;
 
@@ -594,7 +594,7 @@ function LeadDrawer({
           }
 
           // Pick the most-trusted edges set: Gemini lines beat Solar
-          // bbox geometry. Same rule as /estimate-v2.
+          // bbox geometry. Same rule as /estimate.
           const solarVals = [
             solarEdges.ridgesHipsLf,
             solarEdges.valleysLf,
@@ -1092,7 +1092,7 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   );
 }
 
-/** Compact stat tile for the lead drawer — mirrors the /estimate-v2
+/** Compact stat tile for the lead drawer — mirrors the /estimate
  *  result panels so the dashboard reads like the customer-facing
  *  estimator. Keep visual rhythm tight: tiny eyebrow label, mono value,
  *  inline unit suffix. */

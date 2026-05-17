@@ -205,8 +205,13 @@ export default async function RepProposalPage({
 
       {/* Customer-facing summary card (mirrors /p/[id]) */}
       <section className="glass-strong rounded-3xl p-7 md:p-9 relative overflow-hidden">
+        {/* Toned-down accent glow — was 420×420 @ 50% opacity, which
+            stacked on top of the iridescent header + V3 painted overlay
+            to create three competing glow surfaces in the first 600px
+            of scroll. 280×280 @ 25% sits in the corner without
+            overpowering the actual content. */}
         <div
-          className="absolute -top-20 -right-20 w-[420px] h-[420px] rounded-full blur-3xl pointer-events-none opacity-50"
+          className="absolute -top-16 -right-16 w-[280px] h-[280px] rounded-full blur-3xl pointer-events-none opacity-25"
           style={{ background: "radial-gradient(closest-side, rgba(103,220,255,0.18), transparent)" }}
         />
         <div className="relative">
@@ -223,7 +228,7 @@ export default async function RepProposalPage({
               <div className="text-[10px] uppercase tracking-wider text-white/45 mb-1.5">
                 Project Total
               </div>
-              <div className="font-display tabular text-[56px] md:text-[72px] leading-[0.92] font-semibold tracking-[-0.04em] text-white">
+              <div className="font-display tabular text-[40px] md:text-[52px] leading-[0.92] font-semibold tracking-[-0.04em] text-white">
                 {headlineTotal != null ? fmt(headlineTotal) : "—"}
               </div>
               <div className="font-mono text-[11px] text-white/55 tabular mt-1">

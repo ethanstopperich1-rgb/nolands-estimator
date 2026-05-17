@@ -62,7 +62,7 @@ interface LeadPayload {
    *  types/estimate.ts and is broad — we validate the few fields we
    *  need (id, baseLow/High) at write time, store the rest as-is. */
   estimate?: unknown;
-  /** Gemini V3 roof analysis from /estimate-v2. Optional. When present,
+  /** Gemini V3 roof analysis from /estimate. Optional. When present,
    *  the server uploads `paintedImageBase64` to Supabase Storage
    *  (`painted-roofs` bucket, public read) and persists the remainder as
    *  `roof_v3_json` on the lead row, with `painted_url` injected so the
@@ -223,7 +223,7 @@ export async function POST(req: Request) {
         const supabase = createServiceRoleClient();
 
         // ─── V3 painted-image upload ───────────────────────────────
-        // If the caller (today: /estimate-v2) sent a Gemini V3 roof
+        // If the caller (today: /estimate) sent a Gemini V3 roof
         // payload, peel the base64 PNG off, upload it to the public
         // `painted-roofs` bucket, and replace it with a CDN URL in the
         // JSON we persist on the row. Keeps the lead row small (jsonb
@@ -321,7 +321,7 @@ export async function POST(req: Request) {
             });
 
             // Companion proposals row from V3 submissions — when the
-            // /estimate-v2 customer sent a roofV3 payload, mirror it
+            // /estimate customer sent a roofV3 payload, mirror it
             // into proposals so "Saved estimates" + the proposal page
             // both work. The snapshot carries the full V3 shape with a
             // `kind: "roof_v3"` discriminator the proposal renderer

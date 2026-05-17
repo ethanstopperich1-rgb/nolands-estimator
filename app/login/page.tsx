@@ -156,10 +156,10 @@ function LoginForm() {
           Staff credentials only. Customers can reach the public estimator
           at{" "}
           <a
-            href="/estimate-v2"
+            href="/estimate"
             className="underline text-white/55 hover:text-white"
           >
-            /estimate-v2
+            /estimate
           </a>
           .
         </p>

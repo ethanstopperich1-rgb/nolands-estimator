@@ -10,6 +10,23 @@ const config: NextConfig = {
   // doesn't need to copy or alias anything. Empty `turbopack` to silence
   // the missing-config warning under Next 16.
   turbopack: {},
+  // Permanent redirects — bookmarks / external links from the
+  // /estimate-v2 era (the V3 estimator was briefly at that path before
+  // we promoted it to the canonical /estimate route).
+  async redirects() {
+    return [
+      {
+        source: "/estimate-v2",
+        destination: "/estimate",
+        permanent: true,
+      },
+      {
+        source: "/estimate-v2/:path*",
+        destination: "/estimate/:path*",
+        permanent: true,
+      },
+    ];
+  },
   // Permit /embed and /embed.js to be loaded cross-origin by third-party
   // roofer websites. Default Next.js sets X-Frame-Options: DENY which would
   // block any iframe; we explicitly allow it for the embed surface only.
