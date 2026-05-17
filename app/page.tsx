@@ -1057,11 +1057,22 @@ function ResultScreen({
               Pitch <span className="chip-value">{pitchOn12 ?? `${Math.round(pitch)}°`}</span>
             </span>
           )}
-          {facets.length > 0 && (
-            <span className="chip">
-              Facets <span className="chip-value">{facets.length}</span>
-            </span>
-          )}
+          {(() => {
+            // Display the higher of (Solar's resolved-segment count, Gemini's
+            // visual count). Solar under-segments on MEDIUM imagery — Gemini
+            // sees the painted polygons accurately. The math layer keeps
+            // using Solar's per-facet array because that's the only source
+            // with pitch + azimuth + area per plane; we just don't surface
+            // the undercount to the customer.
+            const geminiCount = result.geminiAnalysis.facetCountEstimate?.count ?? 0;
+            const display = Math.max(facets.length, geminiCount);
+            if (display <= 0) return null;
+            return (
+              <span className="chip">
+                Facets <span className="chip-value">{display}</span>
+              </span>
+            );
+          })()}
           <span className="chip">
             Stories <span className="chip-value">{derived.stories}</span>
           </span>
