@@ -1364,9 +1364,10 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
 
 // ─── Shared wordmark ────────────────────────────────────────────────────
 
-/** Brand wordmark. Prefers self-hosted /brand/voxaris-ai-wordmark.png
- *  when present (drop the file there to activate). Falls back to the
- *  DragonEF text wordmark per brand §04. */
+/** Brand wordmark. Uses the alpha-transparent VOXARIS AI wordmark
+ *  (logo-wordmark-alpha.png) which renders correctly on any background
+ *  without a CSS filter. Falls back to the DragonEF text wordmark if
+ *  the image file is missing. */
 function Wordmark({
   size = "lg",
   tone = "ink",
@@ -1374,22 +1375,27 @@ function Wordmark({
   size?: "lg" | "md" | "sm";
   tone?: "ink" | "cream";
 }) {
-  const dim = size === "lg" ? 40 : size === "md" ? 28 : 22;
+  // Size targets: lg (hero) = ~72px tall, md (page header) = ~48px,
+  // sm (compact) = ~32px. The earlier sizes (40 / 28 / 22) were way too
+  // small to register as a brand mark.
+  const dim = size === "lg" ? 72 : size === "md" ? 48 : 32;
   const color = tone === "ink" ? "var(--vx-ink)" : "var(--vx-cream)";
-  const textSize = size === "lg" ? 32 : size === "md" ? 26 : 22;
+  const textSize = size === "lg" ? 56 : size === "md" ? 36 : 24;
   return (
-    <span className="inline-flex items-baseline gap-2">
+    <span className="inline-flex items-center">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/brand/voxaris-ai-wordmark.png"
+        src="/brand/logo-wordmark-alpha.png"
         alt="Voxaris AI"
         style={{
           height: `${dim}px`,
           width: "auto",
-          // The supplied wordmark is light silver — invert on cream
-          // backgrounds so it reads as ink. tone="cream" (dark footer)
-          // shows the file as-shipped.
-          filter: tone === "ink" ? "invert(1) brightness(0.05)" : "none",
+          // The alpha PNG ships in the brand-spec ink color. No filter
+          // needed on cream. On the dark footer (tone="cream"), invert
+          // to white-on-dark.
+          filter:
+            tone === "cream" ? "invert(1) brightness(1.2)" : "none",
+          display: "block",
         }}
         onError={(e) => {
           // Image missing — fall back to the DragonEF text wordmark.
