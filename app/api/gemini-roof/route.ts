@@ -939,6 +939,23 @@ const GEMINI_LINES_SCHEMA = {
         required: ["type", "start_pixel", "end_pixel", "confidence"],
       },
     },
+    /** Facet count derived from this image. On the painted-pass call,
+     *  this is much more reliable than the rich-data raw-tile pass
+     *  because each facet is rendered as a discrete cyan polygon —
+     *  counting polygons beats counting "distinct roof planes in
+     *  satellite imagery" by a wide margin. */
+    facet_count: {
+      type: "OBJECT",
+      properties: {
+        count: { type: "INTEGER" },
+        complexity: {
+          type: "STRING",
+          enum: ["simple", "moderate", "complex"],
+        },
+        confidence: { type: "NUMBER", description: "Float 0.0–1.0" },
+      },
+      required: ["count", "complexity", "confidence"],
+    },
   },
   required: ["lines"],
 } as const;
@@ -950,20 +967,28 @@ interface GeminiLineDetection {
   confidence: number;
 }
 
+interface GeminiFacetCount {
+  count: number;
+  complexity: "simple" | "moderate" | "complex";
+  confidence: number;
+}
+
 /** Second-pass prompt: classify cyan strokes already drawn on the
  *  painted image. Way more reliable than tracing raw satellite, because
  *  the Pro Image pass already did the hard "is this a roof edge"
  *  decision and marked it with cyan paint. Flash just identifies +
  *  classifies what's already visually highlighted. */
-const GEMINI_LINES_FROM_PAINTED_PROMPT = `This image is an aerial roof with cyan strokes drawn on every legal edge by a prior model pass. Your job: enumerate and classify every cyan line.
+const GEMINI_LINES_FROM_PAINTED_PROMPT = `This image is an aerial roof with cyan strokes drawn on every legal edge by a prior model pass. Your job: (a) enumerate and classify every cyan line, AND (b) count the discrete cyan polygons that make up the roof.
 
-The cyan strokes ARE your answer — you don't need to detect edges from scratch. Pro Image already did that decision. You just identify and classify each visible cyan line.
+The cyan IS the ground truth. You don't detect edges from scratch — you read what the painting already shows.
 
-## Two kinds of cyan to find
+## PART A — Lines
+
+### Two kinds of cyan to find
 1. **Outer perimeter cyan** — every segment around the outside of the painted region. Each segment is an eave, rake, or gable end.
 2. **Interior cyan** — thin strokes drawn inside the painted region. These are ridges, hips, or valleys where two planes meet.
 
-## Classification cheat sheet
+### Classification cheat sheet
 | Cyan line position + orientation | Type |
 |----------------------------------|------|
 | Horizontal, at the TOP boundary between two painted regions | **ridge** |
@@ -972,24 +997,55 @@ The cyan strokes ARE your answer — you don't need to detect edges from scratch
 | Sloped inward V between two painted regions | **valley** |
 | Sloped, on the open side of a gable (perimeter line that drops diagonally) | **rake** |
 
-## Rules
-1. Return EVERY visible cyan line. The cyan IS the ground truth. If you see a cyan line, you MUST return it.
+### Rules
+1. Return EVERY visible cyan line. If you see a cyan line, you MUST return it.
 2. Classify by geometric role (orientation + position), not by what you'd guess from the underlying image.
 3. A line is a STRAIGHT segment between two pixel endpoints. Curves or steps → multiple short segments.
 4. Coordinates are pixel space (0–1279), origin top-left.
 5. Only the central building's cyan markup. Ignore any incidental cyan on neighbors.
 6. A typical home has 6–14 cyan lines total.
 
-## Output
-Per line: { type, start_pixel: [x, y], end_pixel: [x, y], confidence: 0.0–1.0 }
+## PART B — Facet count
 
-Coverage is success. Under-tracing (returning fewer lines than the painting shows) is the dominant failure mode — be exhaustive.`;
+Count the number of DISTINCT CYAN POLYGONS that make up the painted roof. Each facet (roof plane) is rendered as one continuous painted region.
+
+### How to count
+- **Two regions share a thin cyan stroke between them** (a ridge, hip, or valley line interior to the painted area) → that's TWO facets, even though the cyan is continuous in color.
+- **One region with NO interior cyan strokes dividing it** → ONE facet.
+- **Dark shadow patches inside a single painted region** (skylight shadows, chimney shadows, tree shadows on the roof) → still ONE facet. Shadows don't divide planes; only interior cyan strokes do.
+- **Two regions that are physically separated by uncolored space** (e.g. a porch with its own roof not painted) → only count the painted regions as facets of the central roof. Don't count what isn't painted.
+
+### Common counts
+- Simple gable: **2 facets** (front + back, separated by one ridge stroke)
+- Simple hip: **4 facets** (separated by 4 hip strokes meeting at a peak)
+- L-shaped house: **4–6 facets**
+- Cross-gable: **4+ facets**
+- Hip with dormers: **6–10 facets**
+- Complex multi-wing hip: **10+ facets**
+
+### Failure modes to avoid
+- Don't double-count shadow patches as facets. If a single rectangle of cyan has three dark triangular shadows inside it, the answer is ONE facet, not four.
+- Don't count vents, skylights, or chimney footprints as facets — those are penetrations, not planes.
+- Don't undercount by treating connected painted regions as one when they have an interior ridge / hip / valley stroke between them.
+
+### Complexity classification
+- **simple**: 2–4 facets
+- **moderate**: 5–10 facets
+- **complex**: 11+ facets
+
+## Output
+{
+  lines: [{ type, start_pixel: [x, y], end_pixel: [x, y], confidence }, …],
+  facet_count: { count, complexity, confidence }
+}
+
+Coverage on lines + accurate facet count are both required. Under-tracing on lines is the dominant failure mode there; over-counting facets (counting shadows as planes) is the dominant failure mode there. Be careful with both.`;
 
 async function callGeminiLines(
   tileBase64: string,
   apiKey: string,
   promptOverride?: string,
-): Promise<GeminiLineDetection[]> {
+): Promise<{ lines: GeminiLineDetection[]; facetCount: GeminiFacetCount | null }> {
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${GEMINI_LINES_MODEL}:generateContent?key=${apiKey}`;
@@ -1024,11 +1080,15 @@ async function callGeminiLines(
   const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) {
     console.warn("[gemini-lines] no_text_in_response");
-    return [];
+    return { lines: [], facetCount: null };
   }
   try {
-    const parsed = JSON.parse(text) as { lines?: GeminiLineDetection[] };
+    const parsed = JSON.parse(text) as {
+      lines?: GeminiLineDetection[];
+      facet_count?: GeminiFacetCount;
+    };
     const lines = parsed.lines ?? [];
+    const facetCount = parsed.facet_count ?? null;
     // Per-type observability so we can spot under-trace failures in
     // production without re-running with debug=1. Healthy roofs return
     // at least 1 ridge + 2 eaves + 2–4 rakes-or-hips.
@@ -1040,7 +1100,8 @@ async function callGeminiLines(
       `[gemini-lines] total=${lines.length} ` +
         `ridges=${byType.ridge ?? 0} hips=${byType.hip ?? 0} ` +
         `valleys=${byType.valley ?? 0} rakes=${byType.rake ?? 0} ` +
-        `eaves=${byType.eave ?? 0}`,
+        `eaves=${byType.eave ?? 0}` +
+        (facetCount ? ` · facets=${facetCount.count} (${facetCount.complexity})` : ""),
     );
     if ((byType.eave ?? 0) === 0 || (byType.ridge ?? 0) + (byType.hip ?? 0) === 0) {
       console.warn(
@@ -1050,13 +1111,13 @@ async function callGeminiLines(
           "image as input for a stronger signal.",
       );
     }
-    return lines;
+    return { lines, facetCount };
   } catch (err) {
     console.warn(
       "[gemini-lines] parse_failed",
       err instanceof Error ? err.message : String(err),
     );
-    return [];
+    return { lines: [], facetCount: null };
   }
 }
 
@@ -1315,8 +1376,11 @@ async function handleV3Pinned(
   // with the painted call. Often under-traces simple-gable homes
   // because Flash can't see the eave/ridge geometry as cleanly as it
   // can see the painted cyan strokes.
-  let linesValue =
-    linesResult.status === "fulfilled" ? linesResult.value : null;
+  let linesValue: GeminiLineDetection[] | null =
+    linesResult.status === "fulfilled" ? linesResult.value.lines : null;
+  // Painted-pass facet count — overrides the raw rich-data count when
+  // present, since the painted polygons are the canonical answer.
+  let paintedFacetCount: GeminiFacetCount | null = null;
   if (linesResult.status === "rejected") {
     console.warn(
       "[gemini-roof v3] lines_call_failed",
@@ -1326,29 +1390,29 @@ async function handleV3Pinned(
     );
   }
 
-  // ─── Second-pass line trace on the PAINTED image ─────────────────────
-  // Pro Image draws cyan strokes along every legal edge (eave, ridge,
-  // hip, valley, rake). Asking Flash to identify those is dramatically
-  // easier than asking it to detect edges in raw satellite imagery —
-  // the cyan strokes ARE the answer, Flash just classifies each one.
+  // ─── Second-pass line trace + facet count on the PAINTED image ───────
+  // Pro Image draws cyan strokes along every legal edge AND fills each
+  // plane as a discrete cyan polygon. Asking Flash to identify those is
+  // dramatically easier than asking it to detect edges + count planes
+  // in raw satellite imagery — the cyan IS the answer, Flash just
+  // enumerates what's already visually marked.
   //
   // This runs serially after the painted call lands (~3s extra wall-
   // clock when painted succeeds). We prefer the painted-pass result
-  // when it's clearly more comprehensive (more total lines, OR has the
-  // canonical mix of eaves + ridges that the raw-tile pass missed).
+  // when it's clearly more comprehensive (lines: more total OR has the
+  // canonical mix of eaves + ridges; facet count: any non-null wins,
+  // since the raw rich-data pass over-counts shadow patches as planes).
   if (paintedImageBase64) {
     try {
-      const paintedLines = await callGeminiLines(
+      const paintedResult = await callGeminiLines(
         paintedImageBase64,
         geminiKey,
         GEMINI_LINES_FROM_PAINTED_PROMPT,
       );
-      // Heuristic: painted-pass wins when it has strictly more lines OR
-      // when the raw pass returned an under-trace (no eaves, no
-      // ridges/hips — the 0/0/562/0 misfire pattern). Otherwise keep
-      // the raw pass (rare; usually painted is better).
+      const painted = paintedResult.lines;
+      paintedFacetCount = paintedResult.facetCount;
+
       const rawCount = linesValue?.length ?? 0;
-      const painted = paintedLines;
       const paintedByType = painted.reduce<Record<string, number>>(
         (acc, l) => {
           acc[l.type] = (acc[l.type] ?? 0) + 1;
@@ -1380,6 +1444,27 @@ async function handleV3Pinned(
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  // Override the raw rich-data facet count with the painted-pass count
+  // when available. The raw count tends to over-count shadow patches as
+  // planes (user saw 14 returned on a 7-facet roof). The painted-pass
+  // count is grounded in the cyan polygons that were actually drawn.
+  if (paintedFacetCount && paintedFacetCount.count > 0) {
+    console.log(
+      `[gemini-roof v3] facet_count_source=painted ` +
+        `(painted=${paintedFacetCount.count} ${paintedFacetCount.complexity}, ` +
+        `raw=${geminiAnalysis.facetCountEstimate?.count ?? "null"})`,
+    );
+    geminiAnalysis = {
+      ...geminiAnalysis,
+      facetCountEstimate: paintedFacetCount,
+    };
+  } else if (geminiAnalysis.facetCountEstimate) {
+    console.log(
+      `[gemini-roof v3] facet_count_source=raw ` +
+        `(painted=null, raw=${geminiAnalysis.facetCountEstimate.count})`,
+    );
   }
 
   console.log(
