@@ -792,18 +792,39 @@ Confidence on every field is float 0.0–1.0 reflecting your certainty about tha
 
 const GEMINI_LINES_MODEL = "gemini-2.5-flash";
 
-const GEMINI_LINES_PROMPT = `Identify every prominent roof line visible on the central building's roof in this 1280x1280 aerial satellite image. The target building is centered at pixel (640, 640). Ignore neighboring roofs.
+const GEMINI_LINES_PROMPT = `Trace the COMPLETE roof outline of the residential building at the center of this 1280x1280 aerial satellite image (pixel 640, 640) and classify every line. This is a comprehensive perimeter + interior trace, not a sample. A typical result has 6–14 lines total.
 
-Look for these line types:
-- ridge: HORIZONTAL line at the very top where two roof planes meet at the peak (no plane visible on one side from above)
-- hip: SLOPED line where two roof planes meet running down from a peak to a building corner
-- valley: SLOPED line where two roof planes meet downward (water flows along it — typically a concave V seen from above)
-- rake: SLOPED edge along a gable end where the roof drops to open air on one side
-- eave: HORIZONTAL outer perimeter edge where the roof meets the gutter line at the bottom of each plane
+THE FIVE LINE TYPES:
+- ridge: the HIGHEST horizontal line where two opposing slopes meet at the peak. Most homes have at least one.
+- hip: a SLOPED diagonal running from a peak corner down to a building corner. Hip roofs have 4. Gable roofs have 0.
+- valley: a SLOPED V where two pitched planes meet inwardly. Present when there are dormers, additions, or intersecting roof sections. Many simple homes have 0.
+- rake: the SLOPED diagonal edge along an open gable end (the roof drops to air on one side, with the gable wall visible below). Gable-end homes have 2 per gable = 4 typical.
+- eave: the HORIZONTAL outer perimeter edge where the roof meets the gutter at the BOTTOM of each slope. Every house has eaves. A standard rectangular gable has 2 long eaves (front + back). A hip roof has 4 (one per slope).
 
-For each line return its type, start pixel, end pixel, and confidence (float 0.0–1.0).
+EXPECTED OUTPUT for a typical residential roof:
+- At least 2 EAVE lines (every house has them — front and back at minimum)
+- At least 1 RIDGE line (the highest line; required on every pitched roof)
+- 2–4 RAKE lines on gable houses, 4 HIP lines on hip houses
+- 0–2 VALLEY lines on most homes
 
-Only include lines on the central building. Skip neighbors, ground, vegetation. Use pixel coordinates in [0, 1279]; origin top-left.`;
+CRITICAL RULES:
+1. Trace the COMPLETE outer perimeter. Every segment of the visible roof boundary corresponds to one of: eave, rake, hip end, or gable end. Do NOT skip any perimeter segment.
+2. If you can see the roof outline in cyan in this image (a prior painting pass may have drawn it), USE that outline as your guide — each visible cyan line is a line you should return.
+3. Eaves and rakes alternate around the perimeter of a standard rectangular house. If you returned 4 rakes and 0 eaves (or vice versa), you are wrong — re-examine.
+4. A line is a STRAIGHT segment between two pixel endpoints. For a curved or stepped edge, return multiple short segments.
+5. Return BOTH endpoints in image pixel space (0–1279, origin top-left).
+6. Only consider the central building. Skip neighboring roofs, ground, vegetation.
+
+DISTINGUISHING:
+- If a line runs along the BOTTOM of a slope where roof meets gutter / open air below → eave (horizontal).
+- If a line runs along the TOP of two opposing slopes at the highest point → ridge (horizontal).
+- If a line is the open side of a gable (roof drops to wall + air) → rake (sloped).
+- If a line is the corner of a hip running peak→corner → hip (sloped).
+- If a line is the inward V of two slopes meeting → valley (sloped).
+
+A typical 4-eave 1-ridge gable home returns at least 1 ridge + 4 rakes + 2 eaves = 7 lines. A typical 4-slope hip home returns 4 hips + 4 eaves = 8 lines. Aim for completeness — under-tracing is the failure mode, not over-tracing.
+
+Confidence is float 0.0–1.0 reflecting how clearly you can see and classify each line.`;
 
 const GEMINI_LINES_SCHEMA = {
   type: "OBJECT",
@@ -835,9 +856,38 @@ interface GeminiLineDetection {
   confidence: number;
 }
 
+/** Second-pass prompt: classify cyan strokes already drawn on the
+ *  painted image. Way more reliable than tracing raw satellite, because
+ *  the Pro Image pass already did the hard "is this a roof edge"
+ *  decision and marked it with cyan paint. Flash just identifies +
+ *  classifies what's already visually highlighted. */
+const GEMINI_LINES_FROM_PAINTED_PROMPT = `This image is an aerial photo of a residential roof with cyan strokes already drawn on every roof edge by a prior model pass. Your job: identify each cyan line and classify it.
+
+THE CYAN LINES YOU NEED TO IDENTIFY:
+- The outer cyan PERIMETER of the painted region — every segment of this perimeter is an eave, rake, or gable end.
+- Any THIN cyan strokes drawn INSIDE the painted region — these are ridges, hips, or valleys where two roof planes meet.
+
+CLASSIFICATION RULES:
+- HORIZONTAL cyan line at the TOP boundary between two painted regions = ridge
+- HORIZONTAL cyan line at the BOTTOM outer perimeter = eave
+- SLOPED diagonal cyan line that runs from a peak point down to a building corner = hip
+- SLOPED inward-V cyan line where two painted regions meet from above = valley
+- SLOPED cyan line on the open side of a gable (perimeter line that drops diagonally) = rake
+
+INSTRUCTIONS:
+1. Return EVERY visible cyan line. A typical home has 6–14 lines total.
+2. For each line: type + start_pixel [x, y] + end_pixel [x, y] + confidence (0.0–1.0).
+3. A single straight segment between two endpoints = one line. For curves or steps, return multiple short segments.
+4. The cyan strokes are your ground truth. If you see a cyan line, you MUST return it — even if you'd disagree with the classification, classify it by its geometric role (orientation + position).
+5. Coordinates are pixel space (0–1279), origin top-left.
+6. Only consider the central building's cyan markup. Ignore any cyan that may be on neighboring structures.
+
+Coverage is the success metric. Under-tracing (returning fewer lines than the painting shows) is the dominant failure mode — be exhaustive.`;
+
 async function callGeminiLines(
   tileBase64: string,
   apiKey: string,
+  promptOverride?: string,
 ): Promise<GeminiLineDetection[]> {
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
@@ -846,7 +896,7 @@ async function callGeminiLines(
     contents: [
       {
         parts: [
-          { text: GEMINI_LINES_PROMPT },
+          { text: promptOverride ?? GEMINI_LINES_PROMPT },
           { inline_data: { mime_type: "image/png", data: tileBase64 } },
         ],
       },
@@ -871,11 +921,40 @@ async function callGeminiLines(
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
   const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) return [];
+  if (!text) {
+    console.warn("[gemini-lines] no_text_in_response");
+    return [];
+  }
   try {
     const parsed = JSON.parse(text) as { lines?: GeminiLineDetection[] };
-    return parsed.lines ?? [];
-  } catch {
+    const lines = parsed.lines ?? [];
+    // Per-type observability so we can spot under-trace failures in
+    // production without re-running with debug=1. Healthy roofs return
+    // at least 1 ridge + 2 eaves + 2–4 rakes-or-hips.
+    const byType = lines.reduce<Record<string, number>>((acc, l) => {
+      acc[l.type] = (acc[l.type] ?? 0) + 1;
+      return acc;
+    }, {});
+    console.log(
+      `[gemini-lines] total=${lines.length} ` +
+        `ridges=${byType.ridge ?? 0} hips=${byType.hip ?? 0} ` +
+        `valleys=${byType.valley ?? 0} rakes=${byType.rake ?? 0} ` +
+        `eaves=${byType.eave ?? 0}`,
+    );
+    if ((byType.eave ?? 0) === 0 || (byType.ridge ?? 0) + (byType.hip ?? 0) === 0) {
+      console.warn(
+        "[gemini-lines] under-trace_detected — missing eaves and/or ridges/hips. " +
+          "Customer page falls back to Solar classifier which often misfires " +
+          "as all-rakes on simple gables; consider re-running with the painted " +
+          "image as input for a stronger signal.",
+      );
+    }
+    return lines;
+  } catch (err) {
+    console.warn(
+      "[gemini-lines] parse_failed",
+      err instanceof Error ? err.message : String(err),
+    );
     return [];
   }
 }
@@ -1131,8 +1210,11 @@ async function handleV3Pinned(
     console.warn("[gemini-roof v3] rich_data_call_failed", geminiRichErr);
   }
 
-  // Stash for processing after avgPitchDeg is computed below.
-  const linesValue =
+  // First-pass line trace ran on the RAW satellite tile in parallel
+  // with the painted call. Often under-traces simple-gable homes
+  // because Flash can't see the eave/ridge geometry as cleanly as it
+  // can see the painted cyan strokes.
+  let linesValue =
     linesResult.status === "fulfilled" ? linesResult.value : null;
   if (linesResult.status === "rejected") {
     console.warn(
@@ -1141,6 +1223,62 @@ async function handleV3Pinned(
         ? linesResult.reason.message
         : String(linesResult.reason),
     );
+  }
+
+  // ─── Second-pass line trace on the PAINTED image ─────────────────────
+  // Pro Image draws cyan strokes along every legal edge (eave, ridge,
+  // hip, valley, rake). Asking Flash to identify those is dramatically
+  // easier than asking it to detect edges in raw satellite imagery —
+  // the cyan strokes ARE the answer, Flash just classifies each one.
+  //
+  // This runs serially after the painted call lands (~3s extra wall-
+  // clock when painted succeeds). We prefer the painted-pass result
+  // when it's clearly more comprehensive (more total lines, OR has the
+  // canonical mix of eaves + ridges that the raw-tile pass missed).
+  if (paintedImageBase64) {
+    try {
+      const paintedLines = await callGeminiLines(
+        paintedImageBase64,
+        geminiKey,
+        GEMINI_LINES_FROM_PAINTED_PROMPT,
+      );
+      // Heuristic: painted-pass wins when it has strictly more lines OR
+      // when the raw pass returned an under-trace (no eaves, no
+      // ridges/hips — the 0/0/562/0 misfire pattern). Otherwise keep
+      // the raw pass (rare; usually painted is better).
+      const rawCount = linesValue?.length ?? 0;
+      const painted = paintedLines;
+      const paintedByType = painted.reduce<Record<string, number>>(
+        (acc, l) => {
+          acc[l.type] = (acc[l.type] ?? 0) + 1;
+          return acc;
+        },
+        {},
+      );
+      const paintedHasEavesAndRidges =
+        (paintedByType.eave ?? 0) > 0 &&
+        ((paintedByType.ridge ?? 0) + (paintedByType.hip ?? 0)) > 0;
+      if (
+        paintedHasEavesAndRidges ||
+        painted.length > rawCount + 1
+      ) {
+        console.log(
+          `[gemini-roof v3] line_trace_source=painted ` +
+            `(painted=${painted.length} vs raw=${rawCount})`,
+        );
+        linesValue = painted;
+      } else {
+        console.log(
+          `[gemini-roof v3] line_trace_source=raw ` +
+            `(painted=${painted.length}, raw=${rawCount}, painted under-traced)`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] painted_lines_call_failed; keeping raw-tile result:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   console.log(
