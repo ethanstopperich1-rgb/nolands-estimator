@@ -1,0 +1,19 @@
+[
+  {
+    "label": "REPLACE — 1965 King Arthur Cir, Maitland FL",
+    "address": "1965 King Arthur Cir, Maitland, FL 32751",
+    "lat": 0.0,
+    "lng": 0.0,
+    "eagleview": {
+      "totalRoofSqft": null,
+      "predominantPitch": null,
+      "facetCount": null,
+      "ridgesHipsLf": null,
+      "valleysLf": null,
+      "rakesLf": null,
+      "eavesLf": null,
+      "wastePercent": null,
+      "notes": ""
+    }
+  }
+]
