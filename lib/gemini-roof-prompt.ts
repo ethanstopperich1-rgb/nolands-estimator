@@ -31,12 +31,15 @@ The roof is a man-made structure with straight edges, consistent shingle or tile
 
 Do NOT paint cyan on:
 - **Cast shadows on the ground.** Shadows are soft-edged, desaturated gray-green or gray-brown, sit on grass or pavement, and have no shingle texture. They often extend from the roof edge across the lawn — stop the overlay at the eave, not at the shadow's edge.
+- **Shadows cast BY roof features ONTO the same roof.** Skylights, chimneys, and ridges cast triangular or rectangular shadows across the shingles beside them. Those shadow shapes are NOT separate facets and they are NOT roof penetrations — they are dark patches on shingles that are still part of the same continuous roof plane. Paint the cyan straight through them as if the shadow weren't there. A common failure mode is painting two narrow triangular sections next to each skylight (the shadows) while skipping the actual top-of-skylight roof slope. Don't do that — the top slope IS the roof; the shadow is on it.
 - **Tree canopy next to the house.** Foliage is bumpy, organic, irregular, and clustered. Even when canopy is dark and roughly roof-colored, it has no straight edges and no shingle pattern.
 - **Lawn, driveway, pool, pool deck, patio, sidewalk, fence.**
 - **Neighboring houses.** If there is any strip of ground (lawn, walkway, driveway) between the central roof and another rooftop, the other rooftop is a different building. Do not bridge across that gap.
 - **Detached sheds or garages** separated from the main house by ground.
+- **Attached porches with a SEPARATE lower-pitched roof.** Many homes have a covered porch tacked onto one side whose roof is visibly shallower (often nearly flat) and meets the main house at a horizontal seam where the porch roof tucks UNDER the main roof's eave. Even though the structures are attached, the porch roof is its own surface — different pitch, different material wear, different age. Leave it OFF the cyan overlay. The clue: a clean horizontal seam at the wall plus a visibly shallower slope in the imagery (the porch slope reads as a flat or near-flat rectangle while the main roof reads as a tilted shingle plane).
+- **Carports and breezeways** whose roof structure is separate from the main house, even when they touch the wall.
 
-Attached porches, attached garages, and additions whose roof plane is visibly continuous with the main house ARE part of the target and should be overlaid.
+Attached porches, attached garages, sunrooms, and additions whose roof plane is visibly CONTINUOUS with the main house — same pitch, same shingle pattern, same height seam — ARE part of the target and should be overlaid. The test is continuity of plane, not physical attachment.
 
 **Filling small gaps under tree canopy**
 

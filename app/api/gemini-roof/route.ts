@@ -720,7 +720,7 @@ Return EIGHT pieces of data:
 
 1) objects[] — every rooftop fixture you can directly see. Types: vent, chimney, hvac_unit, skylight, plumbing_boot, satellite_dish, solar_panel. Include center pixel, bounding box, and confidence (float 0.0–1.0). Do not infer objects under tree canopy.
 
-2) facet_count_estimate — how many distinct roof planes are visible on the central building (count gable ends, hip sides, dormer sides, addition wings separately). Also classify complexity: simple (2–4 planes), moderate (5–10), complex (11+). Confidence reflects how confidently you can resolve plane boundaries given imagery clarity.
+2) facet_count_estimate — how many distinct roof planes are visible on the central building (count gable ends, hip sides, dormer sides, addition wings separately). Also classify complexity: simple (2–4 planes), moderate (5–10), complex (11+). Confidence reflects how confidently you can resolve plane boundaries given imagery clarity. IMPORTANT: shadows cast by skylights, chimneys, ridges, or dormers across the surrounding shingles are NOT separate facets — they are dark patches on a single plane. Count the underlying plane once. Likewise, an attached porch with a visibly SHALLOWER pitch than the main roof is its own structure — do NOT count its planes as facets of the central building.
 
 3) roof_material — predominant covering material visible on the roof surface. Choose the most likely type from the enum. asphalt_shingle_architectural is the FL residential default unless you see clear tile (concrete or clay barrel) or metal seams. Confidence float.
 

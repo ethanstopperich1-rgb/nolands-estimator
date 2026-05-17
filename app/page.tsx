@@ -24,10 +24,15 @@
  * in app/globals.css so the global dark theme (dashboard) is unaffected.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
+import {
+  ARCHITECTURAL_SHINGLE_RATE_PER_SQFT,
+  calculateCustomerPrice,
+  calculateSuggestedWaste,
+} from "@/lib/pricing/calculate-waste";
 
 type Step = "hero" | "pin" | "loading" | "result" | "error";
 
@@ -76,6 +81,13 @@ interface V3Response {
     rakesLf: number | null;
     eavesLf: number | null;
   };
+  geminiEdges: {
+    ridgesHipsLf: number;
+    valleysLf: number;
+    rakesLf: number;
+    eavesLf: number;
+    linesCount: number;
+  } | null;
   facets: Array<{
     pitchDegrees: number;
     pitchOnTwelve: string;
@@ -154,6 +166,7 @@ function VoxarisFlow() {
   const [step, setStep] = useState<Step>("hero");
   const [resolved, setResolved] = useState<AddressResolved | null>(null);
   const [pinLat, setPinLat] = useState<number | null>(null);
+  const [leadPublicId, setLeadPublicId] = useState<string | null>(null);
   const [pinLng, setPinLng] = useState<number | null>(null);
   const [result, setResult] = useState<V3Response | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -198,6 +211,7 @@ function VoxarisFlow() {
     setStep("hero");
     setResolved(null);
     setPinLat(null);
+    setLeadPublicId(null);
     setPinLng(null);
     setResult(null);
     setErrorMsg(null);
@@ -207,8 +221,9 @@ function VoxarisFlow() {
     <>
       {step === "hero" && (
         <HeroScreen
-          onAddressResolved={(addr) => {
+          onAddressResolved={(addr, leadId) => {
             setResolved(addr);
+            setLeadPublicId(leadId ?? null);
             setPinLat(addr.lat);
             setPinLng(addr.lng);
             setStep("pin");
@@ -235,6 +250,7 @@ function VoxarisFlow() {
         <ResultScreen
           result={result}
           resolved={resolved}
+          leadPublicId={leadPublicId}
           onRePin={() => setStep("pin")}
           onStartOver={startOver}
         />
@@ -255,17 +271,18 @@ function loadingMessageFor(elapsed: number): string {
 function HeroScreen({
   onAddressResolved,
 }: {
-  onAddressResolved: (addr: AddressResolved) => void;
+  onAddressResolved: (addr: AddressResolved, leadId: string | null) => void;
 }) {
   const addrRef = useRef<HTMLInputElement>(null);
   const [resolvedAddr, setResolvedAddr] = useState<AddressResolved | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  // Two-tier TCPA: marketing consent gates lead capture + SMS intro;
-  // voice consent (optional, opt-in) gates the outbound automated call.
+  // Marketing consent gates lead capture + the SMS intro. The separate
+  // voice consent lives on the result page now — captured after the
+  // customer sees their estimate, before any automated voice call is
+  // placed (TCPA "prior express written consent" requirement met).
   const [marketingConsent, setMarketingConsent] = useState(false);
-  const [voiceConsent, setVoiceConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -319,27 +336,34 @@ function HeroScreen({
     setSubmitting(true);
     try {
       // Lead capture — BotID validates server-side via the Provider above.
-      // marketingConsent is REQUIRED and gates SMS intro.
-      // voiceConsent is OPTIONAL — when true, the server fires an
-      // automated outbound call after the SMS intro lands.
-      await fetch("/api/leads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          address: resolvedAddr.formatted,
-          lat: resolvedAddr.lat,
-          lng: resolvedAddr.lng,
-          source: "pitch.voxaris.io",
-          marketingConsent: true,
-          voiceConsent,
-        }),
-      }).catch(() => {
-        /* Don't block the customer if lead capture fails — they still see their estimate. */
-      });
-      onAddressResolved(resolvedAddr);
+      // marketingConsent is REQUIRED and gates the SMS intro + email.
+      // Voice consent is captured later on the result page as its own
+      // explicit action, then POSTed to /api/leads/[publicId]/voice-consent.
+      let leadPublicId: string | null = null;
+      try {
+        const res = await fetch("/api/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+            address: resolvedAddr.formatted,
+            lat: resolvedAddr.lat,
+            lng: resolvedAddr.lng,
+            source: "pitch.voxaris.io",
+            marketingConsent: true,
+            voiceConsent: false,
+          }),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { leadId?: string };
+          if (typeof data.leadId === "string") leadPublicId = data.leadId;
+        }
+      } catch {
+        /* Lead capture failure must not block the estimate. */
+      }
+      onAddressResolved(resolvedAddr, leadPublicId);
     } finally {
       setSubmitting(false);
     }
@@ -351,36 +375,25 @@ function HeroScreen({
         <div className="ambient" />
         <CrescentSvg />
 
-        {/* Top bar — wordmark is "Voxaris." (period non-negotiable on hero
-            per brand §04). Pill nav banned by §06; using flat hairline nav. */}
+        {/* Top bar — wordmark only. No nav (how-it-works / FAQ pulled per
+            §06 "whitespace is a feature"). The picture element prefers a
+            self-hosted brand asset at /brand/voxaris-ai-wordmark.png and
+            falls back to the DragonEF text wordmark when the image is
+            missing. */}
         <header className="relative z-20 pt-7 lg:pt-10">
-          <div className="max-w-7xl mx-auto px-6 lg:px-10">
-            <div className="flex flex-col items-center gap-6">
-              <Link href="/" className="leading-none" aria-label="Voxaris — home">
-                <span
-                  className="font-serif tracking-tight"
-                  style={{ fontSize: "32px", color: "var(--vx-ink)", letterSpacing: "-0.02em" }}
-                >
-                  Voxaris.
-                </span>
-              </Link>
-              <nav className="nav-row" aria-label="Primary">
-                <a href="#how">How it works</a>
-                <a href="#faq">FAQ</a>
-              </nav>
-            </div>
+          <div className="max-w-7xl mx-auto px-6 lg:px-10 flex justify-center">
+            <Link href="/" className="leading-none" aria-label="Voxaris — home">
+              <Wordmark size="lg" tone="ink" />
+            </Link>
           </div>
         </header>
 
         {/* Hero copy */}
-        <div className="relative z-10 max-w-5xl mx-auto px-6 lg:px-10 pt-20 lg:pt-28 pb-16 lg:pb-20 text-center">
+        <div className="relative z-10 max-w-5xl mx-auto px-6 lg:px-10 pt-24 lg:pt-32 pb-16 lg:pb-20 text-center">
           <OrnamentSvg />
-          <div className="rise mb-10" data-d="1">
-            <span className="eyebrow">Thirty seconds · No calls until you ask</span>
-          </div>
           <h1
             className="rise font-serif tracking-tight mx-auto"
-            data-d="2"
+            data-d="1"
             style={{
               fontSize: "clamp(54px, 8.2vw, 120px)",
               lineHeight: 0.96,
@@ -399,7 +412,7 @@ function HeroScreen({
           </h1>
           <p
             className="rise mt-10 mx-auto"
-            data-d="3"
+            data-d="2"
             style={{
               maxWidth: "60ch",
               fontSize: "19px",
@@ -548,22 +561,16 @@ function HeroScreen({
               </label>
             </div>
 
-            {/* Consent 2 — optional. Outbound automated voice call. */}
-            <div className="px-[22px] py-4" style={{ borderBottom: "1px solid var(--vx-rule-soft)" }}>
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="checkbox"
-                  checked={voiceConsent}
-                  onChange={(e) => setVoiceConsent(e.target.checked)}
-                />
-                <span style={{ fontSize: "12px", color: "var(--vx-ink-soft)", lineHeight: 1.6 }}>
-                  <span style={{ color: "var(--vx-ink)", fontWeight: 500 }}>Call me with a quick voice intro.</span>{" "}
-                  Optional. I&apos;m OK getting an automated voice call within a few minutes to walk through
-                  the estimate. I can hang up or reply STOP anytime.
-                </span>
-              </label>
-            </div>
+            {/* Voice consent intentionally NOT in this form — it now
+                lives on the result page as a post-estimate "Get a rep
+                to my door" action. TCPA compliance: prior express
+                written consent for an automated voice call must be
+                obtained before the call is placed, but it does NOT
+                have to be obtained at the same step as the SMS
+                consent. Capturing it after the customer has seen
+                their estimate is a stronger consent signal (they're
+                acting on a real piece of value, not a blanket
+                opt-in). */}
 
             <div className="foot-row">
               <div
@@ -604,16 +611,6 @@ function HeroScreen({
         <hr className="hair-strong" />
       </section>
 
-      {/* Brass divider */}
-      <div className="flex justify-center py-8" style={{ background: "var(--vx-paper)" }}>
-        <span className="inline-flex items-center gap-3" aria-hidden="true">
-          <span className="block w-12 h-px" style={{ background: "rgba(138, 126, 104, 0.5)" }} />
-          <span className="marker" />
-          <span className="block w-12 h-px" style={{ background: "rgba(138, 126, 104, 0.5)" }} />
-        </span>
-      </div>
-
-      <BelowFold />
       <VoxarisFooter />
     </div>
   );
@@ -792,58 +789,58 @@ function LoadingScreen({ elapsed, message }: { elapsed: number; message: string 
       <div className="ambient" />
       <PinHeader />
 
-      <div className="relative z-10 max-w-3xl mx-auto px-6 lg:px-10 pt-16 lg:pt-24 pb-10 w-full text-center flex-1 flex flex-col">
-        {/* Tiny status — the "what we're doing right now" line. */}
-        <div className="eyebrow mb-3">Measuring · {message}</div>
-
-        {/* Headline framing — stable, sets the moment. */}
-        <h2
-          className="font-serif tracking-tight mx-auto"
-          style={{
-            fontSize: "clamp(28px, 4.2vw, 44px)",
-            lineHeight: 1.06,
-            fontWeight: 500,
-            color: "var(--vx-ink)",
-            maxWidth: "22ch",
-          }}
+      {/* Centralized layout — flex column anchored to the page center.
+          All content (status, headline, fact, progress, counters) sits
+          in a single stacked group at the vertical midpoint. */}
+      <div className="relative z-10 flex-1 flex items-center justify-center px-6 lg:px-10 pb-10 w-full">
+        <div
+          className="w-full mx-auto text-center"
+          style={{ maxWidth: "640px" }}
         >
-          A few seconds.{" "}
-          <span className="italic font-light" style={{ color: "var(--vx-ink-soft)" }}>
-            Worth knowing while you wait.
-          </span>
-        </h2>
+          {/* Tiny status — the "what we're doing right now" line. */}
+          <div className="eyebrow mb-4">Measuring · {message}</div>
 
-        {/* Fact carousel — the main event. Cross-fade keyed on index
-            via the `rise` animation re-mounting with a new key. */}
-        <div className="flex-1 flex items-center justify-center my-10 lg:my-16">
-          <div
-            key={factIndex}
-            className="rise"
-            style={{ maxWidth: "60ch" }}
-            data-d="1"
+          {/* Headline framing — stable, sets the moment. */}
+          <h2
+            className="font-serif tracking-tight mx-auto"
+            style={{
+              fontSize: "clamp(28px, 4.2vw, 44px)",
+              lineHeight: 1.06,
+              fontWeight: 500,
+              color: "var(--vx-ink)",
+              maxWidth: "22ch",
+            }}
           >
-            <span
-              className="marker mb-5 inline-block"
-              aria-hidden="true"
-              style={{ verticalAlign: "middle" }}
-            />
-            <p
-              className="font-serif mx-auto"
-              style={{
-                fontSize: "clamp(22px, 3vw, 30px)",
-                lineHeight: 1.4,
-                fontWeight: 400,
-                color: "var(--vx-ink)",
-                fontStyle: "italic",
-              }}
-            >
-              {fact}
-            </p>
-          </div>
-        </div>
+            A few seconds.{" "}
+            <span className="italic font-light" style={{ color: "var(--vx-ink-soft)" }}>
+              Worth knowing while you wait.
+            </span>
+          </h2>
 
-        {/* Progress + counter pinned near the bottom. */}
-        <div className="mt-auto">
+          {/* Fact carousel — cross-fade keyed on index. */}
+          <div className="my-10 lg:my-12">
+            <div
+              key={factIndex}
+              className="rise"
+              style={{ maxWidth: "60ch", margin: "0 auto" }}
+              data-d="1"
+            >
+              <p
+                className="font-serif mx-auto"
+                style={{
+                  fontSize: "clamp(22px, 3vw, 30px)",
+                  lineHeight: 1.4,
+                  fontWeight: 400,
+                  color: "var(--vx-ink)",
+                  fontStyle: "italic",
+                }}
+              >
+                {fact}
+              </p>
+            </div>
+          </div>
+
+          {/* Progress + counter — stacked directly under the fact. */}
           <div
             className="mx-auto"
             style={{
@@ -859,7 +856,7 @@ function LoadingScreen({ elapsed, message }: { elapsed: number; message: string 
                 position: "absolute",
                 inset: 0,
                 width: `${pct}%`,
-                background: "var(--vx-muted)",
+                background: "var(--vx-terra)",
                 transition: "width 0.4s ease",
               }}
             />
@@ -908,26 +905,97 @@ function LoadingScreen({ elapsed, message }: { elapsed: number; message: string 
 function ResultScreen({
   result,
   resolved,
+  leadPublicId,
   onRePin,
   onStartOver,
 }: {
   result: V3Response;
   resolved: AddressResolved;
+  leadPublicId: string | null;
   onRePin: () => void;
   onStartOver: () => void;
 }) {
-  const { solar, paintedImageBase64, objects, facets, derived, edges, correction } = result;
+  const { solar, paintedImageBase64, objects, facets, derived, geminiEdges, edges } = result;
   const sqft = solar.sqft;
   const pitch = solar.pitchDegrees;
   const pitchOn12 = pitch != null && pitch > 0
     ? `${Math.max(1, Math.round(Math.tan((pitch * Math.PI) / 180) * 12))}/12`
     : null;
 
-  // Object counts by type for chip strip
+  // Pricing — sqft × (1 + suggested waste %) × $7/sqft. Waste is rolled
+  // in but the percentage itself is intentionally NOT surfaced to the
+  // customer (the internal workbench shows it + the breakdown).
+  // Prefer Gemini edge counts over Solar's classifier (Solar tends to
+  // misfire on simple gable roofs, returning all-rakes / nothing-else).
+  const ridgesHipsLf = geminiEdges?.ridgesHipsLf ?? edges.ridgesHipsLf;
+  const valleysLf = geminiEdges?.valleysLf ?? edges.valleysLf;
+  const rakesLf = geminiEdges?.rakesLf ?? edges.rakesLf;
+  const eavesLf = geminiEdges?.eavesLf ?? edges.eavesLf;
+
+  const waste = useMemo(() => {
+    if (sqft == null) return null;
+    return calculateSuggestedWaste({
+      facetCount: facets.length,
+      valleysLf: valleysLf,
+      ridgesHipsLf: ridgesHipsLf,
+      avgPitchDeg: pitch ?? 22.6,
+      totalSqft: sqft,
+    });
+  }, [sqft, facets.length, valleysLf, ridgesHipsLf, pitch]);
+
+  const price = useMemo(() => {
+    if (sqft == null || waste == null) return null;
+    return calculateCustomerPrice(sqft, waste);
+  }, [sqft, waste]);
+
   const objectCounts = objects.reduce<Record<string, number>>((acc, o) => {
     acc[o.type] = (acc[o.type] ?? 0) + 1;
     return acc;
   }, {});
+
+  // Voice-consent / "rep at my door" state. The customer must explicitly
+  // tick the consent box before the call dispatch fires.
+  const [voiceConsent, setVoiceConsent] = useState(false);
+  const [bookingState, setBookingState] = useState<"idle" | "sending" | "booked" | "error">("idle");
+  const [bookingError, setBookingError] = useState<string | null>(null);
+
+  async function bookInPersonEstimate(): Promise<void> {
+    if (!voiceConsent || !leadPublicId) return;
+    setBookingState("sending");
+    setBookingError(null);
+    try {
+      const res = await fetch(
+        `/api/leads/${encodeURIComponent(leadPublicId)}/voice-consent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            consent: true,
+            disclosureText:
+              "Customer authorized an automated outbound voice intro call after viewing their estimate.",
+          }),
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Booking service ${res.status}: ${text.slice(0, 200)}`);
+      }
+      setBookingState("booked");
+    } catch (err) {
+      setBookingError(err instanceof Error ? err.message : String(err));
+      setBookingState("error");
+    }
+  }
+
+  // Build edge cells lazily — display only when ANY value is present so
+  // we don't show a 0/0/0/0 row when classification failed.
+  const edgeCells: Array<[string, number | null]> = [
+    ["Ridges + hips", ridgesHipsLf ?? null],
+    ["Valleys", valleysLf ?? null],
+    ["Rakes", rakesLf ?? null],
+    ["Eaves", eavesLf ?? null],
+  ];
+  const anyEdge = edgeCells.some(([, lf]) => lf != null && lf > 0);
 
   return (
     <div className="relative min-h-[100dvh] flex flex-col">
@@ -967,7 +1035,7 @@ function ResultScreen({
           </p>
         </div>
 
-        {/* Painted image — the Gemini cyan overlay */}
+        {/* Painted image — the cyan-outlined roof */}
         {paintedImageBase64 && (
           <div
             className="result-card mt-10 overflow-hidden mx-auto"
@@ -986,7 +1054,8 @@ function ResultScreen({
           </div>
         )}
 
-        {/* Measurement chips */}
+        {/* Measurement chips. FACES E ("predominant compass") removed —
+            not useful to the customer. */}
         <div className="mt-10 flex flex-wrap justify-center gap-3">
           {pitch != null && (
             <span className="chip">
@@ -1004,11 +1073,6 @@ function ResultScreen({
           <span className="chip">
             Complexity <span className="chip-value">{derived.complexity}</span>
           </span>
-          {derived.predominantCompass && (
-            <span className="chip">
-              Faces <span className="chip-value">{derived.predominantCompass}</span>
-            </span>
-          )}
         </div>
 
         {/* Penetrations / objects */}
@@ -1025,67 +1089,241 @@ function ResultScreen({
           </div>
         )}
 
-        {/* Edge LFs (when available) */}
-        {(edges.ridgesHipsLf != null || edges.eavesLf != null) && (
-          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-px max-w-3xl mx-auto"
-               style={{ background: "var(--vx-rule)", border: "1px solid var(--vx-rule)" }}>
-            {[
-              ["Ridges + hips", edges.ridgesHipsLf],
-              ["Valleys", edges.valleysLf],
-              ["Rakes", edges.rakesLf],
-              ["Eaves", edges.eavesLf],
-            ].map(([label, lf]) => (
-              <div key={label as string} className="p-5 text-center" style={{ background: "var(--vx-cream)" }}>
+        {/* Edge LFs — only show when at least one classifier returned a
+            non-zero number. Avoids the 0/0/562/0 misfire pattern. */}
+        {anyEdge && (
+          <div
+            className="mt-8 grid grid-cols-2 md:grid-cols-4 max-w-3xl mx-auto"
+            style={{
+              background: "var(--vx-paper)",
+              border: "1px solid var(--vx-rule)",
+              borderRadius: "var(--vx-radius-card)",
+            }}
+          >
+            {edgeCells.map(([label, lf], i) => (
+              <div
+                key={label}
+                className="p-5 text-center"
+                style={{
+                  borderLeft:
+                    i % 2 === 0 ? "none" : "1px solid var(--vx-rule)",
+                  // On md+ (4 cols), use border-left for every cell except the first;
+                  // on sm (2 cols), the alternate-cell rule above already gives us
+                  // separators in the correct places.
+                }}
+              >
                 <div className="field-label">{label}</div>
-                <div className="font-serif tabular mt-2" style={{ fontSize: "28px", color: "var(--vx-ink)", fontWeight: 500 }}>
-                  {lf != null ? `${lf} ft` : "—"}
+                <div
+                  className="font-serif tabular mt-2"
+                  style={{
+                    fontSize: "28px",
+                    color: "var(--vx-ink)",
+                    fontWeight: 500,
+                  }}
+                >
+                  {lf != null && lf > 0 ? `${lf} ft` : "—"}
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Correction audit — only shown when transparent fallback fired */}
-        {correction?.applied && (
+        {/* Price block — big total + simple rate line. Waste % is NOT
+            surfaced (rolled into the math; internal workbench shows it). */}
+        {price && (
           <div
-            className="mt-8 mx-auto"
-            style={{
-              maxWidth: "640px",
-              border: "1px solid var(--vx-rule-soft)",
-              padding: "16px 20px",
-              fontSize: "12.5px",
-              lineHeight: 1.6,
-              color: "var(--vx-ink-soft)",
-            }}
+            className="mt-12 mx-auto text-center result-card"
+            style={{ maxWidth: "640px", padding: "32px 24px" }}
           >
-            <span className="eyebrow" style={{ display: "block", marginBottom: 6 }}>
-              How we got here
-            </span>
-            {correction.reason}
+            <div className="eyebrow mb-3">Estimated investment</div>
+            <div
+              className="font-serif tabular"
+              style={{
+                fontSize: "clamp(48px, 7vw, 72px)",
+                lineHeight: 1,
+                fontWeight: 500,
+                color: "var(--vx-ink)",
+                letterSpacing: "-0.015em",
+              }}
+            >
+              ${price.total.toLocaleString()}
+            </div>
+            <div
+              className="mt-3 tabular"
+              style={{
+                fontSize: "14px",
+                color: "var(--vx-ink-soft)",
+                fontWeight: 600,
+              }}
+            >
+              Range ${price.totalLow.toLocaleString()} – ${price.totalHigh.toLocaleString()}
+            </div>
+            <div
+              className="mt-5 mx-auto"
+              style={{
+                fontSize: "14px",
+                color: "var(--vx-ink-soft)",
+                fontWeight: 600,
+                maxWidth: "44ch",
+              }}
+            >
+              Architectural shingles · ${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)} per
+              sq ft installed (tear-off, underlayment, ridge cap, drip edge,
+              flashing, labor, disposal).
+            </div>
+            <div
+              className="mt-3 mx-auto font-serif italic"
+              style={{
+                fontSize: "14px",
+                color: "var(--vx-ink-soft)",
+                maxWidth: "48ch",
+              }}
+            >
+              Final number depends on deck condition, code-driven upgrades,
+              and your exact material selection — confirmed on-site by a
+              licensed roofer.
+            </div>
           </div>
         )}
 
-        <div className="mt-12 flex flex-wrap items-center justify-center gap-4">
+        {/* "Get a rep to my door" — post-result voice consent + dispatch.
+            TCPA-compliant: the customer hasn't received any automated
+            voice call yet, and we capture the consent + disclosure text +
+            IP/UA + timestamp at the moment of opt-in before the call is
+            placed. Disabled when there's no leadPublicId (lead capture
+            failed at form submit). */}
+        <div className="mt-12 mx-auto" style={{ maxWidth: "640px" }}>
+          {bookingState === "booked" ? (
+            <div
+              className="result-card text-center"
+              style={{
+                padding: "28px 24px",
+                borderColor: "var(--vx-terra)",
+              }}
+            >
+              <div className="eyebrow mb-2" style={{ color: "var(--vx-terra)" }}>
+                You&apos;re on the list
+              </div>
+              <p
+                className="font-serif mx-auto"
+                style={{
+                  fontSize: "22px",
+                  lineHeight: 1.3,
+                  color: "var(--vx-ink)",
+                  maxWidth: "44ch",
+                }}
+              >
+                A specialist will call you within a few minutes to confirm a
+                time. Watch your phone.
+              </p>
+            </div>
+          ) : (
+            <div className="result-card" style={{ padding: "24px 22px" }}>
+              <div className="eyebrow mb-3">Want a rep at your door?</div>
+              <label
+                className="flex items-start gap-3 cursor-pointer"
+                style={{
+                  fontSize: "14px",
+                  color: "var(--vx-ink-soft)",
+                  lineHeight: 1.6,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  className="checkbox"
+                  checked={voiceConsent}
+                  onChange={(e) => setVoiceConsent(e.target.checked)}
+                  disabled={!leadPublicId || bookingState === "sending"}
+                />
+                <span>
+                  <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+                    Call me with an automated voice intro
+                  </span>{" "}
+                  to walk through this estimate and schedule an on-site
+                  visit. I can hang up or reply STOP anytime. I understand
+                  consent is not required to do business with Voxaris or the
+                  partner contractor.
+                </span>
+              </label>
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={onRePin}
+                  style={{
+                    fontSize: "12px",
+                    letterSpacing: "0.18em",
+                    textTransform: "uppercase",
+                    color: "var(--vx-ink-soft)",
+                    fontWeight: 600,
+                    background: "none",
+                    border: 0,
+                    cursor: "pointer",
+                    padding: "10px 0",
+                  }}
+                >
+                  ← Re-pin
+                </button>
+                <button
+                  type="button"
+                  className="btn-terra"
+                  disabled={
+                    !voiceConsent ||
+                    !leadPublicId ||
+                    bookingState === "sending"
+                  }
+                  onClick={bookInPersonEstimate}
+                >
+                  {bookingState === "sending"
+                    ? "Booking…"
+                    : "Get a rep to my door"}
+                  <span className="arrow" aria-hidden="true">→</span>
+                </button>
+              </div>
+              {!leadPublicId && (
+                <p
+                  className="mt-3"
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--vx-muted)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  We didn&apos;t finish saving your contact info. Refresh and
+                  resubmit to enable booking, or call us directly.
+                </p>
+              )}
+              {bookingState === "error" && bookingError && (
+                <p
+                  className="mt-3"
+                  style={{
+                    fontSize: "12px",
+                    color: "#8a2c2c",
+                  }}
+                >
+                  {bookingError}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-10 text-center">
           <button
             type="button"
-            onClick={onRePin}
+            onClick={onStartOver}
             style={{
-              fontSize: "12px",
+              fontSize: "11px",
               letterSpacing: "0.18em",
               textTransform: "uppercase",
-              color: "var(--vx-ink-soft)",
-              fontWeight: 500,
+              color: "var(--vx-muted)",
+              fontWeight: 600,
               background: "none",
               border: 0,
               cursor: "pointer",
-              padding: "10px 0",
+              padding: "8px 0",
             }}
           >
-            ← Re-pin building center
-          </button>
-          <button type="button" className="btn-terra" onClick={onStartOver}>
-            Estimate another address
-            <span className="arrow" aria-hidden="true">→</span>
+            Start a new estimate
           </button>
         </div>
       </div>
@@ -1129,116 +1367,55 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
   );
 }
 
-// ─── Below-the-fold (How It Works + FAQ) ───────────────────────────────
+// ─── Shared wordmark ────────────────────────────────────────────────────
 
-function BelowFold() {
+/** Brand wordmark. Prefers self-hosted /brand/voxaris-ai-wordmark.png
+ *  when present (drop the file there to activate). Falls back to the
+ *  DragonEF text wordmark per brand §04. */
+function Wordmark({
+  size = "lg",
+  tone = "ink",
+}: {
+  size?: "lg" | "md" | "sm";
+  tone?: "ink" | "cream";
+}) {
+  const dim = size === "lg" ? 40 : size === "md" ? 28 : 22;
+  const color = tone === "ink" ? "var(--vx-ink)" : "var(--vx-cream)";
+  const textSize = size === "lg" ? 32 : size === "md" ? 26 : 22;
   return (
-    <>
-      <main className="relative z-10">
-        <section id="how" className="scroll-mt-20" style={{ background: "var(--vx-paper)" }}>
-          <div className="max-w-5xl mx-auto px-6 lg:px-10 py-24 lg:py-32">
-            <div className="text-center max-w-2xl mx-auto">
-              <div className="eyebrow">How it works</div>
-              <h2
-                className="font-serif tracking-tight mt-4"
-                style={{ fontSize: "clamp(40px, 6vw, 56px)", lineHeight: 1.04, fontWeight: 500, color: "var(--vx-ink)" }}
-              >
-                Three steps.{" "}
-                <span className="italic" style={{ fontWeight: 300 }}>About thirty seconds.</span>
-              </h2>
-              <p className="mt-5 mx-auto" style={{ fontSize: "16px", color: "var(--vx-ink-soft)", fontWeight: 300, lineHeight: 1.6, maxWidth: "32rem" }}>
-                No measuring tape. No salesperson at your door.
-              </p>
-            </div>
-            <ol className="mt-20 relative">
-              <span
-                aria-hidden="true"
-                className="absolute"
-                style={{
-                  left: "44px", top: "24px", bottom: "24px", width: "1px",
-                  background: "linear-gradient(to bottom, transparent, rgba(138, 126, 104, 0.4), transparent)",
-                }}
-              />
-              {[
-                ["01", "Enter your address", "Just your street address. We instantly pull your roof from satellite imagery the moment you submit."],
-                ["02", "AI measures your roof", "Our proprietary segmentation calculates square footage, pitch, and roof complexity in seconds."],
-                ["03", "Your estimate appears", "Choose your preferred material and see your price range — in writing, in seconds. No follow-up unless you ask."],
-              ].map(([num, title, body]) => (
-                <li key={num} className="relative grid grid-cols-[88px_1fr] gap-10 py-12 first:pt-0 last:pb-0">
-                  <div className="flex items-start justify-center">
-                    <span
-                      className="font-serif tabular"
-                      style={{ fontSize: "64px", lineHeight: 1, letterSpacing: "-0.04em", fontWeight: 300, color: "var(--vx-ink)" }}
-                    >
-                      {num}
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="font-serif" style={{ fontSize: "28px", fontWeight: 500, color: "var(--vx-ink)", lineHeight: 1.2 }}>
-                      {title}
-                    </h3>
-                    <p className="mt-3" style={{ fontSize: "16px", color: "var(--vx-ink-soft)", fontWeight: 300, lineHeight: 1.75, maxWidth: "58ch" }}>
-                      {body}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
-        <hr className="hair-strong" />
-
-        <section id="faq" className="scroll-mt-20">
-          <div className="max-w-3xl mx-auto px-6 lg:px-10 py-24 lg:py-32">
-            <div className="text-center mb-14">
-              <div className="eyebrow">Honestly answered</div>
-              <h2
-                className="font-serif tracking-tight mt-4"
-                style={{ fontSize: "clamp(36px, 5vw, 48px)", lineHeight: 1.05, fontWeight: 500, color: "var(--vx-ink)" }}
-              >
-                What you&apos;d reasonably want to know.
-              </h2>
-            </div>
-            <div style={{ borderTop: "1px solid var(--vx-rule)" }}>
-              {[
-                ["How accurate is the number?", "The estimate is a satellite-measured starting point — typically within a 10–15% band of an on-site quote on standard residential roofs, wider on complex or large properties. A binding contract still requires a master roofer on the property."],
-                ["Is this truly free?", "Yes. The estimate is complimentary. There is no fee, deposit, or obligation, and you are never charged for the on-site visit if you choose to request one."],
-                ["Will I be spammed or cold-called?", "No. Your details are never sold, never syndicated. No one follows up unless you ask, and a single reply of STOP ends contact immediately."],
-              ].map(([q, a], i) => (
-                <details key={q} className="group" style={{ borderBottom: "1px solid var(--vx-rule-soft)" }} open={i === 0}>
-                  <summary className="flex items-center justify-between gap-8 py-7 cursor-pointer list-none">
-                    <span className="font-serif" style={{ fontSize: "22px", color: "var(--vx-ink)", lineHeight: 1.2 }}>
-                      {q}
-                    </span>
-                    <span
-                      className="group-open:rotate-45 transition-transform"
-                      style={{ color: "var(--vx-muted)", fontSize: "24px", fontWeight: 300, lineHeight: 1 }}
-                      aria-hidden="true"
-                    >
-                      +
-                    </span>
-                  </summary>
-                  <p className="pb-7 -mt-1" style={{ fontSize: "15.5px", color: "var(--vx-ink-soft)", fontWeight: 300, lineHeight: 1.75, maxWidth: "68ch" }}>
-                    {a}
-                  </p>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <div className="flex justify-center pt-2 pb-12">
-          <span className="inline-flex items-center gap-3" aria-hidden="true">
-            <span className="block w-12 h-px" style={{ background: "rgba(138, 126, 104, 0.5)" }} />
-            <span className="marker" />
-            <span className="block w-12 h-px" style={{ background: "rgba(138, 126, 104, 0.5)" }} />
-          </span>
-        </div>
-
-        <hr className="hair-strong" />
-      </main>
-    </>
+    <span className="inline-flex items-baseline gap-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/voxaris-ai-wordmark.png"
+        alt="Voxaris AI"
+        style={{
+          height: `${dim}px`,
+          width: "auto",
+          // The supplied wordmark is light silver — invert on cream
+          // backgrounds so it reads as ink. tone="cream" (dark footer)
+          // shows the file as-shipped.
+          filter: tone === "ink" ? "invert(1) brightness(0.05)" : "none",
+        }}
+        onError={(e) => {
+          // Image missing — fall back to the DragonEF text wordmark.
+          (e.currentTarget as HTMLImageElement).style.display = "none";
+          const sibling = e.currentTarget.nextElementSibling as HTMLElement | null;
+          if (sibling) sibling.style.display = "inline";
+        }}
+      />
+      <span
+        className="font-serif tracking-tight"
+        style={{
+          fontSize: `${textSize}px`,
+          color,
+          letterSpacing: "-0.02em",
+          display: "none",
+          lineHeight: 1,
+        }}
+      >
+        Voxaris.
+      </span>
+    </span>
   );
 }
 
@@ -1249,16 +1426,7 @@ function PinHeader({ onBack }: { onBack?: () => void } = {}) {
     <header className="relative z-20 pt-7 lg:pt-10">
       <div className="max-w-7xl mx-auto px-6 lg:px-10 flex items-center justify-between">
         <Link href="/" className="leading-none" aria-label="Voxaris — home">
-          <span
-            className="font-serif tracking-tight"
-            style={{
-              fontSize: "26px",
-              color: "var(--vx-ink)",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            Voxaris.
-          </span>
+          <Wordmark size="md" tone="ink" />
         </Link>
         {onBack && (
           <button
@@ -1292,17 +1460,7 @@ function VoxarisFooter() {
         <div className="grid lg:grid-cols-12 gap-12 items-start">
           <div className="lg:col-span-6">
             <div className="mb-4">
-              <span
-                className="font-serif"
-                style={{
-                  fontSize: "32px",
-                  color: "var(--vx-cream)",
-                  lineHeight: 1,
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                Voxaris.
-              </span>
+              <Wordmark size="lg" tone="cream" />
             </div>
             <div
               className="eyebrow mb-6"

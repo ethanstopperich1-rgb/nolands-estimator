@@ -24,6 +24,11 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useSearchParams } from "next/navigation";
 import { loadGoogle } from "@/lib/google";
 import { MATERIAL_RATES } from "@/lib/pricing";
+import {
+  ARCHITECTURAL_SHINGLE_RATE_PER_SQFT,
+  calculateCustomerPrice,
+  calculateSuggestedWaste,
+} from "@/lib/pricing/calculate-waste";
 import type { Material } from "@/types/estimate";
 
 type Step = "address" | "pin" | "loading" | "result" | "error";
@@ -68,6 +73,13 @@ interface EstimateResult {
     rakesLf: number | null;
     eavesLf: number | null;
   };
+  geminiEdges: {
+    ridgesHipsLf: number;
+    valleysLf: number;
+    rakesLf: number;
+    eavesLf: number;
+    linesCount: number;
+  } | null;
   facets: Array<{
     pitchDegrees: number;
     pitchOnTwelve: string;
@@ -904,6 +916,15 @@ function ResultPanels({
       {/* Site & condition notes — rep talking points */}
       <SiteConditionNotes ga={result.geminiAnalysis} />
 
+      {/* Waste analysis — EagleView-style, rep-only. Customer never
+          sees the percentage; we show it here with the breakdown so the
+          rep can defend the number on a phone call. */}
+      <WasteAnalysisCard
+        result={result}
+        effectiveSqft={effectiveSqft}
+        effectivePitchDeg={effectivePitchDeg}
+      />
+
       {/* Storm history */}
       <StormHistoryCard storms={storms} hail={hail} />
 
@@ -987,6 +1008,155 @@ function ImageryFreshnessCard({
 
 /** Rep-only site/condition observations from the vision pass. The
  *  customer page never sees this content. */
+/** Rep-only waste-factor analysis. Reads from V3 (prefers gemini-detected
+ *  edges over Solar-classified, mirroring the customer page) and surfaces
+ *  the suggested %, what drove it, and the standard waste table — same
+ *  shape EagleView's premium reports use. Plus the spec architectural
+ *  shingle price ($7/sqft × sqft × (1 + waste)) so the rep can cross-
+ *  check against the customer-facing total. */
+function WasteAnalysisCard({
+  result,
+  effectiveSqft,
+  effectivePitchDeg,
+}: {
+  result: EstimateResult;
+  effectiveSqft: number | null;
+  effectivePitchDeg: number;
+}) {
+  if (effectiveSqft == null || effectiveSqft <= 0) return null;
+
+  // Prefer Gemini edges (more reliable on simple gable roofs) and fall
+  // back to Solar-classified.
+  const gEdges = result.geminiEdges as
+    | { ridgesHipsLf: number; valleysLf: number } | null
+    | undefined;
+  const valleysLf = gEdges?.valleysLf ?? result.edges.valleysLf ?? 0;
+  const ridgesHipsLf = gEdges?.ridgesHipsLf ?? result.edges.ridgesHipsLf ?? 0;
+
+  const waste = calculateSuggestedWaste({
+    facetCount: result.facets.length,
+    valleysLf,
+    ridgesHipsLf,
+    avgPitchDeg: effectivePitchDeg,
+    totalSqft: effectiveSqft,
+  });
+  const customerPrice = calculateCustomerPrice(effectiveSqft, waste);
+
+  return (
+    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+          Waste &amp; pricing analysis
+        </p>
+        <span className="text-[10px] uppercase tracking-[0.16em] text-cy-400">
+          EagleView-style
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        <Metric label="Suggested waste" value={`${waste.suggestedPercent}%`} sub="rolled into customer total" />
+        <Metric label="Complexity score" value={waste.complexityScore.toString()} sub="higher = more waste" />
+        <Metric
+          label="Customer total"
+          value={`$${customerPrice.total.toLocaleString()}`}
+          sub={`@ $${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)}/sqft`}
+        />
+        <Metric
+          label="Range"
+          value={`$${customerPrice.totalLow.toLocaleString()}–$${customerPrice.totalHigh.toLocaleString()}`}
+          sub="customer-visible band"
+        />
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-ink-700/60">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">
+          How we got to {waste.suggestedPercent}%
+        </p>
+        <ul className="text-sm text-slate-200 space-y-1 tabular-nums">
+          <li className="flex justify-between">
+            <span className="text-slate-400">
+              Facets ({result.facets.length} × 0.75)
+            </span>
+            <span>+{waste.breakdown.fromFacets.toFixed(1)}</span>
+          </li>
+          <li className="flex justify-between">
+            <span className="text-slate-400">
+              Valleys (~{Math.round(valleysLf / 15)} events × 3.5)
+            </span>
+            <span>+{waste.breakdown.fromValleys.toFixed(1)}</span>
+          </li>
+          <li className="flex justify-between">
+            <span className="text-slate-400">
+              Ridges + hips (~{Math.round(ridgesHipsLf / 25)} events × 1.8)
+            </span>
+            <span>+{waste.breakdown.fromRidgesHips.toFixed(1)}</span>
+          </li>
+          <li className="flex justify-between">
+            <span className="text-slate-400">
+              Steep pitch ({effectivePitchDeg.toFixed(1)}° {effectivePitchDeg > 33.7 ? "> 8/12" : "≤ 8/12"})
+            </span>
+            <span>+{waste.breakdown.fromSteepPitch.toFixed(1)}</span>
+          </li>
+          <li
+            className="flex justify-between border-t border-ink-700/40 pt-1 mt-1"
+            style={{ fontWeight: 600 }}
+          >
+            <span>Base 10 + score, capped to [10, 28]</span>
+            <span>{waste.suggestedPercent}%</span>
+          </li>
+        </ul>
+      </div>
+
+      <div className="mt-5 pt-4 border-t border-ink-700/60">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">
+          Waste table
+        </p>
+        <table className="w-full text-sm tabular-nums">
+          <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+            <tr>
+              <th className="text-left py-2">Waste %</th>
+              <th className="text-right py-2">Squares to order</th>
+              <th className="text-right py-2">Effective sqft</th>
+              <th className="text-right py-2">Total @ $7.00/sqft</th>
+            </tr>
+          </thead>
+          <tbody className="text-slate-200">
+            {waste.table.map((row) => {
+              const isSuggested = row.percent === waste.suggestedPercent;
+              const effective = Math.round(effectiveSqft * (1 + row.percent / 100));
+              const total = Math.round(effective * ARCHITECTURAL_SHINGLE_RATE_PER_SQFT);
+              return (
+                <tr
+                  key={row.percent}
+                  className="border-t border-ink-700/40"
+                  style={isSuggested ? { background: "rgba(56, 197, 238, 0.04)" } : undefined}
+                >
+                  <td className="py-2">
+                    {row.percent}%
+                    {isSuggested && (
+                      <span className="ml-2 text-[9px] uppercase tracking-[0.16em] text-cy-400">
+                        suggested
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 text-right">{row.totalSquares.toFixed(1)}</td>
+                  <td className="py-2 text-right">{effective.toLocaleString()}</td>
+                  <td className="py-2 text-right">${total.toLocaleString()}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
+          Suggested waste is a guide — adjust based on crew, material salvage, and
+          installation patterns. The customer sees a single total with waste rolled in;
+          the percentage itself is intentionally not displayed.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function SiteConditionNotes({
   ga,
 }: {
