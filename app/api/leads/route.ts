@@ -320,13 +320,58 @@ export async function POST(req: Request) {
               user_agent: consentUserAgent,
             });
 
-            // Companion proposals row — when the final /quote submit
-            // carries a full Estimate snapshot, persist it so the
-            // dashboard's lead drawer "Saved estimates" panel surfaces
-            // the customer's self-served quote alongside any rep-built
-            // ones. Defensive: snapshot type is `unknown` from the
-            // wire, so we validate the minimum needed fields and
-            // store the JSON round-trip for the rest.
+            // Companion proposals row from V3 submissions — when the
+            // /estimate-v2 customer sent a roofV3 payload, mirror it
+            // into proposals so "Saved estimates" + the proposal page
+            // both work. The snapshot carries the full V3 shape with a
+            // `kind: "roof_v3"` discriminator the proposal renderer
+            // uses to decide between the legacy and V3 layouts.
+            if (roofV3Json) {
+              const propPubId = `prop_${leadId.replace(/^lead_/, "")}_v3`;
+              const sqft =
+                typeof body.estimatedSqft === "number"
+                  ? Math.round(body.estimatedSqft)
+                  : null;
+              // Rough $/sqft band for a quick headline range. Real
+              // pricing happens later; this just keeps the proposal
+              // row's total_low/high non-null so the leads-table $
+              // column displays something useful.
+              const lowPerSqft = 6.5;
+              const highPerSqft = 11.5;
+              const propLow = sqft ? Math.round(sqft * lowPerSqft) : null;
+              const propHigh = sqft ? Math.round(sqft * highPerSqft) : null;
+              const { error: propV3Err } = await supabase
+                .from("proposals")
+                .upsert(
+                  {
+                    office_id: officeId,
+                    lead_id: data.id,
+                    public_id: propPubId,
+                    snapshot: {
+                      kind: "roof_v3",
+                      lead_public_id: leadId,
+                      address: body.address.trim(),
+                      customer: {
+                        name: body.name.trim(),
+                        email: emailNorm,
+                        phone: body.phone?.trim() || null,
+                      },
+                      roof_v3: roofV3Json,
+                    } as unknown as import("@/types/supabase").Json,
+                    total_low: propLow,
+                    total_high: propHigh,
+                    generated_by: null,
+                  },
+                  { onConflict: "public_id" },
+                );
+              if (propV3Err) {
+                console.error(
+                  "[leads] V3 proposal-attach upsert failed:",
+                  propV3Err.message,
+                );
+              }
+            }
+
             if (body.estimate && typeof body.estimate === "object") {
               const est = body.estimate as Record<string, unknown>;
               const estId = typeof est.id === "string" ? est.id : null;

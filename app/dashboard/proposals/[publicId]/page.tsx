@@ -92,22 +92,57 @@ export default async function RepProposalPage({
   if (result.kind === "not_found") notFound();
 
   const { proposal, lead, isDemo } = result;
-  // Tier C: branch v1 vs v2 on the snapshot. v2 snapshots have
-  // version: 2 and a roofData object; v1 is the legacy Estimate shape.
-  // The old code cast unconditionally to Estimate, which made v2
-  // snapshots render with "—" everywhere (no .assumptions, no .total).
-  const tagged = tagEstimate(proposal.snapshot);
+  // Tier C: branch v1 vs v2 vs v3 on the snapshot.
+  //   - v1: legacy Estimate shape (top-level baseLow/baseHigh).
+  //   - v2: EstimateV2 (version: 2 + roofData + priced).
+  //   - v3: new shape — { kind: "roof_v3", customer, roof_v3: {...} }.
+  //         Carries the Gemini V3 roof analysis as the proposal body.
+  const snap = proposal.snapshot as Record<string, unknown> | null;
+  const isV3 =
+    snap !== null &&
+    typeof snap === "object" &&
+    (snap as { kind?: string }).kind === "roof_v3";
+  const v3Snapshot = isV3
+    ? (snap as {
+        kind: "roof_v3";
+        address?: string;
+        customer?: { name?: string; email?: string; phone?: string | null };
+        roof_v3?: Record<string, unknown>;
+      })
+    : null;
+  const tagged = isV3 ? null : tagEstimate(proposal.snapshot);
   const estimateV2: EstimateV2 | null =
     tagged?.kind === "v2" ? tagged.estimate : null;
   const estimate: Estimate | null =
     tagged?.kind === "v1" ? tagged.estimate : null;
-  const summary = summarizeProposalSnapshot(proposal.snapshot);
+  const summary = isV3
+    ? {
+        totalLow: proposal.total_low,
+        totalHigh: proposal.total_high,
+        material:
+          ((v3Snapshot?.roof_v3?.geminiAnalysis as Record<string, unknown> | undefined)
+            ?.roofMaterial as { type?: string } | undefined)?.type ?? null,
+        sqft:
+          ((v3Snapshot?.roof_v3?.solar as Record<string, unknown> | undefined)
+            ?.sqft as number | null | undefined) ?? null,
+        pitch:
+          (() => {
+            const p = (v3Snapshot?.roof_v3?.solar as Record<string, unknown> | undefined)
+              ?.pitchDegrees;
+            return typeof p === "number" ? `${p.toFixed(1)}°` : null;
+          })(),
+      }
+    : summarizeProposalSnapshot(proposal.snapshot);
 
   // Headline total — for v2 derive from priced; for v1 use estimate.total
-  // (matches the legacy behavior). totalRange falls back to summary +
-  // proposals row for both shapes.
-  const headlineTotal =
-    estimateV2
+  // (matches the legacy behavior). For v3 use the proposal-row range
+  // midpoint (low + high computed at write-time from sqft × $/sqft band).
+  // totalRange falls back to summary + proposals row for all three shapes.
+  const headlineTotal = isV3
+    ? proposal.total_low != null && proposal.total_high != null
+      ? Math.round((proposal.total_low + proposal.total_high) / 2)
+      : null
+    : estimateV2
       ? Math.round(
           (estimateV2.priced.totalLow + estimateV2.priced.totalHigh) / 2,
         )
@@ -216,11 +251,263 @@ export default async function RepProposalPage({
           two parallel workbenches. The v1 path is unchanged (legacy).
           The v2 path reads from roofData/priced/pricingInputs and mounts
           the new RoofTotalsCard + DetectedFeaturesPanel components. */}
-      {estimateV2 ? (
+      {isV3 && v3Snapshot ? (
+        <RepWorkbenchV3 snap={v3Snapshot} />
+      ) : estimateV2 ? (
         <RepWorkbenchV2 estimate={estimateV2} proposal={proposal} />
       ) : (
         <RepWorkbenchLegacy estimate={estimate} proposal={proposal} />
       )}
+    </div>
+  );
+}
+
+/* ─── Rep workbench (v3) ─────────────────────────────────────────────
+   Renders the Gemini V3 roof analysis: painted-overlay hero, headline
+   measurements, anatomy, edges, material/condition, per-facet
+   breakdown, objects, solar potential. Mirrors what the lead drawer
+   already shows so a rep clicking through to the proposal sees the
+   full report on a wider canvas. */
+function RepWorkbenchV3({
+  snap,
+}: {
+  snap: {
+    address?: string;
+    customer?: { name?: string; email?: string; phone?: string | null };
+    roof_v3?: Record<string, unknown>;
+  };
+}) {
+  const v3 = (snap.roof_v3 ?? {}) as Record<string, unknown>;
+  const paintedUrl =
+    typeof v3.painted_url === "string" ? v3.painted_url : null;
+  const solar = (v3.solar ?? {}) as {
+    sqft?: number | null;
+    pitchDegrees?: number | null;
+    segmentCount?: number;
+    imageryQuality?: string | null;
+  };
+  const derived = (v3.derived ?? {}) as {
+    stories?: number;
+    estimatedAtticSqft?: number | null;
+    predominantCompass?: string | null;
+    complexity?: string;
+  };
+  const ga = (v3.geminiAnalysis ?? {}) as Record<string, unknown>;
+  const mat = (ga.roofMaterial ?? null) as { type?: string; confidence?: number } | null;
+  const hints = Array.isArray(ga.conditionHints)
+    ? (ga.conditionHints as Array<{ hint: string }>)
+    : [];
+  const gemEdges = (v3.geminiEdges ?? null) as
+    | { ridgesHipsLf?: number; valleysLf?: number; rakesLf?: number; eavesLf?: number; linesCount?: number }
+    | null;
+  const facets = Array.isArray(v3.facets)
+    ? (v3.facets as Array<{
+        pitchOnTwelve?: string;
+        pitchDegrees: number;
+        compassDirection?: string;
+        slopedSqft?: number;
+      }>)
+    : [];
+  const objects = Array.isArray(v3.objects)
+    ? (v3.objects as Array<{ type: string }>)
+    : [];
+  const objCounts: Record<string, number> = {};
+  for (const o of objects) objCounts[o.type] = (objCounts[o.type] ?? 0) + 1;
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {/* Painted image — spans 2 cols on wide */}
+      <section className="lg:col-span-2 glass-panel p-4">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-3">
+          Painted overlay · Gemini 3 Pro Image
+        </div>
+        {paintedUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={paintedUrl}
+            alt={`Painted roof for ${snap.address ?? "customer"}`}
+            className="w-full h-auto rounded-xl border border-white/[0.06]"
+          />
+        ) : (
+          <div className="text-sm text-white/55">
+            Painted overlay unavailable.
+          </div>
+        )}
+      </section>
+
+      {/* Customer + property column */}
+      <aside className="flex flex-col gap-5">
+        <section className="glass-panel p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-3">
+            Customer
+          </div>
+          <dl className="grid grid-cols-1 gap-y-1.5 text-[12.5px]">
+            <PRow label="Name" value={snap.customer?.name ?? "—"} />
+            <PRow label="Email" value={snap.customer?.email ?? "—"} mono />
+            <PRow label="Phone" value={snap.customer?.phone ?? "—"} mono />
+            <PRow label="Address" value={snap.address ?? "—"} />
+          </dl>
+        </section>
+        <section className="glass-panel p-4">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-3">
+            Material &amp; condition
+          </div>
+          <dl className="grid grid-cols-1 gap-y-1.5 text-[12.5px]">
+            <PRow
+              label="Material"
+              value={
+                mat?.type
+                  ? `${mat.type.replace(/_/g, " ")}${
+                      mat.confidence != null
+                        ? ` (${Math.round(mat.confidence * 100)}%)`
+                        : ""
+                    }`
+                  : "—"
+              }
+            />
+            <PRow
+              label="Condition"
+              value={
+                hints.length === 0
+                  ? "Clean"
+                  : hints.map((h) => h.hint?.replace(/_/g, " ")).join(", ")
+              }
+            />
+          </dl>
+        </section>
+      </aside>
+
+      {/* Headline measurements */}
+      <section className="glass-panel p-4 lg:col-span-3">
+        <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-3">
+          Headline measurements
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+          <PStat label="Sloped sqft" value={solar.sqft?.toLocaleString() ?? "—"} unit="ft²" />
+          <PStat
+            label="Pitch"
+            value={solar.pitchDegrees != null ? solar.pitchDegrees.toFixed(1) : "—"}
+            unit="°"
+          />
+          <PStat label="Segments" value={String(solar.segmentCount ?? "—")} />
+          <PStat label="Imagery" value={solar.imageryQuality ?? "—"} />
+          <PStat label="Stories" value={String(derived.stories ?? "—")} />
+          <PStat
+            label="Attic"
+            value={
+              derived.estimatedAtticSqft != null
+                ? derived.estimatedAtticSqft.toLocaleString()
+                : "—"
+            }
+            unit="ft²"
+          />
+          <PStat label="Complexity" value={derived.complexity ?? "—"} />
+          <PStat label="Faces" value={derived.predominantCompass ?? "—"} />
+        </div>
+      </section>
+
+      {/* Edges + facets */}
+      {gemEdges && (
+        <section className="glass-panel p-4 lg:col-span-1">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-3">
+            Edges · Gemini ({gemEdges.linesCount ?? 0} lines)
+          </div>
+          <dl className="grid grid-cols-1 gap-y-1.5 text-[12.5px]">
+            <PRow label="Ridges + hips" value={`${gemEdges.ridgesHipsLf ?? 0} ft`} mono />
+            <PRow label="Valleys" value={`${gemEdges.valleysLf ?? 0} ft`} mono />
+            <PRow label="Rakes" value={`${gemEdges.rakesLf ?? 0} ft`} mono />
+            <PRow label="Eaves" value={`${gemEdges.eavesLf ?? 0} ft`} mono />
+          </dl>
+        </section>
+      )}
+      {facets.length > 0 && (
+        <section className="glass-panel p-4 lg:col-span-2">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-3">
+            Per-facet breakdown · {facets.length} planes
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11.5px]">
+            {facets.map((f, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-3 px-2.5 py-1.5 bg-white/[0.03] rounded border border-white/[0.05]"
+              >
+                <span className="font-mono text-white/65">#{i + 1}</span>
+                <span className="text-white/85">{f.compassDirection ?? "—"}</span>
+                <span className="font-mono text-white/65">
+                  {f.pitchOnTwelve ?? `${f.pitchDegrees?.toFixed(1)}°`}
+                </span>
+                <span className="font-mono text-white/85">
+                  {f.slopedSqft?.toLocaleString() ?? "—"} ft²
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Objects */}
+      {Object.keys(objCounts).length > 0 && (
+        <section className="glass-panel p-4 lg:col-span-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/45 mb-3">
+            Rooftop objects · {objects.length} detected
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(objCounts).map(([t, n]) => (
+              <span
+                key={t}
+                className="text-[11px] px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-white/85"
+              >
+                {t.replace(/_/g, " ")} · <span className="font-mono">{n}</span>
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function PRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[100px_1fr] gap-2.5">
+      <dt className="text-white/45">{label}</dt>
+      <dd
+        className={[
+          "text-white/90 break-words",
+          mono ? "font-mono tabular" : "",
+        ].join(" ")}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function PStat({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+}) {
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.05] rounded-lg px-2.5 py-2">
+      <div className="text-[9.5px] uppercase tracking-[0.14em] text-white/45 mb-1">
+        {label}
+      </div>
+      <div className="font-mono tabular text-white/95 text-[13px] leading-tight">
+        {value}
+        {unit ? <span className="text-white/45 text-[11px] ml-1">{unit}</span> : null}
+      </div>
     </div>
   );
 }

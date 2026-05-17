@@ -325,6 +325,43 @@ function LeadDrawer({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // ─── Generate V3 roof analysis on demand ──────────────────────────
+  // For leads that came in WITHOUT a V3 payload (legacy /quote leads,
+  // Sydney-captured leads, etc.), let the rep one-click the full
+  // painted-roof analysis from the drawer. Fires the same pipeline
+  // /estimate-v2 uses and writes the result back to the leads row.
+  const [genStatus, setGenStatus] = useState<"idle" | "running" | "error">(
+    "idle",
+  );
+  const [genError, setGenError] = useState<string | null>(null);
+  async function generateRoofV3(): Promise<void> {
+    if (genStatus === "running") return;
+    setGenStatus("running");
+    setGenError(null);
+    try {
+      const r = await fetch(
+        `/api/leads/${encodeURIComponent(lead.public_id)}/roof-v3`,
+        { method: "POST" },
+      );
+      if (!r.ok) {
+        const data = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+        throw new Error(
+          data.message ?? data.error ?? `HTTP ${r.status}`,
+        );
+      }
+      // Reload so the Server Component pulls the freshly-written
+      // roof_v3_json. Simpler than mutating local state across a
+      // table + drawer + dl chain that's all rendered from server data.
+      window.location.reload();
+    } catch (err) {
+      setGenStatus("error");
+      setGenError(err instanceof Error ? err.message : String(err));
+    }
+  }
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Lead detail">
       <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
@@ -432,7 +469,51 @@ function LeadDrawer({
         {/* ─── V3 ROOF ANALYSIS — mirrors /estimate-v2 panels ──────── */}
         {(() => {
           const v3 = lead.roof_v3_json as Record<string, unknown> | null;
-          if (!v3 || typeof v3 !== "object") return null;
+
+          // No V3 payload yet — render a "Generate roof analysis" CTA.
+          // Hidden when the lead has no lat/lng (the pipeline needs a
+          // pin to work). Most legacy /quote leads have lat/lng from
+          // Google Places, so this covers the screenshot case.
+          if (!v3 || typeof v3 !== "object") {
+            if (lead.lat == null || lead.lng == null) return null;
+            return (
+              <section className="glass-panel p-4">
+                <div className="flex items-baseline justify-between mb-3 gap-2">
+                  <div className="text-[10.5px] uppercase tracking-wider text-white/45">
+                    Roof analysis
+                  </div>
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-white/40">
+                    Not generated
+                  </span>
+                </div>
+                <p className="text-[12.5px] text-white/65 leading-relaxed mb-3">
+                  Run the Gemini V3 pipeline on this address to paint the
+                  roof, measure sqft, classify edges, identify material,
+                  and detect rooftop objects. Takes ~25 seconds.
+                </p>
+                <button
+                  type="button"
+                  onClick={generateRoofV3}
+                  disabled={genStatus === "running"}
+                  className="inline-flex items-center gap-2 text-[12.5px] font-semibold bg-gradient-to-br from-cy-300 to-cy-400 text-[#051019] px-4 py-2 rounded-lg hover:from-cy-200 hover:to-cy-300 transition-all disabled:from-white/10 disabled:to-white/10 disabled:text-white/40 disabled:cursor-not-allowed shadow-[0_8px_28px_-8px_rgba(125,211,252,0.45)]"
+                >
+                  {genStatus === "running" ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Generating…
+                    </>
+                  ) : (
+                    <>Generate roof analysis</>
+                  )}
+                </button>
+                {genStatus === "error" && genError ? (
+                  <p className="text-[11.5px] text-rose-300 mt-2 font-mono leading-relaxed">
+                    {genError}
+                  </p>
+                ) : null}
+              </section>
+            );
+          }
 
           const paintedUrl =
             typeof v3.painted_url === "string" ? v3.painted_url : null;
