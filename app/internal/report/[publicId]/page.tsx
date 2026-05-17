@@ -166,7 +166,12 @@ export default async function ReportPage({
         <section className="page">
           <div className="cover-frame">
             <div className="cover-head">
-              <div className="wordmark">VOXARIS</div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/brand/logo-wordmark-alpha.png"
+                alt="Voxaris"
+                className="wordmark-img"
+              />
               <div className="cover-eyebrow">Roof Inspection Report</div>
             </div>
             <div className="cover-painted">
@@ -473,7 +478,8 @@ export default async function ReportPage({
 function PageHeader({ subtitle }: { subtitle: string }) {
   return (
     <header className="page-header">
-      <div className="wordmark-sm">VOXARIS</div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/logo-wordmark-alpha.png" alt="Voxaris" className="wordmark-img-sm" />
       <div className="page-eyebrow">{subtitle}</div>
     </header>
   );
@@ -548,17 +554,17 @@ const REPORT_CSS = `
     font-size: 8.5pt;
     border-top: 1px solid var(--rule);
   }
-  .wordmark {
-    font-family: "Helvetica Neue", Arial, sans-serif;
-    font-weight: 800;
-    letter-spacing: 0.22em;
-    font-size: 14pt;
+  .wordmark-img {
+    height: 32pt;
+    width: auto;
+    object-fit: contain;
+    display: block;
   }
-  .wordmark-sm {
-    font-family: "Helvetica Neue", Arial, sans-serif;
-    font-weight: 700;
-    letter-spacing: 0.22em;
-    font-size: 10pt;
+  .wordmark-img-sm {
+    height: 14pt;
+    width: auto;
+    object-fit: contain;
+    display: block;
   }
   .page-eyebrow {
     text-transform: uppercase;
