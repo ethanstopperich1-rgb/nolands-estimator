@@ -64,102 +64,164 @@ function LoginForm() {
   };
 
   return (
-    <div className="lg-env min-h-screen flex flex-col items-center justify-center px-4 py-12 relative">
-      <div className="mb-8 flex flex-col items-center gap-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/brand/logo-wordmark-alpha.png"
-          alt="Voxaris"
-          width={1672}
-          height={941}
-          className="h-9 sm:h-12 w-auto object-contain"
-        />
-        <div className="glass-eyebrow">Operator Console</div>
-      </div>
+    <div
+      className="voxaris min-h-[100dvh] flex flex-col items-center justify-center px-4 py-12 relative"
+    >
+      {/* Subtle ink wash at the bottom — mirrors the .ambient utility on the
+          customer surface for the same compositional weight without a card
+          glow. */}
+      <div className="ambient" aria-hidden="true" />
 
-      <div className="glass-panel-hero w-full max-w-md p-10 sm:p-12 relative">
-        <h1 className="font-display text-[28px] sm:text-[32px] tracking-tight font-medium leading-tight mb-2 text-white">
-          Welcome back
-        </h1>
-        <p className="text-[14px] text-white/65 leading-relaxed mb-7">
-          Sign in with your Voxaris staff credentials to reach the operator
-          dashboard and rep tools.
-        </p>
+      <div className="relative z-[1] w-full max-w-[420px] flex flex-col items-center">
+        {/* Brand mark — small, sharp, top of the page like the customer site */}
+        <div className="mb-10 flex flex-col items-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/logo-wordmark-alpha.png"
+            alt="Voxaris"
+            className="h-9 sm:h-11 w-auto object-contain"
+          />
+          <span className="eyebrow">Operator Console</span>
+        </div>
 
-        <form onSubmit={submit} className="space-y-4">
-          <label className="block">
-            <span className="text-[10.5px] uppercase tracking-[0.18em] text-white/45">
-              Username
-            </span>
-            <div className="relative mt-1.5">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
-              <input
-                type="text"
-                autoComplete="username"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-10 pr-3 py-2.5 text-[14px] text-white placeholder:text-white/35 focus:outline-none focus:border-cy-300/60 focus:ring-2 focus:ring-cy-300/20 transition-colors"
-                placeholder="voxaris"
-              />
+        {/* Paper card — hairline border, 2px radius, faint paper shadow.
+            Identical surface treatment to the customer .search-card and
+            .result-card. */}
+        <div
+          className="w-full"
+          style={{
+            background: "var(--vx-paper)",
+            border: "1px solid var(--vx-rule)",
+            borderRadius: "var(--vx-radius-card)",
+            boxShadow: "0 1px 2px rgba(15, 27, 45, 0.06)",
+          }}
+        >
+          <div className="px-7 sm:px-9 pt-8 sm:pt-10 pb-2">
+            <h1
+              className="font-serif"
+              style={{
+                fontSize: "32px",
+                fontWeight: 400,
+                letterSpacing: "-0.01em",
+                lineHeight: 1.15,
+                color: "var(--vx-ink)",
+              }}
+            >
+              Welcome <span className="italic">back</span>
+            </h1>
+            <p
+              className="mt-3 text-[13.5px] leading-relaxed"
+              style={{ color: "var(--vx-ink-soft)", opacity: 0.8 }}
+            >
+              Sign in with your Voxaris staff credentials to reach the
+              operator console.
+            </p>
+          </div>
+
+          <form onSubmit={submit} className="px-7 sm:px-9 pt-6 pb-8">
+            {/* Stacked rows with hairline dividers — mirrors .slim-row on
+                the customer side. No rounded inputs, no focus glow, just
+                hairline borders and a 2px sharp focus outline below. */}
+            <div
+              style={{
+                borderTop: "1px solid var(--vx-rule)",
+                borderBottom: "1px solid var(--vx-rule)",
+              }}
+            >
+              <label
+                className="block"
+                style={{
+                  padding: "16px 0",
+                  borderBottom: "1px solid var(--vx-rule-soft)",
+                }}
+              >
+                <span className="field-label">Username</span>
+                <div className="mt-1.5 flex items-center gap-2.5">
+                  <User
+                    className="w-4 h-4 flex-shrink-0"
+                    style={{ color: "var(--vx-muted)" }}
+                    strokeWidth={1.5}
+                  />
+                  <input
+                    type="text"
+                    autoComplete="username"
+                    required
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="slim-input tabular"
+                    placeholder="voxaris"
+                  />
+                </div>
+              </label>
+              <label className="block" style={{ padding: "16px 0" }}>
+                <span className="field-label">Password</span>
+                <div className="mt-1.5 flex items-center gap-2.5">
+                  <Lock
+                    className="w-4 h-4 flex-shrink-0"
+                    style={{ color: "var(--vx-muted)" }}
+                    strokeWidth={1.5}
+                  />
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="slim-input tabular"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </label>
             </div>
-          </label>
 
-          <label className="block">
-            <span className="text-[10.5px] uppercase tracking-[0.18em] text-white/45">
-              Password
-            </span>
-            <div className="relative mt-1.5">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
-              <input
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-10 pr-3 py-2.5 text-[14px] text-white placeholder:text-white/35 focus:outline-none focus:border-cy-300/60 focus:ring-2 focus:ring-cy-300/20 transition-colors"
-                placeholder="••••••••"
-              />
-            </div>
-          </label>
-
-          {status === "error" && errorMsg ? (
-            <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl px-3.5 py-2.5">
-              <p className="text-[12.5px] text-rose-300 leading-relaxed">
+            {status === "error" && errorMsg ? (
+              <div
+                className="mt-5 px-3 py-2.5"
+                style={{
+                  background: "rgba(199, 107, 63, 0.08)",
+                  border: "1px solid rgba(199, 107, 63, 0.35)",
+                  color: "var(--vx-terra-dark)",
+                  fontSize: "12.5px",
+                  lineHeight: 1.5,
+                }}
+              >
                 {errorMsg}
-              </p>
-            </div>
-          ) : null}
+              </div>
+            ) : null}
 
-          <button
-            type="submit"
-            disabled={
-              status === "submitting" || !username.trim() || !password
-            }
-            className="w-full bg-gradient-to-br from-cy-300 to-cy-400 text-[#051019] font-semibold text-[14px] px-5 py-2.5 rounded-xl hover:from-cy-200 hover:to-cy-300 transition-all disabled:from-white/10 disabled:to-white/10 disabled:text-white/40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 shadow-[0_8px_28px_-8px_rgba(125,211,252,0.45)]"
-          >
-            {status === "submitting" ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Signing in…
-              </>
-            ) : (
-              <>
-                Sign in
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={
+                status === "submitting" || !username.trim() || !password
+              }
+              className="btn-terra mt-6 w-full"
+            >
+              {status === "submitting" ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Signing in
+                </>
+              ) : (
+                <>
+                  Sign in
+                  <ArrowRight className="w-3.5 h-3.5 arrow" />
+                </>
+              )}
+            </button>
+          </form>
+        </div>
 
-        <p className="text-[11px] text-white/40 mt-6 leading-relaxed">
-          Staff credentials only. Customers can reach the public estimator
-          at{" "}
+        <p
+          className="mt-6 text-[11px] leading-relaxed text-center"
+          style={{ color: "var(--vx-muted)" }}
+        >
+          Staff credentials only. Customers reach the public estimator at{" "}
           <a
-            href="/estimate"
-            className="underline text-white/55 hover:text-white"
+            href="/"
+            className="underline"
+            style={{ color: "var(--vx-ink-soft)" }}
           >
-            /estimate
+            pitch.voxaris.io
           </a>
           .
         </p>
