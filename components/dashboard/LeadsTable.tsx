@@ -628,9 +628,25 @@ function LeadDrawer({
                   <div className="text-[10.5px] uppercase tracking-wider text-white/45">
                     Roof V3 · Painted overlay
                   </div>
-                  <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[#38C5EE]/40 text-[#38C5EE]">
-                    V3
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {/* PDF report download — only meaningful when we
+                        have a V3 payload, which is exactly this branch.
+                        Opens in a new tab so the rep doesn't lose the
+                        drawer. The endpoint sets
+                        Content-Disposition: attachment so most browsers
+                        download instead of rendering inline. */}
+                    <a
+                      href={`/api/leads/${encodeURIComponent(lead.public_id)}/report`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10.5px] uppercase tracking-[0.18em] text-[#38C5EE] hover:text-white transition-colors"
+                    >
+                      Download report (PDF)
+                    </a>
+                    <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[#38C5EE]/40 text-[#38C5EE]">
+                      V3
+                    </span>
+                  </div>
                 </div>
                 {paintedUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
