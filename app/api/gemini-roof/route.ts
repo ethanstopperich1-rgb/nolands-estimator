@@ -753,7 +753,11 @@ export interface GeminiRoofResponse {
 }
 
 const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominates frame
-const CACHE_SCOPE_V3 = "gemini-roof-v3-rich-edges";
+// Bumped 2026-05-17: invalidate all prior V3 cache entries to pick up
+// the paint-only pipeline + flat-segment filter (pool cage / lanai)
+// + flat 15% customer waste. Old cached results carry stale sqft and
+// inflated prices.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-only";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1385,7 +1389,10 @@ async function handleV3Pinned(
   // Modern flat-roof homes (rare in FL) would be filtered too — but
   // those need a different product anyway, so the shingles estimator
   // declining to quote them is the right behavior.
-  const SHINGLE_MIN_PITCH_DEG = 5;
+  // 8° (~ 1.7/12) — catches obvious lanai / screen-cage planes (0–3°)
+  // AND borderline patio covers (4–7°) that Solar sometimes reports.
+  // Real shingled roof is 4/12 (18°) minimum on FL residential.
+  const SHINGLE_MIN_PITCH_DEG = 8;
   const allSegments = solar?.solarPotential?.roofSegmentStats ?? [];
   const shingleSegments = allSegments.filter(
     (seg) => (seg.pitchDegrees ?? 0) >= SHINGLE_MIN_PITCH_DEG,

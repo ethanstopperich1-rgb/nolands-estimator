@@ -192,7 +192,10 @@ function VoxarisFlow() {
     setResult(null);
     try {
       const res = await fetch(
-        `/api/gemini-roof?lat=${pinLat}&lng=${pinLng}&pinConfirmed=1`,
+        // skipCache=1 on every customer request — caching was producing
+        // stale numbers when we shipped pipeline fixes. The endpoint is
+        // ~25–50s; a fresh pass is the right trade for accuracy.
+        `/api/gemini-roof?lat=${pinLat}&lng=${pinLng}&pinConfirmed=1&skipCache=1`,
         { cache: "no-store" },
       );
       if (!res.ok) {
@@ -904,13 +907,11 @@ function ResultScreen({
     ? `${Math.max(1, Math.round(Math.tan((pitch * Math.PI) / 180) * 12))}/12`
     : null;
 
-  // Edges show up on the rep workbench only — the customer surface
-  // doesn't render them, but they're destructured here so existing
-  // panels keep compiling. Solar's classifier feeds these.
-  const ridgesHipsLf = geminiEdges?.ridgesHipsLf ?? edges.ridgesHipsLf;
-  const valleysLf = geminiEdges?.valleysLf ?? edges.valleysLf;
-  const rakesLf = geminiEdges?.rakesLf ?? edges.rakesLf;
-  const eavesLf = geminiEdges?.eavesLf ?? edges.eavesLf;
+  // Edges are rep-only data and the Solar classifier on its own
+  // (without Gemini line passes) misfires on simple gables, returning
+  // patterns like 0/0/562/642. Not shown on the customer page.
+  void geminiEdges;
+  void edges;
 
   // Pricing — flat 15% waste × sqft × $7/sqft. No penetration adders
   // (object detection is disabled on the customer flow to keep the
@@ -964,16 +965,6 @@ function ResultScreen({
       setBookingState("error");
     }
   }
-
-  // Build edge cells lazily — display only when ANY value is present so
-  // we don't show a 0/0/0/0 row when classification failed.
-  const edgeCells: Array<[string, number | null]> = [
-    ["Ridges + hips", ridgesHipsLf ?? null],
-    ["Valleys", valleysLf ?? null],
-    ["Rakes", rakesLf ?? null],
-    ["Eaves", eavesLf ?? null],
-  ];
-  const anyEdge = edgeCells.some(([, lf]) => lf != null && lf > 0);
 
   return (
     <div className="relative min-h-[100dvh] flex flex-col">
@@ -1251,45 +1242,6 @@ function ResultScreen({
                 </span>
               ))}
             </div>
-          </div>
-        )}
-
-        {/* Edge LFs — only show when at least one classifier returned a
-            non-zero number. Avoids the 0/0/562/0 misfire pattern. */}
-        {anyEdge && (
-          <div
-            className="mt-8 grid grid-cols-2 md:grid-cols-4 max-w-3xl mx-auto"
-            style={{
-              background: "var(--vx-paper)",
-              border: "1px solid var(--vx-rule)",
-              borderRadius: "var(--vx-radius-card)",
-            }}
-          >
-            {edgeCells.map(([label, lf], i) => (
-              <div
-                key={label}
-                className="p-5 text-center"
-                style={{
-                  borderLeft:
-                    i % 2 === 0 ? "none" : "1px solid var(--vx-rule)",
-                  // On md+ (4 cols), use border-left for every cell except the first;
-                  // on sm (2 cols), the alternate-cell rule above already gives us
-                  // separators in the correct places.
-                }}
-              >
-                <div className="field-label">{label}</div>
-                <div
-                  className="font-serif tabular mt-2"
-                  style={{
-                    fontSize: "28px",
-                    color: "var(--vx-ink)",
-                    fontWeight: 500,
-                  }}
-                >
-                  {lf != null && lf > 0 ? `${lf} ft` : "—"}
-                </div>
-              </div>
-            ))}
           </div>
         )}
 
