@@ -196,6 +196,41 @@ export interface PriceResult {
   penetrations: PenetrationBreakdown;
 }
 
+// ─── Flat customer-facing fallback ──────────────────────────────────────
+//
+// For the customer-facing /quick estimator we deliberately skip the Flash
+// calls that produce penetration objects + Gemini edge LFs. That makes
+// the complexity-driven waste formula above brittle (it relies on
+// Solar's edge classifier alone, which can misfire on simple gables).
+//
+// Use a flat 15% waste assumption for the customer flow — middle of the
+// typical FL residential range (10–18% on simple roofs, 18–25% on
+// complex). The number is intentionally on the higher end so the
+// customer-visible price tends to overshoot rather than undershoot.
+//
+// The internal rep workbench keeps `calculateSuggestedWaste` for the
+// detailed breakdown when edge data is available.
+export const FLAT_CUSTOMER_WASTE_PERCENT = 15;
+
+export function flatCustomerWaste(totalSqft: number): WasteResult {
+  const baseSquares = totalSqft / 100;
+  const table = WASTE_TABLE_STEPS.map((percent) => ({
+    percent,
+    totalSquares: Math.ceil(baseSquares * (1 + percent / 100) * 10) / 10,
+  }));
+  return {
+    suggestedPercent: FLAT_CUSTOMER_WASTE_PERCENT,
+    complexityScore: 0,
+    breakdown: {
+      fromFacets: 0,
+      fromValleys: 0,
+      fromRidgesHips: 0,
+      fromSteepPitch: 0,
+    },
+    table,
+  };
+}
+
 export function calculateCustomerPrice(
   totalSqft: number,
   waste: WasteResult,

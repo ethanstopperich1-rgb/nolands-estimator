@@ -31,7 +31,8 @@ import { loadGoogle } from "@/lib/google";
 import {
   ARCHITECTURAL_SHINGLE_RATE_PER_SQFT,
   calculateCustomerPrice,
-  calculateSuggestedWaste,
+  flatCustomerWaste,
+  FLAT_CUSTOMER_WASTE_PERCENT,
 } from "@/lib/pricing/calculate-waste";
 
 type Step = "hero" | "pin" | "loading" | "result" | "error";
@@ -770,7 +771,12 @@ function PinScreen({
 // ─── Loading screen ─────────────────────────────────────────────────────
 
 function LoadingScreen({ elapsed, message }: { elapsed: number; message: string }) {
-  const pct = Math.min(100, Math.round((elapsed / 22) * 100));
+  // Asymptotic progress curve — climbs fast early, slows toward 99%, never
+  // hits 100% until the response actually returns and the parent flips to
+  // the result step. Target shape: ~50% at 12s, ~80% at 30s, ~95% at 60s.
+  // This eliminates the "bar finishes but we're still waiting" awkwardness
+  // and pads the perceived wait when Pro Image runs long (25–50s typical).
+  const pct = Math.min(99, Math.round(100 * (1 - Math.exp(-elapsed / 22))));
 
   // Shuffle the facts once per loading session so consecutive visitors
   // (and the same visitor on repeat estimates) don't see identical
@@ -786,10 +792,10 @@ function LoadingScreen({ elapsed, message }: { elapsed: number; message: string 
     return arr;
   });
 
-  // Advance the fact every ~4.2 sec so 5 facts cycle across the ~22s
-  // wait. The remainder of an elapsed slice is used to drive the
-  // cross-fade (CSS animation, keyed on factIndex so it re-mounts).
-  const FACT_INTERVAL = 4.2;
+  // Advance the fact every ~7 sec — paint-only mode runs ~25–50s, so
+  // we want 4–7 facts to cycle through without burning the whole
+  // shuffle before the response lands. Cross-fade keyed on factIndex.
+  const FACT_INTERVAL = 7;
   const factIndex = Math.min(
     shuffled.length - 1,
     Math.floor(elapsed / FACT_INTERVAL),
@@ -898,33 +904,27 @@ function ResultScreen({
     ? `${Math.max(1, Math.round(Math.tan((pitch * Math.PI) / 180) * 12))}/12`
     : null;
 
-  // Pricing — sqft × (1 + suggested waste %) × $7/sqft. Waste is rolled
-  // in but the percentage itself is intentionally NOT surfaced to the
-  // customer (the internal workbench shows it + the breakdown).
-  // Prefer Gemini edge counts over Solar's classifier (Solar tends to
-  // misfire on simple gable roofs, returning all-rakes / nothing-else).
+  // Edges show up on the rep workbench only — the customer surface
+  // doesn't render them, but they're destructured here so existing
+  // panels keep compiling. Solar's classifier feeds these.
   const ridgesHipsLf = geminiEdges?.ridgesHipsLf ?? edges.ridgesHipsLf;
   const valleysLf = geminiEdges?.valleysLf ?? edges.valleysLf;
   const rakesLf = geminiEdges?.rakesLf ?? edges.rakesLf;
   const eavesLf = geminiEdges?.eavesLf ?? edges.eavesLf;
 
+  // Pricing — flat 15% waste × sqft × $7/sqft. No penetration adders
+  // (object detection is disabled on the customer flow to keep the
+  // pipeline under its time budget). This is a quick visual estimate,
+  // not a binding number — the rep can refine on the workbench.
   const waste = useMemo(() => {
     if (sqft == null) return null;
-    return calculateSuggestedWaste({
-      facetCount: facets.length,
-      valleysLf: valleysLf,
-      ridgesHipsLf: ridgesHipsLf,
-      avgPitchDeg: pitch ?? 22.6,
-      totalSqft: sqft,
-    });
-  }, [sqft, facets.length, valleysLf, ridgesHipsLf, pitch]);
+    return flatCustomerWaste(sqft);
+  }, [sqft]);
 
   const price = useMemo(() => {
     if (sqft == null || waste == null) return null;
-    // Pass detected roof objects so per-penetration flashing adders
-    // (chimney, skylight, HVAC, vents, etc.) roll into the total.
-    return calculateCustomerPrice(sqft, waste, objects);
-  }, [sqft, waste, objects]);
+    return calculateCustomerPrice(sqft, waste, []);
+  }, [sqft, waste]);
 
   const objectCounts = objects.reduce<Record<string, number>>((acc, o) => {
     acc[o.type] = (acc[o.type] ?? 0) + 1;
@@ -1046,7 +1046,7 @@ function ResultScreen({
                 className="result-card text-center"
                 style={{ padding: "24px 22px" }}
               >
-                <div className="eyebrow mb-2">Estimated investment</div>
+                <div className="eyebrow mb-2">Ballpark estimate</div>
                 <div
                   className="font-serif tabular"
                   style={{
@@ -1078,7 +1078,26 @@ function ResultScreen({
                     maxWidth: "38ch",
                   }}
                 >
-                  Architectural shingles · ${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)} per sq ft installed.
+                  Architectural shingles · ${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)} per sq ft installed · {FLAT_CUSTOMER_WASTE_PERCENT}% waste assumed.
+                </div>
+                <div
+                  className="mt-4 pt-4 mx-auto"
+                  style={{
+                    fontSize: "12px",
+                    lineHeight: 1.55,
+                    color: "var(--vx-ink-soft)",
+                    maxWidth: "40ch",
+                    borderTop: "1px solid var(--vx-rule)",
+                  }}
+                >
+                  <span style={{ color: "var(--vx-ink)", fontWeight: 700 }}>
+                    Not a final or binding quote.
+                  </span>{" "}
+                  This is a quick visual estimate from satellite imagery —
+                  the real number depends on what we find on site (pitch,
+                  layers, decking condition, penetrations, code work). The
+                  final price could be higher or lower after an in-person
+                  walk-through.
                 </div>
               </div>
             )}

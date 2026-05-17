@@ -41,7 +41,10 @@ import {
 } from "@/lib/gemini-roof-prompt";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Paint-only mode budget: Pro Image is the only Gemini call now.
+// 90s leaves ~30s of slack on top of typical 25–50s paint latency
+// without blowing past Vercel's default function ceiling.
+export const maxDuration = 90;
 
 const TILE_ZOOM = 20;
 const TILE_SCALE = 2 as const;
@@ -316,7 +319,10 @@ async function callGeminiMultimodal(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    timeoutMs: 75_000,
+    // Must be < route maxDuration (90s) so we fail fast with a clean
+    // error instead of letting Vercel kill the function with a
+    // FUNCTION_INVOCATION_TIMEOUT 504.
+    timeoutMs: 80_000,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -1320,16 +1326,24 @@ async function handleV3Pinned(
     callSolar(lat, lng, googleKey),
   ]);
 
-  // Fire both Gemini calls in parallel:
-  //   - Multimodal (paints the cyan overlay) — Pro Image, ~$0.075
-  //   - Text-only object detection — Flash, ~$0.005
-  // The multimodal call returns the image but no text; the cheap
-  // text-only call always returns the objects JSON via structured
-  // schema. Both run concurrently so total wall-clock = max(both),
-  // not sum.
+  // Customer-facing sales tool runs the minimum pipeline:
+  //   - Multimodal paint (Pro Image) — gives the customer their cyan-
+  //     traced roof. This is the wow factor and the slowest call.
+  //   - Solar API (above) — gives sqft + pitch.
+  //
+  // The Flash calls (rich-data / objects, lines-on-raw, lines-on-
+  // painted) were dropped from the customer path on 2026-05-17. They
+  // added 2–3 tail-latency hazards (any one hanging could push the
+  // route past its budget and yield a FUNCTION_INVOCATION_TIMEOUT),
+  // cost ~$0.04 extra per estimate, and produced data the customer
+  // never sees (edge LFs, penetration adders). The customer price now
+  // uses a flat 12% waste assumption + sqft × rate — sufficient for a
+  // non-binding visual estimate. The rep workbench gets the real
+  // numbers later when they open the lead (if/when we re-enable the
+  // background enrichment job).
   let paintedImageBase64: string | null = null;
-  let objects: GeminiRoofResponseV3["objects"] = [];
-  let geminiAnalysis: GeminiRoofResponseV3["geminiAnalysis"] = {
+  const objects: GeminiRoofResponseV3["objects"] = [];
+  const geminiAnalysis: GeminiRoofResponseV3["geminiAnalysis"] = {
     facetCountEstimate: null,
     roofMaterial: null,
     conditionHints: [],
@@ -1338,171 +1352,23 @@ async function handleV3Pinned(
     siteObstacles: [],
     apparentAgeBand: null,
   };
-  let geminiRawText: string | null = null;
-  let geminiRichErr: string | null = null;
-  const [paintedResult, richResult, linesResult] = await Promise.allSettled([
-    callGeminiMultimodal(tile.base64, geminiKey),
-    callGeminiRichData(tile.base64, geminiKey),
-    callGeminiLines(tile.base64, geminiKey),
-  ]);
-
-  if (paintedResult.status === "fulfilled") {
-    paintedImageBase64 = paintedResult.value.paintedImageBase64;
-  } else {
+  const geminiRawText: string | null = null;
+  const geminiRichErr: string | null = null;
+  try {
+    const painted = await callGeminiMultimodal(tile.base64, geminiKey);
+    paintedImageBase64 = painted.paintedImageBase64;
+  } catch (err) {
     console.warn(
       "[gemini-roof v3] painted_call_failed",
-      paintedResult.reason instanceof Error
-        ? paintedResult.reason.message
-        : String(paintedResult.reason),
+      err instanceof Error ? err.message : String(err),
     );
   }
 
-  if (richResult.status === "fulfilled") {
-    const rich = richResult.value;
-    // Confidence floor for objects — drops hallucinated detections
-    // (shingle smudges, weathering patches, shadow blobs interpreted
-    // as fixtures). The threshold is tunable; 0.55 is the current
-    // calibration after observing 4-skylight-3-vent false positives
-    // on a roof with no real penetrations.
-    const OBJECT_CONFIDENCE_FLOOR = 0.55;
-    const rawObjectCount = rich.objects.length;
-    const kept = rich.objects.filter(
-      (o) => typeof o.confidence === "number" && o.confidence >= OBJECT_CONFIDENCE_FLOOR,
-    );
-    if (rawObjectCount !== kept.length) {
-      console.log(
-        `[gemini-roof v3] objects_filtered ` +
-          `raw=${rawObjectCount} kept=${kept.length} ` +
-          `dropped=${rawObjectCount - kept.length} (confidence<${OBJECT_CONFIDENCE_FLOOR})`,
-      );
-    }
-    objects = kept.map((o) => {
-      const center = Array.isArray(o.center_pixel)
-        ? { x: o.center_pixel[0], y: o.center_pixel[1] }
-        : o.center_pixel;
-      return {
-        type: o.type,
-        centerPx: center,
-        bboxPx: o.bounding_box,
-        confidence: o.confidence,
-      };
-    });
-    geminiAnalysis = {
-      facetCountEstimate: rich.facetCountEstimate,
-      roofMaterial: rich.roofMaterial,
-      conditionHints: rich.conditionHints,
-      visibleDamage: rich.visibleDamage,
-      secondaryStructures: rich.secondaryStructures,
-      siteObstacles: rich.siteObstacles,
-      apparentAgeBand: rich.apparentAgeBand,
-    };
-    geminiRawText = rich.rawText;
-  } else {
-    geminiRichErr =
-      richResult.reason instanceof Error
-        ? `${richResult.reason.name}: ${richResult.reason.message}`
-        : String(richResult.reason);
-    console.warn("[gemini-roof v3] rich_data_call_failed", geminiRichErr);
-  }
-
-  // First-pass line trace ran on the RAW satellite tile in parallel
-  // with the painted call. Often under-traces simple-gable homes
-  // because Flash can't see the eave/ridge geometry as cleanly as it
-  // can see the painted cyan strokes.
-  let linesValue: GeminiLineDetection[] | null =
-    linesResult.status === "fulfilled" ? linesResult.value.lines : null;
-  // Painted-pass facet count — overrides the raw rich-data count when
-  // present, since the painted polygons are the canonical answer.
-  let paintedFacetCount: GeminiFacetCount | null = null;
-  if (linesResult.status === "rejected") {
-    console.warn(
-      "[gemini-roof v3] lines_call_failed",
-      linesResult.reason instanceof Error
-        ? linesResult.reason.message
-        : String(linesResult.reason),
-    );
-  }
-
-  // ─── Second-pass line trace + facet count on the PAINTED image ───────
-  // Pro Image draws cyan strokes along every legal edge AND fills each
-  // plane as a discrete cyan polygon. Asking Flash to identify those is
-  // dramatically easier than asking it to detect edges + count planes
-  // in raw satellite imagery — the cyan IS the answer, Flash just
-  // enumerates what's already visually marked.
-  //
-  // This runs serially after the painted call lands (~3s extra wall-
-  // clock when painted succeeds). We prefer the painted-pass result
-  // when it's clearly more comprehensive (lines: more total OR has the
-  // canonical mix of eaves + ridges; facet count: any non-null wins,
-  // since the raw rich-data pass over-counts shadow patches as planes).
-  if (paintedImageBase64) {
-    try {
-      const paintedResult = await callGeminiLines(
-        paintedImageBase64,
-        geminiKey,
-        GEMINI_LINES_FROM_PAINTED_PROMPT,
-      );
-      const painted = paintedResult.lines;
-      paintedFacetCount = paintedResult.facetCount;
-
-      const rawCount = linesValue?.length ?? 0;
-      const paintedByType = painted.reduce<Record<string, number>>(
-        (acc, l) => {
-          acc[l.type] = (acc[l.type] ?? 0) + 1;
-          return acc;
-        },
-        {},
-      );
-      const paintedHasEavesAndRidges =
-        (paintedByType.eave ?? 0) > 0 &&
-        ((paintedByType.ridge ?? 0) + (paintedByType.hip ?? 0)) > 0;
-      if (
-        paintedHasEavesAndRidges ||
-        painted.length > rawCount + 1
-      ) {
-        console.log(
-          `[gemini-roof v3] line_trace_source=painted ` +
-            `(painted=${painted.length} vs raw=${rawCount})`,
-        );
-        linesValue = painted;
-      } else {
-        console.log(
-          `[gemini-roof v3] line_trace_source=raw ` +
-            `(painted=${painted.length}, raw=${rawCount}, painted under-traced)`,
-        );
-      }
-    } catch (err) {
-      console.warn(
-        "[gemini-roof v3] painted_lines_call_failed; keeping raw-tile result:",
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-  }
-
-  // Override the raw rich-data facet count with the painted-pass count
-  // when available. The raw count tends to over-count shadow patches as
-  // planes (user saw 14 returned on a 7-facet roof). The painted-pass
-  // count is grounded in the cyan polygons that were actually drawn.
-  if (paintedFacetCount && paintedFacetCount.count > 0) {
-    console.log(
-      `[gemini-roof v3] facet_count_source=painted ` +
-        `(painted=${paintedFacetCount.count} ${paintedFacetCount.complexity}, ` +
-        `raw=${geminiAnalysis.facetCountEstimate?.count ?? "null"})`,
-    );
-    geminiAnalysis = {
-      ...geminiAnalysis,
-      facetCountEstimate: paintedFacetCount,
-    };
-  } else if (geminiAnalysis.facetCountEstimate) {
-    console.log(
-      `[gemini-roof v3] facet_count_source=raw ` +
-        `(painted=null, raw=${geminiAnalysis.facetCountEstimate.count})`,
-    );
-  }
+  const linesValue: GeminiLineDetection[] | null = null;
 
   console.log(
     `[gemini-roof v3] pinned (${lat.toFixed(5)},${lng.toFixed(5)}) ` +
-      `painted=${paintedImageBase64 ? "yes" : "no"} objects=${objects.length}`,
+      `painted=${paintedImageBase64 ? "yes" : "no"} (paint-only mode)`,
   );
 
   const totalSlopedM2 = (solar?.solarPotential?.roofSegmentStats ?? []).reduce(
@@ -1522,45 +1388,12 @@ async function handleV3Pinned(
     );
   })();
 
-  // Convert Gemini's pixel line segments to linear feet, slope-corrected.
-  let geminiEdges: GeminiRoofResponseV3["geminiEdges"] = null;
-  if (linesValue && linesValue.length > 0) {
-    const tileCosLatLocal = Math.cos((lat * Math.PI) / 180);
-    const tileMPerPxLocal =
-      (156_543.03392 * tileCosLatLocal) /
-      Math.pow(2, PIN_TILE_ZOOM + TILE_SCALE - 1);
-    let r = 0;
-    let v = 0;
-    let k = 0;
-    let e = 0;
-    for (const ln of linesValue) {
-      const isSloped =
-        ln.type === "hip" || ln.type === "valley" || ln.type === "rake";
-      const lf = gemLineLengthFt(
-        ln.start_pixel,
-        ln.end_pixel,
-        tileMPerPxLocal,
-        avgPitchDeg,
-        isSloped,
-      );
-      if (ln.type === "ridge" || ln.type === "hip") r += lf;
-      else if (ln.type === "valley") v += lf;
-      else if (ln.type === "rake") k += lf;
-      else if (ln.type === "eave") e += lf;
-    }
-    geminiEdges = {
-      ridgesHipsLf: Math.round(r),
-      valleysLf: Math.round(v),
-      rakesLf: Math.round(k),
-      eavesLf: Math.round(e),
-      linesCount: linesValue.length,
-    };
-    console.log(
-      `[gemini-roof v3] gemini_lines count=${linesValue.length} ` +
-        `ridges+hips=${Math.round(r)}ft valleys=${Math.round(v)}ft ` +
-        `rakes=${Math.round(k)}ft eaves=${Math.round(e)}ft`,
-    );
-  }
+  // Gemini edge LFs are disabled in paint-only mode (the Flash line
+  // trace calls were removed). Solar's edge classifier still feeds
+  // `result.edges` below, which is what the rep workbench consumes.
+  const geminiEdges: GeminiRoofResponseV3["geminiEdges"] = null;
+  void linesValue;
+  void gemLineLengthFt;
 
   // Raw Solar values (in sqft).
   const solarRawSloped = totalSlopedM2 > 0 ? Math.round(totalSlopedM2 * 10.7639) : 0;
