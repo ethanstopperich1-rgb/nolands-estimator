@@ -76,6 +76,18 @@ interface V3Response {
     rakesLf: number | null;
     eavesLf: number | null;
   };
+  // Gemini line-detection edges. When present these are the trusted
+  // values; Solar's bbox-derived edges regularly misfire (e.g. 562 ft
+  // of rakes with 0 ft eaves on a clear hip roof) because Solar's
+  // rotated-bbox polygons don't share precise vertices across adjacent
+  // facets, so the classifier can't pair shared edges.
+  geminiEdges: {
+    ridgesHipsLf: number;
+    valleysLf: number;
+    rakesLf: number;
+    eavesLf: number;
+    linesCount: number;
+  } | null;
   facets: Array<{
     pitchDegrees: number;
     pitchOnTwelve: string;
@@ -262,6 +274,20 @@ function HeroScreen({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // US phone progressive formatter — strips non-digits, drops a leading
+  // "1" country code, caps at 10 digits, and surfaces as
+  // "(407) 819-5809" while the customer is still typing. The server
+  // calls toE164() (lib/twilio) before any SMS / call dispatch, so any
+  // shape we accept here normalizes downstream — this is purely UX.
+  function formatPhoneInput(raw: string): string {
+    let digits = raw.replace(/\D/g, "");
+    if (digits.startsWith("1") && digits.length === 11) digits = digits.slice(1);
+    digits = digits.slice(0, 10);
+    if (digits.length === 0) return "";
+    if (digits.length < 4) return `(${digits}`;
+    if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
   // Two-tier TCPA: marketing consent gates lead capture + SMS intro;
   // voice consent (optional, opt-in) gates the outbound automated call.
   const [marketingConsent, setMarketingConsent] = useState(false);
@@ -504,10 +530,11 @@ function HeroScreen({
                   id="ph"
                   className="slim-input tabular"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
                   placeholder="(239) 555-0117"
                   inputMode="tel"
                   autoComplete="tel"
+                  maxLength={14}
                   required
                 />
               </div>
@@ -916,7 +943,16 @@ function ResultScreen({
   onRePin: () => void;
   onStartOver: () => void;
 }) {
-  const { solar, paintedImageBase64, objects, facets, derived, edges, correction } = result;
+  const {
+    solar,
+    paintedImageBase64,
+    objects,
+    facets,
+    derived,
+    edges,
+    geminiEdges,
+    correction,
+  } = result;
   const sqft = solar.sqft;
   const pitch = solar.pitchDegrees;
   const pitchOn12 = pitch != null && pitch > 0
@@ -1025,25 +1061,62 @@ function ResultScreen({
           </div>
         )}
 
-        {/* Edge LFs (when available) */}
-        {(edges.ridgesHipsLf != null || edges.eavesLf != null) && (
-          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-px max-w-3xl mx-auto"
-               style={{ background: "var(--vx-rule)", border: "1px solid var(--vx-rule)" }}>
-            {[
-              ["Ridges + hips", edges.ridgesHipsLf],
-              ["Valleys", edges.valleysLf],
-              ["Rakes", edges.rakesLf],
-              ["Eaves", edges.eavesLf],
-            ].map(([label, lf]) => (
-              <div key={label as string} className="p-5 text-center" style={{ background: "var(--vx-cream)" }}>
-                <div className="field-label">{label}</div>
-                <div className="font-serif tabular mt-2" style={{ fontSize: "28px", color: "var(--vx-ink)", fontWeight: 500 }}>
-                  {lf != null ? `${lf} ft` : "—"}
+        {/* Edge LFs — Gemini line-detection preferred; Solar fallback
+            only when its values look plausible (no single bucket >70%
+            of total AND eaves > 0). The 562-ft-rakes / 0-ft-eaves case
+            from Solar bbox geometry is hidden entirely rather than
+            displayed as fake data. */}
+        {(() => {
+          const g = geminiEdges;
+          const s = edges;
+          const solarVals = [s.ridgesHipsLf, s.valleysLf, s.rakesLf, s.eavesLf];
+          const solarTotal = solarVals.reduce<number>((a, v) => a + (v ?? 0), 0);
+          const solarMax = Math.max(...solarVals.map((v) => v ?? 0));
+          const solarLooksSane =
+            solarTotal > 0 &&
+            solarMax / solarTotal < 0.7 &&
+            (s.eavesLf ?? 0) > 0;
+
+          let rows: Array<[string, number | null]> | null = null;
+          if (g) {
+            rows = [
+              ["Ridges + hips", g.ridgesHipsLf],
+              ["Valleys", g.valleysLf],
+              ["Rakes", g.rakesLf],
+              ["Eaves", g.eavesLf],
+            ];
+          } else if (solarLooksSane) {
+            rows = [
+              ["Ridges + hips", s.ridgesHipsLf],
+              ["Valleys", s.valleysLf],
+              ["Rakes", s.rakesLf],
+              ["Eaves", s.eavesLf],
+            ];
+          }
+          if (!rows) return null;
+          return (
+            <div
+              className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-px max-w-3xl mx-auto"
+              style={{ background: "var(--vx-rule)", border: "1px solid var(--vx-rule)" }}
+            >
+              {rows.map(([label, lf]) => (
+                <div
+                  key={label as string}
+                  className="p-5 text-center"
+                  style={{ background: "var(--vx-cream)" }}
+                >
+                  <div className="field-label">{label}</div>
+                  <div
+                    className="font-serif tabular mt-2"
+                    style={{ fontSize: "28px", color: "var(--vx-ink)", fontWeight: 500 }}
+                  >
+                    {lf != null ? `${lf} ft` : "—"}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Correction audit — only shown when transparent fallback fired */}
         {correction?.applied && (
