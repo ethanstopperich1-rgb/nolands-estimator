@@ -1371,22 +1371,54 @@ async function handleV3Pinned(
       `painted=${paintedImageBase64 ? "yes" : "no"} (paint-only mode)`,
   );
 
-  const totalSlopedM2 = (solar?.solarPotential?.roofSegmentStats ?? []).reduce(
+  // Filter out flat / near-flat Solar segments before summing sqft.
+  //
+  // Solar's photogrammetric model treats attached flat planes as
+  // legitimate roof segments — pool cages / screen enclosures, lanai
+  // covers, attached pergolas, carport awnings. None of those get
+  // shingled (they need TPO or modified bitumen if anything at all),
+  // and including them inflates the customer-visible price by 20-40%
+  // on homes with a big pool overhang.
+  //
+  // Threshold of 5° (≈ 1/12 pitch) cleanly separates real shingled
+  // roof (4/12 = 18° and steeper) from screen/lanai planes (0-3°).
+  // Modern flat-roof homes (rare in FL) would be filtered too — but
+  // those need a different product anyway, so the shingles estimator
+  // declining to quote them is the right behavior.
+  const SHINGLE_MIN_PITCH_DEG = 5;
+  const allSegments = solar?.solarPotential?.roofSegmentStats ?? [];
+  const shingleSegments = allSegments.filter(
+    (seg) => (seg.pitchDegrees ?? 0) >= SHINGLE_MIN_PITCH_DEG,
+  );
+  const excludedSegments = allSegments.length - shingleSegments.length;
+  const excludedM2 = allSegments
+    .filter((seg) => (seg.pitchDegrees ?? 0) < SHINGLE_MIN_PITCH_DEG)
+    .reduce((s, seg) => s + (seg.stats?.areaMeters2 ?? 0), 0);
+
+  const totalSlopedM2 = shingleSegments.reduce(
     (s, seg) => s + (seg.stats?.areaMeters2 ?? 0),
     0,
   );
   const totalFootprintM2 =
     solar?.solarPotential?.wholeRoofStats?.groundAreaMeters2 ?? 0;
   const avgPitchDeg = (() => {
-    const segs = solar?.solarPotential?.roofSegmentStats ?? [];
-    if (segs.length === 0 || totalSlopedM2 === 0) return null;
+    if (shingleSegments.length === 0 || totalSlopedM2 === 0) return null;
     return (
-      segs.reduce(
+      shingleSegments.reduce(
         (s, seg) => s + (seg.pitchDegrees ?? 0) * (seg.stats?.areaMeters2 ?? 0),
         0,
       ) / totalSlopedM2
     );
   })();
+
+  if (excludedSegments > 0) {
+    console.log(
+      `[gemini-roof v3] flat_segments_excluded ` +
+        `count=${excludedSegments}/${allSegments.length} ` +
+        `area=${Math.round(excludedM2 * 10.7639)}sqft ` +
+        `(pitch<${SHINGLE_MIN_PITCH_DEG}° — pool cage/lanai/awning)`,
+    );
+  }
 
   // Gemini edge LFs are disabled in paint-only mode (the Flash line
   // trace calls were removed). Solar's edge classifier still feeds
@@ -1623,8 +1655,9 @@ async function handleV3Pinned(
     const rise = Math.tan((deg * Math.PI) / 180) * 12;
     return `${Math.max(1, Math.round(rise))}/12`;
   }
-  const segments = solar?.solarPotential?.roofSegmentStats ?? [];
-  const facets: GeminiRoofResponseV3["facets"] = segments
+  // Use the same shingle-segments set so the rep workbench's facet
+  // list excludes pool cages / lanai planes that won't be shingled.
+  const facets: GeminiRoofResponseV3["facets"] = shingleSegments
     .filter((s) => typeof s.pitchDegrees === "number")
     .map((s) => {
       const pitchDegrees = s.pitchDegrees ?? 0;
@@ -1702,7 +1735,7 @@ async function handleV3Pinned(
       sqft: finalSlopedSqft > 0 ? finalSlopedSqft : null,
       footprintSqft: finalFootprintSqft > 0 ? finalFootprintSqft : null,
       pitchDegrees: avgPitchDeg,
-      segmentCount: solar?.solarPotential?.roofSegmentStats?.length ?? 0,
+      segmentCount: shingleSegments.length,
       imageryQuality: solar?.imageryQuality ?? null,
       imageryDate: imageryDateString(solar?.imageryDate),
     },
