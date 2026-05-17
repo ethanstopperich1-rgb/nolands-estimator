@@ -2751,3 +2751,198 @@ article p,
   height: 48px !important;
   width: auto !important;
 }
+
+/* ─── Dashboard overview surfaces ────────────────────────────────────
+ * The overview page's KPI scoreboard + activity log + jump-in cards
+ * were styled ONLY under .theme-terminal — which means under .voxaris
+ * they fell back to no styling at all, rendering as bare label/value
+ * pairs (the user's "broken text" screenshot). These rules give those
+ * same DOM structures a clean cream-on-cream card look that fits the
+ * brand. */
+.voxaris .scoreboard {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--vx-rule);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--vx-paper);
+}
+@media (min-width: 640px) {
+  .voxaris .scoreboard {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (min-width: 1024px) {
+  .voxaris .scoreboard {
+    grid-template-columns: 1fr 1fr 1.4fr 1fr;
+  }
+}
+.voxaris .scoreboard-tile {
+  position: relative;
+  padding: 1.5rem 1.5rem 1.6rem;
+  border-right: 1px solid var(--vx-rule);
+  border-bottom: 1px solid var(--vx-rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 152px;
+  isolation: isolate;
+  transition: background 200ms ease, transform 120ms ease;
+  text-decoration: none;
+  color: inherit;
+}
+.voxaris a.scoreboard-tile:hover {
+  background: var(--vx-cream);
+}
+.voxaris a.scoreboard-tile:active {
+  transform: translateY(1px);
+}
+@media (min-width: 1024px) {
+  .voxaris .scoreboard-tile {
+    padding: 1.75rem 1.75rem 1.85rem;
+    min-height: 170px;
+  }
+  .voxaris .scoreboard-tile { border-bottom: none; }
+  .voxaris .scoreboard-tile:nth-child(4n) { border-right: none; }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .voxaris .scoreboard-tile:nth-child(2n) { border-right: none; }
+  .voxaris .scoreboard-tile:nth-last-child(-n+2) { border-bottom: none; }
+}
+@media (max-width: 639.98px) {
+  .voxaris .scoreboard-tile { border-right: none; }
+  .voxaris .scoreboard-tile:last-child { border-bottom: none; }
+}
+/* Left-side terracotta accent bar — channels each tile. */
+.voxaris .scoreboard-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14%;
+  bottom: 14%;
+  width: 2px;
+  background: var(--vx-terra);
+  opacity: 0.6;
+}
+.voxaris .scoreboard-tile.accent-mint::before { opacity: 0.35; }
+.voxaris .scoreboard-tile.accent-amber::before { background: var(--vx-terra-dark); opacity: 0.8; }
+
+.voxaris .scoreboard-tile .label {
+  font-family: var(--vx-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--vx-ink-soft);
+  opacity: 0.7;
+  font-weight: 600;
+}
+.voxaris .scoreboard-tile .value {
+  font-family: var(--vx-font-display);
+  font-feature-settings: "tnum", "zero";
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.1rem, 4.2vw, 3.2rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--vx-ink);
+  line-height: 0.95;
+}
+.voxaris .scoreboard-tile .sublabel {
+  font-family: var(--vx-font-ui);
+  font-size: 11.5px;
+  color: var(--vx-ink-soft);
+  opacity: 0.78;
+  letter-spacing: 0.02em;
+  margin-top: auto;
+}
+.voxaris .scoreboard-tile .delta {
+  font-family: var(--vx-font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+.voxaris .scoreboard-tile .delta.up   { color: #2a6f4f; }
+.voxaris .scoreboard-tile .delta.down { color: #8a2c2c; }
+
+/* Activity feed rows */
+.voxaris .log-row {
+  display: grid;
+  grid-template-columns: 84px 86px 1fr auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.65rem 1.1rem;
+  font-family: var(--vx-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  border-bottom: 1px dashed var(--vx-rule);
+  color: var(--vx-ink);
+}
+.voxaris .log-row:last-child { border-bottom: none; }
+.voxaris .log-row:hover { background: var(--vx-cream); }
+.voxaris .log-row .ts {
+  color: var(--vx-ink-soft);
+  opacity: 0.65;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.voxaris .log-row .kind {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.voxaris .log-row .kind.lead     { color: var(--vx-terra); }
+.voxaris .log-row .kind.call     { color: #2a6f4f; }
+.voxaris .log-row .kind.proposal { color: var(--vx-terra-dark); }
+.voxaris .log-row .kind.event    { color: var(--vx-ink-soft); opacity: 0.65; }
+.voxaris .log-row .kind::before {
+  content: "▸ ";
+  opacity: 0.6;
+}
+.voxaris .log-row .body {
+  color: var(--vx-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voxaris .log-row .meta {
+  color: var(--vx-ink-soft);
+  opacity: 0.6;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+@media (max-width: 767.98px) {
+  .voxaris .log-row {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+  .voxaris .log-row .meta { display: none; }
+}
+
+/* Jump-in cards (the right rail on the overview page) */
+.voxaris .jump-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--vx-rule);
+  color: var(--vx-ink);
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+.voxaris .jump-row:last-child { border-bottom: none; }
+.voxaris .jump-row:hover { background: var(--vx-cream); }
+.voxaris .jump-row .jump-label {
+  font-family: var(--vx-font-display);
+  font-size: 14px;
+  color: var(--vx-ink);
+  font-weight: 500;
+  flex: 1;
+}
+.voxaris .jump-row .jump-sub {
+  font-family: var(--vx-font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--vx-ink-soft);
+  opacity: 0.7;
+}

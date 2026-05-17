@@ -1539,10 +1539,15 @@ async function handleV3Pinned(
   // Modern flat-roof homes (rare in FL) would be filtered too — but
   // those need a different product anyway, so the shingles estimator
   // declining to quote them is the right behavior.
-  // 8° (~ 1.7/12) — catches obvious lanai / screen-cage planes (0–3°)
-  // AND borderline patio covers (4–7°) that Solar sometimes reports.
-  // Real shingled roof is 4/12 (18°) minimum on FL residential.
-  const SHINGLE_MIN_PITCH_DEG = 8;
+  // 12° (~ 2.5/12) — Florida residential shingles are 4/12 (18.4°)
+  // minimum; anything below is a lanai / pool cage / patio cover /
+  // pergola / carport awning, none of which get re-shingled. Earlier
+  // 5° and 8° thresholds were too generous and let pool overhangs
+  // slip through, inflating sqft (and price) by 30–50% on homes with
+  // big screen enclosures. The 4/12 minimum is a hard FL code +
+  // manufacturer-warranty constraint so 12° is safely below the
+  // legitimate-shingle floor.
+  const SHINGLE_MIN_PITCH_DEG = 12;
   const allSegments = solar?.solarPotential?.roofSegmentStats ?? [];
   const shingleSegments = allSegments.filter(
     (seg) => (seg.pitchDegrees ?? 0) >= SHINGLE_MIN_PITCH_DEG,

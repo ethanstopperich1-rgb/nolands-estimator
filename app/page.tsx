@@ -29,10 +29,10 @@ import Link from "next/link";
 import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
 import {
-  ARCHITECTURAL_SHINGLE_RATE_PER_SQFT,
-  calculateCustomerPrice,
+  calculateTieredPricing,
   flatCustomerWaste,
   FLAT_CUSTOMER_WASTE_PERCENT,
+  type TierPrice,
 } from "@/lib/pricing/calculate-waste";
 
 type Step = "hero" | "pin" | "loading" | "result" | "error";
@@ -925,18 +925,20 @@ function ResultScreen({
   void geminiEdges;
   void edges;
 
-  // Pricing — flat 15% waste × sqft × $7/sqft. No penetration adders
-  // (object detection is disabled on the customer flow to keep the
-  // pipeline under its time budget). This is a quick visual estimate,
-  // not a binding number — the rep can refine on the workbench.
+  // Pricing — Good / Better / Best tiers built off sqft × (1 + waste).
+  // The customer sees three real options (Essentials / Standard /
+  // Fortified) instead of a single range. The rep can walk them up or
+  // down on the on-site visit. Waste is flat 12% on the customer side
+  // (the rep workbench has the detailed waste formula); this is a
+  // quick visual estimate, not a binding number.
   const waste = useMemo(() => {
     if (sqft == null) return null;
     return flatCustomerWaste(sqft);
   }, [sqft]);
 
-  const price = useMemo(() => {
+  const tiers: TierPrice[] | null = useMemo(() => {
     if (sqft == null || waste == null) return null;
-    return calculateCustomerPrice(sqft, waste, []);
+    return calculateTieredPricing(sqft, waste);
   }, [sqft, waste]);
 
   const objectCounts = objects.reduce<Record<string, number>>((acc, o) => {
@@ -1044,47 +1046,16 @@ function ResultScreen({
 
           {/* Right column: price + voice-consent CTA, stacked. */}
           <div className="flex flex-col gap-5 w-full" style={{ maxWidth: "440px" }}>
-            {price && (
-              <div
-                className="result-card text-center"
-                style={{ padding: "24px 22px" }}
-              >
-                <div className="eyebrow mb-2">Ballpark estimate</div>
-                <div
-                  className="font-serif tabular"
-                  style={{
-                    fontSize: "clamp(44px, 5.5vw, 64px)",
-                    lineHeight: 1,
-                    fontWeight: 500,
-                    color: "var(--vx-ink)",
-                    letterSpacing: "-0.015em",
-                  }}
-                >
-                  ${price.total.toLocaleString()}
+            {tiers && (
+              <div className="result-card" style={{ padding: "22px 20px" }}>
+                <div className="eyebrow mb-3 text-center">Three ways to roof this home</div>
+                <div className="flex flex-col" style={{ gap: "10px" }}>
+                  {tiers.map((t) => (
+                    <TierRow key={t.tier.id} tier={t} />
+                  ))}
                 </div>
                 <div
-                  className="mt-2 tabular"
-                  style={{
-                    fontSize: "13px",
-                    color: "var(--vx-ink-soft)",
-                    fontWeight: 600,
-                  }}
-                >
-                  ${price.totalLow.toLocaleString()} – ${price.totalHigh.toLocaleString()}
-                </div>
-                <div
-                  className="mt-4 mx-auto"
-                  style={{
-                    fontSize: "13px",
-                    color: "var(--vx-ink-soft)",
-                    fontWeight: 600,
-                    maxWidth: "38ch",
-                  }}
-                >
-                  Architectural shingles · ${ARCHITECTURAL_SHINGLE_RATE_PER_SQFT.toFixed(2)} per sq ft installed · {FLAT_CUSTOMER_WASTE_PERCENT}% waste assumed.
-                </div>
-                <div
-                  className="mt-4 pt-4 mx-auto"
+                  className="mt-4 pt-4 mx-auto text-center"
                   style={{
                     fontSize: "12px",
                     lineHeight: 1.55,
@@ -1096,11 +1067,19 @@ function ResultScreen({
                   <span style={{ color: "var(--vx-ink)", fontWeight: 700 }}>
                     Not a final or binding quote.
                   </span>{" "}
-                  This is a quick visual estimate from satellite imagery —
-                  the real number depends on what we find on site (pitch,
-                  layers, decking condition, penetrations, code work). The
-                  final price could be higher or lower after an in-person
-                  walk-through.
+                  Quick visual estimate from satellite imagery. Final price
+                  depends on what we find on site (decking condition,
+                  layers, code work). Confirmed by a licensed roofer.
+                </div>
+                <div
+                  className="mt-2 text-center"
+                  style={{
+                    fontSize: "11px",
+                    color: "var(--vx-ink-soft)",
+                    opacity: 0.7,
+                  }}
+                >
+                  {FLAT_CUSTOMER_WASTE_PERCENT}% waste assumed
                 </div>
               </div>
             )}
@@ -1259,7 +1238,7 @@ function ResultScreen({
 
         {/* Detail line under the price (full-width below the fold so it
             doesn't crowd the above-the-fold price card). */}
-        {price && (
+        {tiers && (
           <div
             className="mt-10 mx-auto font-serif italic text-center"
             style={{
@@ -1268,10 +1247,10 @@ function ResultScreen({
               maxWidth: "56ch",
             }}
           >
-            Includes tear-off, underlayment, ridge cap, drip edge, flashing,
-            labor, and disposal. Final number depends on deck condition,
-            code-driven upgrades, and your exact material selection — confirmed
-            on-site by a licensed roofer.
+            Every tier includes tear-off, underlayment, ridge cap, drip edge,
+            flashing, labor, and haul-away. Final number depends on deck
+            condition, code-driven upgrades, and your exact material
+            selection — confirmed on site by a licensed roofer.
           </div>
         )}
 
@@ -1341,6 +1320,106 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
  *  (logo-wordmark-alpha.png) which renders correctly on any background
  *  without a CSS filter. Falls back to the DragonEF text wordmark if
  *  the image file is missing. */
+// ─── Good / Better / Best tier row ──────────────────────────────────────
+
+function TierRow({ tier }: { tier: TierPrice }) {
+  const [open, setOpen] = useState(tier.tier.id === "better");
+  const accentColor =
+    tier.tier.accent === "premium"
+      ? "var(--vx-terra-dark)"
+      : tier.tier.accent === "primary"
+        ? "var(--vx-terra)"
+        : "var(--vx-ink-soft)";
+  return (
+    <div
+      style={{
+        border: `1px solid ${tier.tier.accent === "primary" ? "var(--vx-terra)" : "var(--vx-rule)"}`,
+        borderRadius: "10px",
+        padding: "12px 14px",
+        background: tier.tier.accent === "primary" ? "rgba(199, 107, 63, 0.06)" : "transparent",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: "flex",
+          width: "100%",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: "12px",
+          background: "none",
+          border: 0,
+          padding: 0,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+        aria-expanded={open}
+      >
+        <span style={{ flex: 1 }}>
+          <span
+            className="eyebrow"
+            style={{ color: accentColor, fontWeight: 700, marginRight: "8px" }}
+          >
+            {tier.tier.name}
+          </span>
+          <span
+            style={{
+              fontSize: "12px",
+              color: "var(--vx-ink-soft)",
+              fontStyle: "italic",
+            }}
+          >
+            {tier.tier.tagline}
+          </span>
+        </span>
+        <span
+          className="font-serif tabular"
+          style={{
+            fontSize: "22px",
+            fontWeight: 500,
+            color: "var(--vx-ink)",
+            letterSpacing: "-0.01em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          ${tier.total.toLocaleString()}
+        </span>
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: "10px",
+            paddingTop: "10px",
+            borderTop: "1px dashed var(--vx-rule)",
+            fontSize: "12px",
+            color: "var(--vx-ink-soft)",
+            lineHeight: 1.55,
+          }}
+        >
+          <ul style={{ paddingLeft: "16px", margin: 0 }}>
+            {tier.tier.features.map((f, i) => (
+              <li key={i} style={{ marginBottom: "3px" }}>{f}</li>
+            ))}
+          </ul>
+          <div
+            style={{
+              marginTop: "8px",
+              fontSize: "10.5px",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: accentColor,
+              fontWeight: 700,
+            }}
+          >
+            {tier.tier.warranty}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Wordmark({
   size = "lg",
   tone = "ink",

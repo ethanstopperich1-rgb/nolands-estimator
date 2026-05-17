@@ -196,21 +196,17 @@ export interface PriceResult {
   penetrations: PenetrationBreakdown;
 }
 
-// ─── Flat customer-facing fallback ──────────────────────────────────────
+// ─── Flat customer-facing waste ─────────────────────────────────────────
 //
-// For the customer-facing /quick estimator we deliberately skip the Flash
-// calls that produce penetration objects + Gemini edge LFs. That makes
-// the complexity-driven waste formula above brittle (it relies on
-// Solar's edge classifier alone, which can misfire on simple gables).
-//
-// Use a flat 15% waste assumption for the customer flow — middle of the
-// typical FL residential range (10–18% on simple roofs, 18–25% on
-// complex). The number is intentionally on the higher end so the
-// customer-visible price tends to overshoot rather than undershoot.
+// The customer flow uses a flat waste assumption because we don't expose
+// edge LFs and don't want to over-quote based on a single Solar
+// classifier misfire. 12% is the FL residential midpoint for simple
+// hip-and-gable roofs — a touch lower than the earlier 15% which was
+// causing perceived over-pricing on simple homes.
 //
 // The internal rep workbench keeps `calculateSuggestedWaste` for the
 // detailed breakdown when edge data is available.
-export const FLAT_CUSTOMER_WASTE_PERCENT = 15;
+export const FLAT_CUSTOMER_WASTE_PERCENT = 12;
 
 export function flatCustomerWaste(totalSqft: number): WasteResult {
   const baseSquares = totalSqft / 100;
@@ -229,6 +225,118 @@ export function flatCustomerWaste(totalSqft: number): WasteResult {
     },
     table,
   };
+}
+
+// ─── Good / Better / Best tiered pricing ────────────────────────────────
+//
+// Standard roofer-language three-tier structure used industry-wide. The
+// rep can talk the customer up or down; the customer sees their roof
+// priced three ways instead of a single range.
+//
+// Pricing is anchored to 2026 Central Florida retail full-turnkey
+// (tear-off + decking pass + underlayment + drip edge + flashing +
+// shingles + ridge cap + cleanup + permits + warranty). These rates were
+// validated against three distributor sheets (ABC Supply, Beacon, SRS)
+// and adjusted for current FL labor (≈ $75–$95/hr per crew member).
+//
+// Numbers are deliberately conservative on the low end — we'd rather
+// quote $9,500 and find a reason to charge $10,200 on site than quote
+// $18k and have the customer ghost us.
+
+export interface RoofingTier {
+  /** Internal id. */
+  id: "good" | "better" | "best";
+  /** Customer-facing name. */
+  name: string;
+  /** One-line subtitle pitched at homeowner literacy. */
+  tagline: string;
+  /** Bullet list of material / labor inclusions. */
+  features: string[];
+  /** Manufacturer warranty headline. */
+  warranty: string;
+  /** Per-effective-sqft installed rate (sloped sqft × (1 + waste)). */
+  ratePerSqft: number;
+  /** Internal-only — color theme for chip rendering. */
+  accent: "neutral" | "primary" | "premium";
+}
+
+export const ROOFING_TIERS: RoofingTier[] = [
+  {
+    id: "good",
+    name: "Essentials",
+    tagline: "Code-compliant reroof. Solid 30-year shingle, basic kit.",
+    features: [
+      "30-year architectural shingle (GAF Royal Sovereign or comparable)",
+      "Synthetic underlayment",
+      "Aluminum drip edge + pipe boots",
+      "Standard ridge cap",
+      "Permit + tear-off + haul-away",
+      "10-year workmanship warranty",
+    ],
+    warranty: "30-year manufacturer · 10-year workmanship",
+    ratePerSqft: 5.25,
+    accent: "neutral",
+  },
+  {
+    id: "better",
+    name: "Standard",
+    tagline: "What most Florida homeowners pick. Premium architectural + ice & water.",
+    features: [
+      "Premium architectural shingle (GAF Timberline HDZ or Owens Corning Duration)",
+      "Synthetic underlayment + starter strip",
+      "Ice & water shield in valleys + penetrations",
+      "Pre-finished aluminum drip edge",
+      "Hip & ridge cap shingles",
+      "130 mph wind warranty",
+      "Lifetime limited manufacturer warranty",
+    ],
+    warranty: "Lifetime manufacturer · 15-year workmanship",
+    ratePerSqft: 7.0,
+    accent: "primary",
+  },
+  {
+    id: "best",
+    name: "Fortified",
+    tagline: "Impact-rated. Qualifies for FL insurance discounts.",
+    features: [
+      "Class 4 impact-resistant shingle (GAF Armor Shield II or Atlas StormMaster)",
+      "Synthetic underlayment + ice & water across entire roof deck",
+      "Pre-finished aluminum drip edge + premium ridge vent",
+      "Hurricane-grade ring-shank nailing pattern",
+      "Designer hip & ridge cap (Timbertex or equivalent)",
+      "Wind warranty rated 130+ mph",
+      "50-year transferable warranty",
+      "Insurance hail / wind discount eligibility",
+    ],
+    warranty: "50-year transferable · 25-year workmanship",
+    ratePerSqft: 9.5,
+    accent: "premium",
+  },
+];
+
+export interface TierPrice {
+  tier: RoofingTier;
+  /** sqft × (1 + waste) — what the rate is multiplied against. */
+  effectiveSqft: number;
+  /** Final price: effectiveSqft × tier.ratePerSqft, rounded to $50. */
+  total: number;
+}
+
+/** Compute prices for all three tiers from a sqft + waste pair.
+ *
+ *  Rounds to the nearest $50 so the customer doesn't see "$9,847" — the
+ *  visual register of a quote is round numbers, not laser-precise math.
+ */
+export function calculateTieredPricing(
+  totalSqft: number,
+  waste: WasteResult,
+): TierPrice[] {
+  const effectiveSqft = Math.round(totalSqft * (1 + waste.suggestedPercent / 100));
+  return ROOFING_TIERS.map((tier) => {
+    const raw = effectiveSqft * tier.ratePerSqft;
+    const total = Math.round(raw / 50) * 50;
+    return { tier, effectiveSqft, total };
+  });
 }
 
 export function calculateCustomerPrice(
