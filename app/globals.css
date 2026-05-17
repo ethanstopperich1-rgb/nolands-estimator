@@ -2685,3 +2685,52 @@ article p,
 .voxaris .console-section-rule::after { display: none !important; }
 .voxaris .console-section-rule .pulse,
 .voxaris .animate-ping { display: none !important; }
+
+/* ─── Sidebar / chrome contrast bumps ────────────────────────────────
+ * The dashboard chrome (sidebar + topbar) uses text-white/40 and
+ * text-white/45 for labels like OPERATOR CONSOLE, "Active office",
+ * inactive nav items, etc. Under the .voxaris remap those map to
+ * --vx-muted (#8A7E68 ≈ warm gray) which on cream has a contrast
+ * ratio of ~3.4:1 — borderline-failing WCAG AA on small text and
+ * "barely visible" in real use.
+ *
+ * These selectors target the sidebar / topbar specifically and lift
+ * those tints to --vx-ink-soft (#1A2A44 navy) for chrome surfaces.
+ * Body-content text-white/* keeps the brand-correct muted look. */
+.voxaris aside .text-white\/40,
+.voxaris aside .text-white\/45,
+.voxaris header .text-white\/40,
+.voxaris header .text-white\/45 {
+  color: var(--vx-ink-soft) !important;
+  opacity: 1 !important;
+}
+
+/* Sidebar nav items — inactive state. Default Tailwind hover/text
+ * tokens render too pale on cream. Boost both icon and label to
+ * full ink-soft so each row is legible without a hover. */
+.voxaris aside nav a,
+.voxaris aside nav button {
+  color: var(--vx-ink-soft) !important;
+}
+.voxaris aside nav a svg,
+.voxaris aside nav button svg {
+  color: var(--vx-ink-soft) !important;
+  opacity: 1 !important;
+}
+.voxaris aside nav a:hover,
+.voxaris aside nav button:hover {
+  color: var(--vx-ink) !important;
+}
+.voxaris aside nav a:hover svg,
+.voxaris aside nav button:hover svg {
+  color: var(--vx-ink) !important;
+}
+
+/* Sidebar logo — the wordmark needs to render at a usable size on the
+ * cream sidebar, not the dashboard's default h-9 (~36px) which
+ * disappears against the brand sidebar surface. Bumped to h-12 (~48px)
+ * which matches the customer page's page-header wordmark scale. */
+.voxaris aside img[src="/brand/logo-wordmark-alpha.png"] {
+  height: 48px !important;
+  width: auto !important;
+}

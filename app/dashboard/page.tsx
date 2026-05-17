@@ -372,7 +372,7 @@ export default async function OverviewPage() {
         <Link href={`${basePath}/leads`} className="scoreboard-tile">
           <div className="label">Leads · MTD</div>
           <div className="value">{metrics.leadsThisMonth.toLocaleString()}</div>
-          <div className="sublabel">from /quote + /embed</div>
+          <div className="sublabel">from your estimator</div>
         </Link>
 
         <Link href={`${basePath}/calls`} className="scoreboard-tile">

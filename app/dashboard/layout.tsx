@@ -34,15 +34,14 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     isOnDemoRoute(),
   ]);
   return (
-    // theme-terminal: the dark operator-console theme this dashboard's
-    // page-level components (scoreboard, glass-panel, iridescent-text,
-    // text-white/* tokens) were originally designed against. Ethan's
-    // 2026-05-17 commit switched this to `.voxaris` (cream/serif) which
-    // applied the customer-facing brand here too — but the individual
-    // dashboard pages (overview, leads, analytics, etc.) still reference
-    // dark-theme CSS that doesn't have cream equivalents yet. Reverted
-    // to theme-terminal until the cream redesign is finished page-by-page.
-    <div className="theme-terminal min-h-[100dvh] text-white">
+    // .voxaris: the customer-facing brand scope. Ethan's earlier commit
+    // applied this here so the dashboard reads as the same product as
+    // the customer estimator. The remap CSS in globals.css (search
+    // "Dashboard & Login — Voxaris brand override") translates the
+    // existing dark-theme utility classes (text-white/*, glass-panel,
+    // iridescent-text, text-cy-*) to brand tokens. Half-stuck pages
+    // get patched in this turn.
+    <div className="voxaris min-h-[100dvh] text-white">
       {isDemo && <DemoBanner activeRole={role} />}
       <DashboardChrome
         offices={DEMO_OFFICES}

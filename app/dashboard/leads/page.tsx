@@ -105,7 +105,7 @@ export default async function LeadsPage() {
             <span className="iridescent-text">Lead inbox</span>
           </h1>
           <p className="text-sm text-white/60 mt-1.5">
-            Every submission from /quote and /embed. Status changes save instantly.
+            Every submission from your estimator. Status changes save instantly.
           </p>
         </div>
         <div className="text-xs text-white/45 font-mono tabular">

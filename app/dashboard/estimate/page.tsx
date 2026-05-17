@@ -451,13 +451,19 @@ function EstimatePage() {
   }, [effectiveSqft, material, tearOff, materialMult, laborMult]);
 
   return (
-    <div className="min-h-[100dvh] px-6 lg:px-10 py-8 text-slate-100">
+    <div className="min-h-[100dvh] px-6 lg:px-10 py-8">
       <header className="max-w-6xl mx-auto mb-8">
-        <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+        <p
+          className="text-[11px] uppercase tracking-[0.22em]"
+          style={{ color: "var(--vx-muted)", fontWeight: 600 }}
+        >
           {lead ? `Lead · ${lead.name ?? lead.email ?? lead.public_id}` : "New estimate"}
         </p>
-        <h1 className="font-display text-3xl mt-2 leading-tight">
-          Roof <span className="text-cy-400">workbench</span>
+        <h1
+          className="font-display text-3xl mt-2 leading-tight"
+          style={{ color: "var(--vx-ink)" }}
+        >
+          Roof <span style={{ color: "var(--vx-terra)" }}>workbench</span>
         </h1>
       </header>
 
