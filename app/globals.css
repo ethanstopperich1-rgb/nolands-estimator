@@ -2672,6 +2672,73 @@ article p,
 .voxaris .theme-terminal::before,
 .voxaris .theme-terminal::after { display: none !important; }
 
+/* Dashboard inputs + cards — sweep the legacy `ink-*` palette.
+ *
+ * /dashboard/estimate (the rep workbench) was painting itself with the
+ * dark-theme `ink-*` custom tokens — bg-ink-900/80 cards, bg-ink-800
+ * inputs, border-ink-700, text-slate-100, placeholder-slate-500. None
+ * of those matched the existing `white/*`-opacity remaps, so under
+ * .voxaris they rendered as dark-navy chunks on cream paper. Looked
+ * broken (user's screenshot, 2026-05).
+ *
+ * Map them onto the brand surface system + drop pill radii to the
+ * 2px card radius brand spec calls for. Targets the workbench inputs,
+ * notes textarea, material dropdown, pitch number field, etc.
+ */
+.voxaris [class*="bg-ink-"] {
+  background: var(--vx-paper) !important;
+}
+.voxaris [class*="border-ink-"] {
+  border-color: var(--vx-rule) !important;
+}
+.voxaris .text-slate-50,
+.voxaris .text-slate-100,
+.voxaris .text-slate-200,
+.voxaris .text-slate-300 { color: var(--vx-ink) !important; }
+.voxaris .text-slate-400,
+.voxaris .text-slate-500,
+.voxaris .text-slate-600 { color: var(--vx-muted) !important; }
+.voxaris [class*="placeholder-slate-"]::placeholder {
+  color: var(--vx-muted) !important;
+  opacity: 0.7;
+}
+
+/* Form controls — cream surface + hairline border + sharp corners
+ * (brand spec). Focus state darkens the border to ink. */
+.voxaris input[type="text"],
+.voxaris input[type="number"],
+.voxaris input[type="email"],
+.voxaris input[type="tel"],
+.voxaris input[type="search"],
+.voxaris input[type="password"],
+.voxaris select,
+.voxaris textarea {
+  background: var(--vx-cream) !important;
+  border-color: var(--vx-rule) !important;
+  color: var(--vx-ink) !important;
+  border-radius: 0 !important;
+  font-family: var(--vx-font-ui) !important;
+}
+.voxaris input:focus,
+.voxaris select:focus,
+.voxaris textarea:focus {
+  border-color: var(--vx-ink) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Pill / 2xl radii → 2px. Brand spec is sharp corners on interactive
+ * elements + 2px on cards. .rounded-full is left alone because it's
+ * used for true circular elements (live pulse dot, office-initial
+ * avatar, active-nav marker) where sharpness would look broken. */
+.voxaris .rounded-2xl,
+.voxaris .rounded-xl,
+.voxaris .rounded-lg,
+.voxaris .rounded-md,
+.voxaris .rounded {
+  border-radius: var(--vx-radius-card) !important;
+}
+
 /* Two-tone background fix.
  *
  * The dashboard chrome (sidebar `<aside>` + desktop topbar + mobile
