@@ -1,15 +1,50 @@
 /**
- * /api/gemini-roof — V2 vision pipeline endpoint.
+ * /api/gemini-roof — V3 truth pipeline endpoint.
  *
- * Replaces the SAM3 + reconciler cascade. Single Gemini 3 Pro Image
- * call with structured-output schema gets us: outline polygon, facets,
- * linear features (ridge/hip/valley/rake/eave), and rooftop objects.
- * In parallel, Google Solar API gives us authoritative pitch + azimuth
- * per plane, which we match to Gemini's facets by spatial proximity.
+ * Fans out to Solar API + multiple Gemini calls in parallel:
+ *   1. Solar API → authoritative pitch + per-segment azimuth + footprint
+ *   2. Gemini 3 Pro Image (multimodal IMAGE+TEXT) → painted overlay
+ *   3. Gemini 2.5 Flash (structured JSON) → rooftop objects + material
+ *      + condition hints + visible damage + secondary structures
+ *   4. Gemini 2.5 Flash (structured JSON) → ridge/hip/valley/rake/eave
+ *      polylines for edge measurement
  *
- * The geometry module (lib/roof-geometry) handles all the pixel →
- * lat/lng → sqft / linear-feet math. This route is a thin orchestrator
- * — fetch tile → call Gemini + Solar in parallel → process → return.
+ * The geometry module (lib/roof-geometry) handles pixel → lat/lng →
+ * sqft / LF math. This route is the orchestrator.
+ *
+ * ─── GEMINI 3 CONFIG RULES (empirically verified, do not "fix") ───────
+ *
+ * Google publishes two prompting guides that disagree on temperature,
+ * media resolution, parts order, and system-instruction placement.
+ * That's because they target two different task types:
+ *
+ *   A) IMAGE-UNDERSTANDING / TEXT GENERATION (Flash text calls below)
+ *      Google's `ai.google.dev/gemini-api/docs/prompt-strategies`:
+ *        - temperature 1.0 (Gemini 3 default)
+ *        - mediaResolution: MEDIA_RESOLUTION_HIGH for fine detail
+ *        - Persona + rules in systemInstruction
+ *        - parts order [image, text] per the image-understanding guide
+ *        - User content opens with anchor phrase "Based on the image
+ *          above, return..."
+ *
+ *   B) IMAGE-EDIT (Pro Image multimodal, responseModalities ["IMAGE","TEXT"])
+ *      The image-generation model is a DIFFERENT beast. We verified
+ *      Brad's working config against bad Pro Image responses on
+ *      2026-05-18 and the rules are:
+ *        - temperature 0 (1.0 → empty responses)
+ *        - NO mediaResolution param (causes empty responses)
+ *        - NO systemInstruction split (edit prompt must travel with
+ *          the image in user content)
+ *        - parts order [text, image] (image-first degraded facet-line
+ *          crispness in side-by-side; Brad's text-first produced the
+ *          magazine-clean Winter Garden + Orlando paints)
+ *        - Open with "Edit this 1280×1280 aerial satellite image."
+ *          NOT "You are a senior inspector..." (the persona opener
+ *          made Pro Image generate a new image from scratch)
+ *
+ * If a future Gemini release ever publishes an official image-edit
+ * prompting guide, revisit this. Until then: don't apply (A) rules to
+ * (B) calls.
  *
  * GET ?lat=X&lng=Y[&address=...&skipCache=1]
  * POST { lat, lng, address?, skipCache? }
