@@ -635,18 +635,18 @@ function SidebarContent({
       </nav>
 
       <div className="hidden lg:flex mt-auto flex-col gap-3">
-        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] backdrop-blur-xl p-3.5">
+        <div className="vx-sydney-card rounded-2xl border border-white/[0.07] bg-white/[0.025] backdrop-blur-xl p-3.5">
           <div className="flex items-center gap-2 mb-2">
             <div className="relative flex items-center justify-center">
               <span className="absolute w-3 h-3 rounded-full bg-mint/40 animate-ping" />
-              <span className="relative w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_8px_rgba(95,227,176,0.6)]" />
+              <span className="vx-sydney-dot relative w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_8px_rgba(95,227,176,0.6)]" />
             </div>
-            <span className="text-[12px] font-medium text-white/85">Sydney</span>
-            <span className="ml-auto text-[10px] font-mono tabular text-mint/85 uppercase tracking-wider">
+            <span className="vx-sydney-name text-[12px] font-medium text-white/85">Sydney</span>
+            <span className="vx-sydney-status ml-auto text-[10px] font-mono tabular text-mint/85 uppercase tracking-wider">
               Online
             </span>
           </div>
-          <div className="text-[11px] text-white/50 leading-relaxed">
+          <div className="vx-sydney-body text-[11px] text-white/50 leading-relaxed">
             Inbound voice agent. Listening across every office, 24/7.
           </div>
         </div>

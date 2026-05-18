@@ -2907,19 +2907,34 @@ article p,
   box-shadow: none !important;
 }
 
-/* Sidebar "Sydney online" card — was originally a glass-blur card with
- * its own border on a dark surface. Under the cream remap it became
- * a heavy paper rectangle that read as an orphan object below the nav.
- * Strip the border + raised background so it reads as a continuation
- * of the sidebar rhythm, with just the pulse + label carrying state. */
-.voxaris aside [class*="rounded-2xl"][class*="border-white"] {
-  background: transparent !important;
-  border: 0 !important;
-  border-top: 1px solid var(--vx-rule) !important;
-  border-radius: 0 !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
+/* Sidebar "Sydney online" card — brand owner asked for a blue block
+ * with contrasting text (2026-05). Renders the card in the brand
+ * navy ink (`--vx-ink: #0F1B2D`) with cream type on top so the panel
+ * carries its own weight in the sidebar rhythm instead of fading
+ * into the cream surrounding nav. The mint pulse dot keeps its green
+ * so "online" still reads as a live signal — that's the one accent
+ * that crosses the navy boundary intentionally. */
+.voxaris aside .vx-sydney-card {
+  background: var(--vx-ink) !important;
+  border: 1px solid var(--vx-ink-soft) !important;
+  border-radius: 6px !important;
   backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 12px 14px !important;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-name {
+  color: var(--vx-cream) !important;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-status {
+  color: rgba(236, 227, 208, 0.85) !important;
+  letter-spacing: 0.18em;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-body {
+  color: rgba(236, 227, 208, 0.7) !important;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-dot {
+  background: #5fe3b0 !important;
+  box-shadow: 0 0 10px rgba(95, 227, 176, 0.8) !important;
 }
 
 /* Footer ribbon — strip the dark backdrop-blur and the redundant
