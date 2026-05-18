@@ -101,6 +101,7 @@ import {
   calculateGeometricWaste,
   calculatePenetrationAdders,
 } from "@/lib/pricing/calculate-waste";
+import { lookupParcel, type ParcelLookupResult } from "@/lib/parcel-lookup";
 
 export const runtime = "nodejs";
 // Paint-only mode budget: Pro Image is the only Gemini call now.
@@ -934,6 +935,16 @@ export interface GeminiRoofResponseV3 {
       subtotal: number;
     }>;
   };
+  /** Florida statewide cadastral lookup (year built, sqft, value, sale
+   *  history) keyed off the Solar API building centroid — not the
+   *  geocoded address pin, which sits on the road centerline and misses
+   *  every parcel polygon.
+   *
+   *  Null when the property is non-residential, in a no-coverage county
+   *  (rare), or when Solar didn't return a building footprint. The V3
+   *  response is fully usable without it; the customer "Why this roof
+   *  needs attention" card just hides the parcel-derived bullets. */
+  parcel: ParcelLookupResult | null;
   modelVersion: string;
   computedAt: string;
 }
@@ -968,7 +979,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // counting (EagleView-style) instead of per-wing counting. Cached
 // "5–10 facets on Jupiter" entries from before this change are no
 // longer correct — re-paint forces fresh per-face counts.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-per-face-facets";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-parcel";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1709,6 +1720,24 @@ async function handleV3Pinned(
     fetchGoogleStaticTile(lat, lng, googleKey, PIN_TILE_ZOOM),
     callSolar(lat, lng, googleKey),
   ]);
+
+  // Kick off the FL statewide cadastral lookup the moment Solar is back.
+  // KEY DESIGN CHOICE: we hand the FDOR FeatureServer Solar's BUILDING
+  // CENTROID, not the incoming (lat,lng) pin. The customer pin lands on
+  // road centerlines roughly half the time (geocoders snap to the
+  // mailbox), and FDOR parcel polygons don't include the road right-of-
+  // way — so a pin-driven query misses every residential parcel on the
+  // map. Solar's centroid is inside the building footprint, which is
+  // inside the parcel polygon, which makes the lookup hit.
+  // When Solar didn't return a building (rural acreage, brand-new
+  // construction, water), fall back to the pin so we still attempt a
+  // lookup — worst case is null, which the customer card handles.
+  // Fires concurrently with the Gemini fan-out below; ~300ms is free
+  // latency against the 25-30s Pro Image call.
+  const parcelQueryPoint = solar?.center
+    ? { lat: solar.center.latitude, lng: solar.center.longitude }
+    : { lat, lng };
+  const parcelPromise = lookupParcel(parcelQueryPoint.lat, parcelQueryPoint.lng);
 
   // Pipeline architecture:
   //   - Multimodal paint (Pro Image, ~25–50s) — the cyan overlay.
@@ -2485,6 +2514,19 @@ async function handleV3Pinned(
     paintedImageBase64 = await watermarkPaintedPng(paintedImageBase64);
   }
 
+  // Resolve the parcel lookup that fired in parallel with the Gemini
+  // fan-out. By this point it almost certainly settled minutes ago — we
+  // were waiting on Pro Image, not FDOR — so this is a cheap await.
+  // Wrapped defensively because `lookupParcel` is soft-fail by design,
+  // but a network-layer throw would otherwise reject the whole response.
+  const parcel = await parcelPromise.catch((err) => {
+    console.warn(
+      "[gemini-roof v3] parcel_lookup_failed",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  });
+
   const result: GeminiRoofResponseV3 = {
     solar: {
       sqft: finalSlopedSqft > 0 ? finalSlopedSqft : null,
@@ -2545,6 +2587,7 @@ async function handleV3Pinned(
       penetrationAddersTotal: penetrationAdders.total,
       penetrationAdderLines: penetrationAdders.lines,
     },
+    parcel,
     modelVersion: GEMINI_MODEL,
     computedAt: new Date().toISOString(),
   };
