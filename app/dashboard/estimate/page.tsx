@@ -185,6 +185,10 @@ function EstimatePage() {
   // Rep-only enrichments
   const [lead, setLead] = useState<LeadRow | null>(null);
   const [recentLsr, setRecentLsr] = useState<RecentLsrEvent[] | null>(null);
+  // Storm-history knobs — rep-adjustable in the storm panel header.
+  // 90 / 10 defaults match the drawer for parity. Server caps at 365 / 50.
+  const [stormRadius, setStormRadius] = useState<number>(10);
+  const [stormDays, setStormDays] = useState<number>(90);
 
   // Load lead from deep link
   useEffect(() => {
@@ -226,32 +230,36 @@ function EstimatePage() {
     return () => window.clearInterval(id);
   }, [step]);
 
-  // Fetch RECENT severe weather (last 14 days, 10 miles) via the Iowa
-  // State Mesonet LSR feed. This is the real-time NWS Local Storm
-  // Reports endpoint — reports show up within an hour of being filed
-  // by NWS forecasters. Replaces the prior NOAA SPC BigQuery + MRMS
-  // radar combo which lagged 1-12 weeks and was useless for "what
-  // happened this weekend".
+  // Voxaris Storm Intelligence — verified severe-weather events near
+  // the pin. Radius + window are rep-adjustable in the panel header
+  // (state lives a few lines up). 300ms debounce so dragging the
+  // number inputs doesn't spam the API. Vendor / source names are
+  // intentionally NOT surfaced to the rep or downstream customers.
   useEffect(() => {
     if (!result || pinLat == null || pinLng == null) return;
+    const r = Math.max(1, Math.min(50, stormRadius));
+    const d = Math.max(1, Math.min(365, stormDays));
     let cancelled = false;
-    fetch(
-      `/api/storms/recent?lat=${pinLat}&lng=${pinLng}&radiusMiles=10&daysBack=14`,
-    )
-      .then(async (r) =>
-        r.ok ? ((await r.json()) as { events?: RecentLsrEvent[] }) : null,
+    const debounce = window.setTimeout(() => {
+      fetch(
+        `/api/storms/recent?lat=${pinLat}&lng=${pinLng}&radiusMiles=${r}&daysBack=${d}`,
       )
-      .then((data) => {
-        if (cancelled) return;
-        setRecentLsr(data?.events ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setRecentLsr([]);
-      });
+        .then(async (res) =>
+          res.ok ? ((await res.json()) as { events?: RecentLsrEvent[] }) : null,
+        )
+        .then((data) => {
+          if (cancelled) return;
+          setRecentLsr(data?.events ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setRecentLsr([]);
+        });
+    }, 300);
     return () => {
       cancelled = true;
+      window.clearTimeout(debounce);
     };
-  }, [result, pinLat, pinLng]);
+  }, [result, pinLat, pinLng, stormRadius, stormDays]);
 
   const runEstimate = useCallback(async (): Promise<void> => {
     if (pinLat == null || pinLng == null) return;
@@ -538,6 +546,10 @@ function EstimatePage() {
                 stormsAfterImagery={stormsAfterImagery}
                 pinLat={pinLat}
                 pinLng={pinLng}
+                stormRadius={stormRadius}
+                setStormRadius={setStormRadius}
+                stormDays={stormDays}
+                setStormDays={setStormDays}
                 onReRun={runEstimate}
               />
               <SaveEstimateCard
@@ -808,6 +820,10 @@ function ResultPanels({
   stormsAfterImagery,
   pinLat,
   pinLng,
+  stormRadius,
+  setStormRadius,
+  stormDays,
+  setStormDays,
   onReRun,
 }: {
   result: EstimateResult;
@@ -822,6 +838,10 @@ function ResultPanels({
   stormsAfterImagery: Array<{ date: string; label: string; mag: string }> | null;
   pinLat: number | null;
   pinLng: number | null;
+  stormRadius: number;
+  setStormRadius: (n: number) => void;
+  stormDays: number;
+  setStormDays: (n: number) => void;
   onReRun: () => void;
 }) {
   const driveLink =
@@ -999,7 +1019,13 @@ function ResultPanels({
 
       {/* Recent severe weather — Iowa State Mesonet LSR feed, real-
           time NWS Local Storm Reports, last 14 days within 10 miles. */}
-      <RecentSevereWeatherCard events={recentLsr} />
+      <RecentSevereWeatherCard
+        events={recentLsr}
+        radiusMiles={stormRadius}
+        setRadiusMiles={setStormRadius}
+        daysBack={stormDays}
+        setDaysBack={setStormDays}
+      />
 
       {/* Drive-there + jobsite ops */}
       {driveLink && (
@@ -1122,7 +1148,7 @@ function WasteAnalysisCard({
           Waste &amp; pricing analysis
         </p>
         <span className="text-[10px] uppercase tracking-[0.16em] text-cy-400">
-          EagleView-style
+          Rep-grade analysis
         </span>
       </div>
 
@@ -1411,27 +1437,32 @@ function SiteConditionNotes({
 }
 
 /**
- * Recent severe weather — Iowa State Mesonet LSR feed.
+ * Voxaris Storm Intelligence card — verified severe-weather events
+ * near the pin. Radius (1–50 mi) and lookback window (1–365 days)
+ * are rep-adjustable via small number inputs in the header; the
+ * parent debounces refetches by 300ms.
  *
- * Real-time NWS Local Storm Reports, last 14 days within 10 miles of
- * the pin. Replaces the prior NOAA SPC + MRMS combo which lagged by
- * 1-12 weeks and could not tell the rep "what hit your customer's
- * roof this weekend".
- *
- * The LSR feed updates within an hour of the NWS forecaster filing the
- * report, so reps can react to weekend storms before the homeowner
- * even calls.
+ * Source / vendor names are intentionally NOT surfaced — this is
+ * presented as proprietary Voxaris data.
  */
 function RecentSevereWeatherCard({
   events,
+  radiusMiles,
+  setRadiusMiles,
+  daysBack,
+  setDaysBack,
 }: {
   events: RecentLsrEvent[] | null;
+  radiusMiles: number;
+  setRadiusMiles: (n: number) => void;
+  daysBack: number;
+  setDaysBack: (n: number) => void;
 }) {
   if (events == null) {
     return (
       <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
         <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
-          Recent severe weather
+          Storm intelligence
         </p>
         <p className="mt-2 text-sm text-slate-500">Loading…</p>
       </section>
@@ -1448,12 +1479,55 @@ function RecentSevereWeatherCard({
   const mostRecent = events[0]?.date?.slice(0, 10);
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
-        Recent severe weather{" "}
-        <span className="text-slate-500 normal-case">
-          · last 14 days within 10 mi · live LSR feed
-        </span>
-      </p>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+          Storm intelligence
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-slate-500">
+            <span>Radius</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={radiusMiles}
+              onChange={(e) =>
+                setRadiusMiles(Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+              }
+              className="w-12 px-1.5 py-0.5 text-[12px] tabular text-center"
+              style={{
+                background: "var(--vx-cream)",
+                border: "1px solid var(--vx-rule)",
+                borderRadius: 0,
+                color: "var(--vx-ink)",
+              }}
+              aria-label="Storm search radius in miles"
+            />
+            <span>mi</span>
+          </label>
+          <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-slate-500">
+            <span>Window</span>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={daysBack}
+              onChange={(e) =>
+                setDaysBack(Math.max(1, Math.min(365, Number(e.target.value) || 1)))
+              }
+              className="w-14 px-1.5 py-0.5 text-[12px] tabular text-center"
+              style={{
+                background: "var(--vx-cream)",
+                border: "1px solid var(--vx-rule)",
+                borderRadius: 0,
+                color: "var(--vx-ink)",
+              }}
+              aria-label="Storm lookback window in days"
+            />
+            <span>days</span>
+          </label>
+        </div>
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         <Metric
           label="Reports"
@@ -1487,7 +1561,8 @@ function RecentSevereWeatherCard({
         </ul>
       ) : (
         <p className="text-sm text-slate-500">
-          No NWS storm reports filed within 10 miles in the last 14 days.
+          No verified storm events within {radiusMiles} miles in the last
+          {" "}{daysBack} days. Widen the radius or window to look further out.
         </p>
       )}
     </section>

@@ -118,9 +118,14 @@ export async function GET(req: Request) {
   const lat = Number(searchParams.get("lat"));
   const lng = Number(searchParams.get("lng"));
   const radius = Math.max(1, Math.min(50, Number(searchParams.get("radiusMiles")) || 10));
+  // Cap was previously 30 — bumped to 365 so the rep workbench's
+  // "lead lookup happens days/weeks after the storm" use case actually
+  // gets data instead of being silently clamped. The IEM endpoint
+  // accepts multi-year windows; 365 is the sane outer limit for a
+  // single drawer fetch.
   // IEM hard-caps practical queries around ~30 days. 7 is the canvass
   // default; 30 covers the "last month" pill on the UI.
-  const days = Math.max(1, Math.min(30, Number(searchParams.get("daysBack")) || 7));
+  const days = Math.max(1, Math.min(365, Number(searchParams.get("daysBack")) || 90));
   // Optional 2-letter state hint — used to bound the IEM upstream
   // payload. Defaults to FL because that's the only territory we
   // serve. Validated against a safe-list to keep this off the SSRF

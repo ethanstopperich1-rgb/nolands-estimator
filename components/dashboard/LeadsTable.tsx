@@ -339,15 +339,15 @@ function LeadDrawer({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // ─── Storm history (last 90 days, 10 miles) ───────────────────────
-  // Mirrors the storm-intelligence section on /dashboard/estimate.
-  // Fetches Iowa State Mesonet Local Storm Reports (hail / wind /
-  // tornado) keyed to the lead's lat/lng. The drawer surfaces this so
-  // the rep can size up the insurance angle BEFORE opening the full
-  // workbench. 90-day window is wider than /estimate's 14-day because
-  // a lead lookup happens days after the storm; we want history, not
-  // last weekend.
-  interface LsrEvent {
+  // ─── Storm history ────────────────────────────────────────────────
+  // Voxaris Storm Intelligence — verified severe-weather events near
+  // the property. Rep-adjustable radius (1–50 mi) and lookback window
+  // (1–365 days). Refetches with a small debounce when either knob
+  // changes so the rep can scrub the params without spamming the API.
+  // Vendor / source names intentionally NOT surfaced — this is
+  // presented as proprietary Voxaris data to reps and downstream
+  // customers.
+  interface StormEvent {
     type: string;
     date: string | null;
     magnitude: number | null;
@@ -355,33 +355,43 @@ function LeadDrawer({
     distanceMiles: number | null;
     remark?: string;
   }
-  const [storms, setStorms] = useState<LsrEvent[] | null>(null);
+  const [stormRadius, setStormRadius] = useState<number>(10);
+  const [stormDays, setStormDays] = useState<number>(90);
+  const [storms, setStorms] = useState<StormEvent[] | null>(null);
   const [stormsLoading, setStormsLoading] = useState<boolean>(false);
   useEffect(() => {
     if (lead.lat == null || lead.lng == null) {
       setStorms([]);
       return;
     }
+    // Clamp client-side to the API's accepted bounds so an out-of-range
+    // input doesn't get silently snapped server-side without the rep
+    // noticing.
+    const r = Math.max(1, Math.min(50, stormRadius));
+    const d = Math.max(1, Math.min(365, stormDays));
     let cancelled = false;
     setStormsLoading(true);
-    fetch(
-      `/api/storms/recent?lat=${lead.lat}&lng=${lead.lng}&radiusMiles=10&daysBack=90`,
-    )
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { events?: LsrEvent[] } | null) => {
-        if (cancelled) return;
-        setStorms(data?.events ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setStorms([]);
-      })
-      .finally(() => {
-        if (!cancelled) setStormsLoading(false);
-      });
+    const debounce = window.setTimeout(() => {
+      fetch(
+        `/api/storms/recent?lat=${lead.lat}&lng=${lead.lng}&radiusMiles=${r}&daysBack=${d}`,
+      )
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { events?: StormEvent[] } | null) => {
+          if (cancelled) return;
+          setStorms(data?.events ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setStorms([]);
+        })
+        .finally(() => {
+          if (!cancelled) setStormsLoading(false);
+        });
+    }, 300);
     return () => {
       cancelled = true;
+      window.clearTimeout(debounce);
     };
-  }, [lead.lat, lead.lng]);
+  }, [lead.lat, lead.lng, stormRadius, stormDays]);
 
   // ─── Generate V3 roof analysis on demand ──────────────────────────
   // For leads that came in WITHOUT a V3 payload (legacy /quote leads,
@@ -817,7 +827,7 @@ function LeadDrawer({
                     </div>
                     <div className="text-[10px] uppercase tracking-[0.18em] text-white/40">
                       {gemEdges
-                        ? `Gemini · ${gemEdges.linesCount ?? 0} lines`
+                        ? `Voxaris V3 · ${gemEdges.linesCount ?? 0} lines`
                         : "Solar geometry"}
                     </div>
                   </div>
@@ -875,7 +885,7 @@ function LeadDrawer({
                     }
                   />
                   <Row
-                    label="Facets (Gemini est.)"
+                    label="Facets (V3 est.)"
                     mono
                     value={
                       facetCountEstimate?.count != null
@@ -996,32 +1006,72 @@ function LeadDrawer({
           );
         })()}
 
-        {/* ─── Storm history (last 90 days, 10 miles) ───────────────
-            Iowa State Mesonet Local Storm Reports (hail / wind /
-            tornado) keyed to the lead's lat/lng. Same /api/storms/recent
-            endpoint the customer-facing storm intelligence component
-            uses on /dashboard/estimate. Surfaced here so the rep can
-            judge insurance angle BEFORE opening the full workbench. */}
+        {/* ─── Storm history ────────────────────────────────────────
+            Voxaris Storm Intelligence — verified severe-weather events
+            near the property. Rep-adjustable radius + lookback so the
+            rep can scrub the parameters in-line (no need to leave the
+            drawer). 300ms debounce on the fetch. */}
         <section className="glass-panel p-4">
-          <div className="flex items-baseline justify-between mb-3 gap-2">
+          <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
             <div className="text-[10.5px] uppercase tracking-wider text-white/45">
-              Storm history · 90 days · 10 mi
+              Storm history
             </div>
-            {storms !== null && storms.length > 0 ? (
-              <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
-                {storms.length} {storms.length === 1 ? "event" : "events"}
-              </span>
-            ) : null}
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-[var(--vx-muted)]">
+                <span>Radius</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={stormRadius}
+                  onChange={(e) => setStormRadius(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                  className="w-12 px-1.5 py-0.5 text-[12px] tabular text-center"
+                  style={{
+                    background: "var(--vx-cream)",
+                    border: "1px solid var(--vx-rule)",
+                    borderRadius: 0,
+                    color: "var(--vx-ink)",
+                  }}
+                  aria-label="Storm search radius in miles"
+                />
+                <span>mi</span>
+              </label>
+              <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-[var(--vx-muted)]">
+                <span>Window</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={stormDays}
+                  onChange={(e) => setStormDays(Math.max(1, Math.min(365, Number(e.target.value) || 1)))}
+                  className="w-14 px-1.5 py-0.5 text-[12px] tabular text-center"
+                  style={{
+                    background: "var(--vx-cream)",
+                    border: "1px solid var(--vx-rule)",
+                    borderRadius: 0,
+                    color: "var(--vx-ink)",
+                  }}
+                  aria-label="Storm lookback window in days"
+                />
+                <span>days</span>
+              </label>
+              {storms !== null && storms.length > 0 ? (
+                <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
+                  {storms.length} {storms.length === 1 ? "event" : "events"}
+                </span>
+              ) : null}
+            </div>
           </div>
           {stormsLoading ? (
             <div className="text-[12.5px] text-[var(--vx-ink-soft)] inline-flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Pulling LSR feed…
+              Loading storm reports…
             </div>
           ) : storms === null || storms.length === 0 ? (
             <p className="text-[12.5px] text-[var(--vx-ink-soft)] leading-relaxed">
-              No NWS Local Storm Reports within 10 miles of this address
-              in the last 90 days. Real-time feed via Iowa State Mesonet.
+              No verified storm events within {stormRadius} miles of this
+              address in the last {stormDays} days. Widen the radius or
+              window to look further out.
             </p>
           ) : (
             <ul className="flex flex-col divide-y divide-[var(--vx-rule)]">
