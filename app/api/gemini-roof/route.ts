@@ -362,20 +362,17 @@ async function callGeminiMultimodal(
       },
     ],
     generationConfig: {
-      // Gemini 3 docs: "we strongly recommend keeping the temperature
-      // at its default value of 1.0. Changing the temperature
-      // (setting it below 1.0) may lead to unexpected behavior, such
-      // as looping or degraded performance, particularly in complex
-      // mathematical or reasoning tasks."
-      temperature: 1.0,
-      // High media-resolution: small features (shadow vs dormer,
-      // gutter-line vs eave, tiny skylights) need fine detail. Worth
-      // the extra tokens.
-      mediaResolution: "MEDIA_RESOLUTION_HIGH",
-      // Multimodal: tell Gemini to return BOTH a painted image AND a
-      // text response. `responseSchema` can't be used here — it
-      // conflicts with image generation — so we parse the text part
-      // loosely below.
+      // IMPORTANT: Pro Image (gemini-3-pro-image-preview) does NOT
+      // play by the same rules as the text/vision models.
+      //   - `temperature: 1.0` produces empty responses (verified on
+      //     Jupiter 2026-05-18: 200 OK with no inline_data part).
+      //   - `mediaResolution: HIGH` is likewise unsupported on image
+      //     generation — same empty-response failure mode.
+      // Both knobs are documented for Gemini 3 text/vision models, not
+      // image-edit. Keep this call at temperature 0 + no media res
+      // override. Flash text calls below still use temperature 1.0 +
+      // mediaResolution HIGH per Google's docs.
+      temperature: 0,
       responseModalities: ["IMAGE", "TEXT"],
     },
   };
