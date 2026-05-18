@@ -775,7 +775,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // the paint-only pipeline + flat-segment filter (pool cage / lanai)
 // + flat 15% customer waste. Old cached results carry stale sqft and
 // inflated prices.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-rich-lines";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-rich-dual-lines";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1454,9 +1454,19 @@ async function handleV3Pinned(
   };
   let geminiRawText: string | null = null;
   let geminiRichErr: string | null = null;
-  const [paintedResult, richResult] = await Promise.allSettled([
+  // Three-call parallel block — total wall clock = max(paint) ≈ 25–30s.
+  //   - Pro Image paint (slowest)
+  //   - Flash rich-data (objects + facet count + material)
+  //   - Flash lines-on-raw (eaves / ridges / valleys / rakes / hips
+  //     from the RAW satellite tile). Flash 2.5 has been trained on
+  //     aerial imagery and can identify real roof geometry directly.
+  //     This is the fallback if the painted-pass below returns empty
+  //     lines (the painted-pass strokes can get absorbed into the
+  //     translucent cyan fill on some roofs — observed on Newcomb).
+  const [paintedResult, richResult, rawLinesResult] = await Promise.allSettled([
     callGeminiMultimodal(tile.base64, geminiKey),
     callGeminiRichData(tile.base64, geminiKey),
+    callGeminiLines(tile.base64, geminiKey),
   ]);
 
   if (paintedResult.status === "fulfilled") {
@@ -1516,22 +1526,30 @@ async function handleV3Pinned(
     console.warn("[gemini-roof v3] rich_data_call_failed", geminiRichErr);
   }
 
-  // ─── Painted-pass line trace (serial after paint) ──────────────────
+  // ─── Edge / line source selection ──────────────────────────────────
   //
-  // The painted image has cyan strokes drawn along every legal edge by
-  // Pro Image's paint pass. Asking Flash to enumerate + classify those
-  // cyan lines is dramatically easier (and more accurate) than asking
-  // it to detect roof edges from raw satellite, OR than reconstructing
-  // edges from Solar's bbox-derived rectangles (which don't share
-  // vertices between adjacent facets and therefore can't be classified
-  // as ridge/hip/valley properly — the source of the user's "0 valleys,
-  // ridges -64% off EagleView" complaint).
+  // Two candidate sources:
+  //   A. RAW-tile lines pass (ran in parallel above) — Flash on satellite
+  //   B. PAINTED-tile lines pass (serial below) — Flash on cyan overlay
   //
-  // This runs serially after the paint call (~5–8s extra wall clock).
-  // Total budget after this addition: ~30–35s, well under the 45s
-  // ceiling. We also use the painted-pass facet count as the canonical
-  // visual count.
-  let linesValue: GeminiLineDetection[] | null = null;
+  // Prefer painted when it has BOTH eaves AND ridges/hips (means the
+  // strokes were prominent enough); otherwise fall back to raw. Both
+  // outputs use the same schema so the selection is trivial.
+  let rawLinesValue: GeminiLineDetection[] = [];
+  let rawFacetCount: GeminiFacetCount | null = null;
+  if (rawLinesResult.status === "fulfilled") {
+    rawLinesValue = rawLinesResult.value.lines;
+    rawFacetCount = rawLinesResult.value.facetCount;
+  } else {
+    console.warn(
+      "[gemini-roof v3] raw_lines_call_failed",
+      rawLinesResult.reason instanceof Error
+        ? rawLinesResult.reason.message
+        : String(rawLinesResult.reason),
+    );
+  }
+
+  let paintedLinesValue: GeminiLineDetection[] = [];
   let paintedFacetCount: GeminiFacetCount | null = null;
   if (paintedImageBase64) {
     try {
@@ -1540,7 +1558,7 @@ async function handleV3Pinned(
         geminiKey,
         GEMINI_LINES_FROM_PAINTED_PROMPT,
       );
-      linesValue = lr.lines;
+      paintedLinesValue = lr.lines;
       paintedFacetCount = lr.facetCount;
       console.log(
         `[gemini-roof v3] painted_lines lines=${lr.lines.length} ` +
@@ -1554,14 +1572,49 @@ async function handleV3Pinned(
     }
   }
 
-  // Painted-pass facet count is the canonical answer (cyan polygons
-  // were drawn by Pro Image itself, so Flash is just counting what's
-  // visually present). Overrides Solar's segment count + rich-data's
-  // raw-tile facet estimate.
-  if (paintedFacetCount && paintedFacetCount.count > 0) {
+  // Selection rule — painted wins if it has the canonical mix of eaves
+  // AND ridges/hips. Otherwise raw wins (it's the more reliable source
+  // on roofs where Pro Image's strokes are subtle).
+  const paintedByType = paintedLinesValue.reduce<Record<string, number>>(
+    (acc, l) => { acc[l.type] = (acc[l.type] ?? 0) + 1; return acc; },
+    {},
+  );
+  const paintedHasCanonical =
+    (paintedByType.eave ?? 0) > 0 &&
+    ((paintedByType.ridge ?? 0) + (paintedByType.hip ?? 0)) > 0;
+  let linesValue: GeminiLineDetection[] | null = null;
+  if (paintedHasCanonical) {
+    linesValue = paintedLinesValue;
+    console.log(
+      `[gemini-roof v3] line_source=painted ` +
+        `(painted=${paintedLinesValue.length} raw=${rawLinesValue.length})`,
+    );
+  } else if (rawLinesValue.length > 0) {
+    linesValue = rawLinesValue;
+    console.log(
+      `[gemini-roof v3] line_source=raw ` +
+        `(painted=${paintedLinesValue.length} under-traced, raw=${rawLinesValue.length})`,
+    );
+  } else if (paintedLinesValue.length > 0) {
+    linesValue = paintedLinesValue;
+    console.log(
+      `[gemini-roof v3] line_source=painted_partial ` +
+        `(painted=${paintedLinesValue.length} no canonical mix, raw=0)`,
+    );
+  }
+
+  // Facet count source — painted is canonical when > 0, else raw lines
+  // facet_count, else rich-data raw-tile estimate. Always prefer
+  // visually-grounded counts over the raw-tile rich-data pass which
+  // tends to over-count shadow patches as separate planes.
+
+  const canonicalFacetCount =
+    (paintedFacetCount && paintedFacetCount.count > 0 ? paintedFacetCount : null) ??
+    (rawFacetCount && rawFacetCount.count > 0 ? rawFacetCount : null);
+  if (canonicalFacetCount) {
     geminiAnalysis = {
       ...geminiAnalysis,
-      facetCountEstimate: paintedFacetCount,
+      facetCountEstimate: canonicalFacetCount,
     };
   }
 
