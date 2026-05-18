@@ -16,7 +16,6 @@ import {
   X,
   Check,
   AlertTriangle,
-  CloudHail,
 } from "lucide-react";
 import type { DemoOffice } from "@/lib/dashboard-demo";
 
@@ -61,7 +60,10 @@ const NAV: NavItem[] = [
   // bounce out to the legacy /  route mid-flow.
   { segment: "/estimate", label: "New Estimate", icon: Sparkles, match: "prefix", minRole: "rep", cta: true },
   { segment: "", label: "Overview", icon: LayoutDashboard, match: "exact", minRole: "rep" },
-  { segment: "/canvass", label: "Storm Canvass", icon: CloudHail, match: "prefix", minRole: "rep" },
+  // Storm Canvass — hidden from this customer's deployment per brand
+  // owner (2026-05). Route still exists at /dashboard/canvass for
+  // internal use; just not surfaced in the sidebar.
+  // { segment: "/canvass", label: "Storm Canvass", icon: CloudHail, match: "prefix", minRole: "rep" },
   { segment: "/calls", label: "Sydney Calls", icon: PhoneCall, match: "prefix", minRole: "rep",
     labelByRole: { rep: "My calls" } },
   { segment: "/leads", label: "Leads", icon: Users, match: "prefix", minRole: "rep",
