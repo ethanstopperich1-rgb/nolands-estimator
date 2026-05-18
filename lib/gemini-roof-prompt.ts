@@ -21,20 +21,23 @@
  *   4. The top-side roof slope of skylight rows being skipped.
  */
 
-// ─── Pro Image paint prompt ─────────────────────────────────────────────
-//
-// Goal: a magazine-clean cyan overlay on every visible roof plane of the
-// central building. The prompt is structured as: one sentence task, then
-// four numbered RULES (front-loaded — the most important behavior the
-// model needs to internalize), then DO PAINT / DO NOT PAINT lists, then
-// a shadow-vs-edge discrimination table, then a self-check.
-//
-// Why this structure: Pro Image is a generation model, not a chat-style
-// reasoner. It pays the most attention to the FIRST clear instruction
-// blocks. Long prose paragraphs at the front bury the most important
-// rule. Numbered rules + tables are skimmable; the model carries them
-// further into the generation pass.
-export const GEMINI_ROOF_PROMPT = `Edit this 1280×1280 aerial satellite image. Paint a magazine-clean translucent cyan overlay on every visible roof plane of the single residential building at the exact center of the frame (pixel 640, 640). The user has already confirmed this is the target — do not second-guess which structure to annotate.
+/**
+ * SYSTEM INSTRUCTION — the persona + rules block.
+ *
+ * Per Google's Gemini 3 prompting guidance, behavioral constraints,
+ * role definitions, and output-format rules go into the System
+ * Instruction (NOT user content). User content stays minimal so the
+ * model's attention budget goes to the visual reasoning task, not to
+ * re-parsing the rule list on every call.
+ *
+ * Why this structure: Pro Image is a generation model, not a
+ * chat-style reasoner. It pays the most attention to the FIRST clear
+ * instruction blocks. Numbered rules + tables are skimmable; the
+ * model carries them further into the generation pass than long prose.
+ */
+export const GEMINI_ROOF_SYSTEM_INSTRUCTION = `You are a senior roof inspector annotating aerial satellite imagery. Every input is a 1280×1280 aerial photo with a single residential building centered at pixel (640, 640). The user has confirmed which building is the target — do not second-guess.
+
+Your job: paint a magazine-clean translucent cyan overlay on every visible roof plane of the central building, and return structured JSON for rooftop fixtures.
 
 ## STYLE
 - Fill: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan.
@@ -117,11 +120,40 @@ Walk your painted image once more:
 
 A human architect outlining each plane on a printout draws clean, continuous polygons. Match that.`;
 
+/**
+ * USER TRIGGER — minimal anchor phrase that follows the image part in
+ * user content. Per Google's Gemini 3 docs: "After a large block of
+ * data, use a clear transition phrase to bridge the context and your
+ * query, such as 'Based on the information above...'"
+ *
+ * The actual rules live in GEMINI_ROOF_SYSTEM_INSTRUCTION; this just
+ * tells the model the image is delivered and asks it to execute.
+ */
+export const GEMINI_ROOF_USER_TRIGGER =
+  "Based on the aerial image above, paint the central building's roof " +
+  "per your system instructions and return the JSON object detection " +
+  "for rooftop fixtures.";
+
+/**
+ * Back-compat alias — older callsites that import `GEMINI_ROOF_PROMPT`
+ * still resolve to the full system instruction text. Once every call
+ * uses the split shape we can remove this.
+ */
+export const GEMINI_ROOF_PROMPT = GEMINI_ROOF_SYSTEM_INSTRUCTION;
+
 // ─── Flash rich-data schema (objects + facets + material + condition + …) ──
 //
-// This is the response schema for the Flash sidecar call that runs in
-// parallel with the Pro Image paint call. Pro Image is busy painting;
-// Flash carries all the structured-data work.
+// Response schema for the Flash sidecar call that runs in parallel
+// with the Pro Image paint call. Pro Image is busy painting; Flash
+// carries all the structured-data work.
+//
+// Returns:
+//   - objects[]: rooftop fixtures (vents, chimneys, skylights, etc.)
+//   - facet_count_estimate: visual count of distinct roof planes
+//   - roof_material: predominant covering material
+//   - condition_hints[]: visible signs of wear, staining, damage, age
+//
+// Confidence is a float (0.0–1.0) on every field that can be wrong.
 export const GEMINI_ROOF_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -142,27 +174,26 @@ export const GEMINI_ROOF_SCHEMA = {
               "solar_panel",
             ],
           },
-          center_pixel: {
+          // Google's native object-detection format. Per Gemini docs:
+          //   "The coordinates, relative to image dimensions, scale to
+          //    [0, 1000]. You need to descale these coordinates based
+          //    on your original image size."
+          // Order: [ymin, xmin, ymax, xmax]. We descale to 1280-px
+          // tile space in app/api/gemini-roof/route.ts before persisting.
+          // Asking for native format instead of our prior custom
+          // {x, y, width, height} avoids fighting the model's training.
+          box_2d: {
             type: "ARRAY",
             items: { type: "NUMBER" },
-            description: "[x, y] center of the object in pixel coordinates",
-          },
-          bounding_box: {
-            type: "OBJECT",
-            properties: {
-              x: { type: "NUMBER" },
-              y: { type: "NUMBER" },
-              width: { type: "NUMBER" },
-              height: { type: "NUMBER" },
-            },
-            required: ["x", "y", "width", "height"],
+            description:
+              "[ymin, xmin, ymax, xmax] normalized 0-1000 (Google's native object-detection format).",
           },
           confidence: {
             type: "NUMBER",
             description: "Float 0.0–1.0",
           },
         },
-        required: ["type", "center_pixel", "bounding_box", "confidence"],
+        required: ["type", "box_2d", "confidence"],
       },
     },
     facet_count_estimate: {

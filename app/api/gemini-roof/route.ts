@@ -42,8 +42,9 @@ import {
   type VisionRoofOutput,
 } from "@/lib/roof-geometry";
 import {
-  GEMINI_ROOF_PROMPT,
   GEMINI_ROOF_SCHEMA,
+  GEMINI_ROOF_SYSTEM_INSTRUCTION,
+  GEMINI_ROOF_USER_TRIGGER,
 } from "@/lib/gemini-roof-prompt";
 
 export const runtime = "nodejs";
@@ -289,15 +290,44 @@ function pickOptimalZoom(
 interface GeminiMultimodalResult {
   /** Base64-encoded painted image returned by Gemini (PNG). */
   paintedImageBase64: string | null;
-  /** Parsed Layer 2 object detection. May be empty if Gemini omitted it. */
+  /** Parsed Layer 2 object detection. Native Gemini format: box_2d is
+   *  [ymin, xmin, ymax, xmax] normalized 0-1000 per Google's docs.
+   *  We descale to pixel coords downstream via `box2dToPx()`. */
   objects: Array<{
     type: string;
-    center_pixel: [number, number] | { x: number; y: number };
-    bounding_box: { x: number; y: number; width: number; height: number };
+    box_2d: [number, number, number, number];
     confidence: number;
   }>;
   /** Raw text part for debugging when JSON parse fails. */
   rawText: string | null;
+}
+
+/**
+ * Descale Google's native [ymin, xmin, ymax, xmax] 0-1000 normalized
+ * format into our 1280×1280 tile's pixel coordinates + center.
+ * Gemini docs are explicit that this is the model's trained format;
+ * descaling on our side preserves accuracy.
+ */
+function box2dToPx(
+  box: [number, number, number, number],
+  tileSize = 1280,
+): {
+  centerPx: { x: number; y: number };
+  bboxPx: { x: number; y: number; width: number; height: number };
+} {
+  const [ymin, xmin, ymax, xmax] = box;
+  const k = tileSize / 1000;
+  const x = Math.round(xmin * k);
+  const y = Math.round(ymin * k);
+  const width = Math.max(1, Math.round((xmax - xmin) * k));
+  const height = Math.max(1, Math.round((ymax - ymin) * k));
+  return {
+    centerPx: {
+      x: Math.round(x + width / 2),
+      y: Math.round(y + height / 2),
+    },
+    bboxPx: { x, y, width, height },
+  };
 }
 
 /**
@@ -316,16 +346,32 @@ async function callGeminiMultimodal(
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const body = {
+    // System instruction carries the persona + rules (per Google's
+    // Gemini 3 prompting guidance: "Place essential behavioral
+    // constraints, role definitions (persona), and output format
+    // requirements in the System Instruction"). User content stays
+    // minimal: just the image + a trigger phrase that anchors the
+    // model to the visual context.
+    systemInstruction: { parts: [{ text: GEMINI_ROOF_SYSTEM_INSTRUCTION }] },
     contents: [
       {
         parts: [
-          { text: GEMINI_ROOF_PROMPT },
           { inline_data: { mime_type: "image/png", data: tileBase64 } },
+          { text: GEMINI_ROOF_USER_TRIGGER },
         ] satisfies GeminiPart[],
       },
     ],
     generationConfig: {
-      temperature: 0,
+      // Gemini 3 docs warn: "Changing the temperature (setting it
+      // below 1.0) may lead to unexpected behavior, such as looping
+      // or degraded performance, particularly in complex
+      // mathematical or reasoning tasks." Roof analysis is heavy
+      // reasoning. Keep at the default 1.0.
+      temperature: 1.0,
+      // High media-resolution: small features (shadow vs dormer,
+      // gutter-line vs eave, tiny skylights) need fine detail. Worth
+      // the extra tokens.
+      mediaResolution: "MEDIA_RESOLUTION_HIGH",
       // Multimodal: tell Gemini to return BOTH a painted image AND a
       // text response. `responseSchema` can't be used here — it
       // conflicts with image generation — so we parse the text part
@@ -406,21 +452,25 @@ async function callGemini(
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const body = {
+    systemInstruction: { parts: [{ text: GEMINI_ROOF_SYSTEM_INSTRUCTION }] },
     contents: [
       {
         parts: [
-          { text: GEMINI_ROOF_PROMPT },
           {
             inline_data: {
               mime_type: "image/png",
               data: tileBase64,
             },
           },
+          { text: GEMINI_ROOF_USER_TRIGGER },
         ] satisfies GeminiPart[],
       },
     ],
     generationConfig: {
-      temperature: 0,
+      // See multimodal-call notes above for the temperature 1.0 +
+      // mediaResolution HIGH rationale.
+      temperature: 1.0,
+      mediaResolution: "MEDIA_RESOLUTION_HIGH",
       responseMimeType: "application/json",
       responseSchema: GEMINI_ROOF_SCHEMA,
     },
@@ -771,11 +821,14 @@ export interface GeminiRoofResponse {
 }
 
 const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominates frame
-// Bumped 2026-05-17: invalidate all prior V3 cache entries to pick up
-// the paint-only pipeline + flat-segment filter (pool cage / lanai)
-// + flat 15% customer waste. Old cached results carry stale sqft and
-// inflated prices.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-rich-dual-lines";
+// Bumped 2026-05-18 — schema change: objects now use Google's native
+// `box_2d` 0-1000 format instead of the prior `bounding_box` shape, so
+// any pre-existing cached entries would deserialize wrong. Bumping the
+// scope key forces a fresh painted call on every address. Also covers
+// the temperature: 1.0 + mediaResolution HIGH + systemInstruction split
+// changes from the same commit — any of those could produce a
+// different output even at the same lat/lng.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-box2d";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1094,16 +1147,27 @@ async function callGeminiLines(
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${GEMINI_LINES_MODEL}:generateContent?key=${apiKey}`;
   const body = {
+    // promptOverride wins for the systemInstruction when a caller wants
+    // to ask Gemini for a different line set (e.g. only valleys, only
+    // rakes) — otherwise the default lines prompt applies.
+    systemInstruction: {
+      parts: [{ text: promptOverride ?? GEMINI_LINES_PROMPT }],
+    },
     contents: [
       {
         parts: [
-          { text: promptOverride ?? GEMINI_LINES_PROMPT },
           { inline_data: { mime_type: "image/png", data: tileBase64 } },
+          {
+            text:
+              "Based on the aerial image above, return a JSON object " +
+              "with a `lines` array — one entry per visible roof line.",
+          },
         ],
       },
     ],
     generationConfig: {
-      temperature: 0,
+      temperature: 1.0,
+      mediaResolution: "MEDIA_RESOLUTION_HIGH",
       responseMimeType: "application/json",
       responseSchema: GEMINI_LINES_SCHEMA,
     },
@@ -1233,16 +1297,23 @@ async function callGeminiRichData(
   // Use the broader schema from lib/gemini-roof-prompt.ts which covers
   // objects + facets + material + condition.
   const body = {
+    systemInstruction: { parts: [{ text: GEMINI_OBJECTS_PROMPT }] },
     contents: [
       {
         parts: [
-          { text: GEMINI_OBJECTS_PROMPT },
           { inline_data: { mime_type: "image/png", data: tileBase64 } },
+          {
+            text:
+              "Based on the aerial image above, return the JSON object " +
+              "matching the response schema — objects, facet count, " +
+              "material, condition, damage, additions, obstacles, age band.",
+          },
         ],
       },
     ],
     generationConfig: {
-      temperature: 0,
+      temperature: 1.0,
+      mediaResolution: "MEDIA_RESOLUTION_HIGH",
       responseMimeType: "application/json",
       responseSchema: GEMINI_ROOF_SCHEMA,
     },
@@ -1483,12 +1554,15 @@ async function handleV3Pinned(
   if (richResult.status === "fulfilled") {
     const rich = richResult.value;
     // Strict 0.60 confidence floor — anything below is likely a
-    // shingle smudge, weathering patch, or shadow blob being read
-    // as a fixture. Calibrated after the "4 skylights, 3 vents" case.
+    // shingle smudge, weathering patch, or shadow blob being read as
+    // a fixture. Calibrated after the "4 skylights, 3 vents" case
+    // landed on a roof with only one of each.
     const OBJECT_CONFIDENCE_FLOOR = 0.60;
     const rawObjectCount = rich.objects.length;
     const kept = rich.objects.filter(
-      (o) => typeof o.confidence === "number" && o.confidence >= OBJECT_CONFIDENCE_FLOOR,
+      (o) =>
+        typeof o.confidence === "number" &&
+        o.confidence >= OBJECT_CONFIDENCE_FLOOR,
     );
     if (rawObjectCount !== kept.length) {
       console.log(
@@ -1498,13 +1572,12 @@ async function handleV3Pinned(
       );
     }
     objects = kept.map((o) => {
-      const center = Array.isArray(o.center_pixel)
-        ? { x: o.center_pixel[0], y: o.center_pixel[1] }
-        : o.center_pixel;
+      // box_2d → pixel coords via Google's documented descale step.
+      const { centerPx, bboxPx } = box2dToPx(o.box_2d);
       return {
         type: o.type,
-        centerPx: center,
-        bboxPx: o.bounding_box,
+        centerPx,
+        bboxPx,
         confidence: o.confidence,
       };
     });
