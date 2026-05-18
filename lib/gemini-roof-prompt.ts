@@ -197,14 +197,18 @@ export const GEMINI_ROOF_SCHEMA = {
     facet_count_estimate: {
       type: "OBJECT",
       description:
-        "Visual count of distinct roof planes (gable ends, hip sides, dormers, etc.) on the central building.",
+        "Per-face count of every visible triangular or trapezoidal roof surface on the central building. A 4-sided hip roof = 4 facets (not 1). Hexagonal turret = 6 facets. See section 2 of the prompt for per-face counting calibration.",
       properties: {
-        count: { type: "INTEGER", description: "Distinct planes visible." },
+        count: {
+          type: "INTEGER",
+          description:
+            "Every visible triangular / trapezoidal roof surface counted separately. Simple gable = 2, simple hip = 4, cross-hip ranch = 8–12, multi-wing + turret = 20–40.",
+        },
         complexity: {
           type: "STRING",
           enum: ["simple", "moderate", "complex"],
           description:
-            "simple = 2–4 planes (gable/simple hip), moderate = 5–10 planes (multi-wing hip), complex = 11+ planes (cross hips, dormers, additions).",
+            "simple = 2–8 facets (gable, simple hip, L), moderate = 9–20 facets (cross-hip, multi-wing, single dormer cluster), complex = 21+ (multi-wing hip + turret, dormer cluster).",
         },
         confidence: { type: "NUMBER" },
       },

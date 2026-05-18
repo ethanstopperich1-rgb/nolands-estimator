@@ -902,7 +902,11 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // Bumped 2026-05-18 — Pro Image now receives a per-request Solar
 // segment-count hint that forces interior facet subdivisions. Prior
 // cache entries lack that segmentation detail.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-solar-hint";
+// Bumped 2026-05-18 — Flash facet-count prompt now uses per-face
+// counting (EagleView-style) instead of per-wing counting. Cached
+// "5–10 facets on Jupiter" entries from before this change are no
+// longer correct — re-paint forces fresh per-face counts.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-per-face-facets";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -953,21 +957,35 @@ For each candidate, ask: "Does this have a CLEAR SHARP BOUNDARY, a UNIFORM SURFA
 Per object: { type, center_pixel: [x, y], bounding_box: { x, y, width, height }, confidence }
 Confidence: 1.0 = sure; 0.7–0.9 = typical confident; <0.5 = uncertain (will be filtered out).
 
-## 2. facet_count_estimate — distinct roof planes
-A plane is a single flat surface facing one direction.
-- Simple gable: 2 planes (front + back)
-- Simple hip: 4 planes
-- L-shaped house: 4–6 planes
-- Complex hip + dormers: 8+ planes
+## 2. facet_count_estimate — every visible triangular or trapezoidal face
 
-Do NOT count as separate planes:
-- **Shadows cast on a plane** by skylights, chimneys, dormers, ridges, or trees. These are dark patches on a single plane, not new planes. If three skylight shadows make three triangular dark zones on the south slope, the south slope is still ONE plane.
-- **Attached porches / carports with a visibly shallower separate roof.** Those are separate structures. Their planes do not count.
+A facet is a SINGLE triangular or trapezoidal roof surface bounded by ridge / hip / valley / eave / rake edges. **Each face counts separately, even when it shares a pitch with an adjacent face.** This matches how a professional roof measurement service (e.g. EagleView) reports facet count — per-face, not per-wing.
 
-Classification:
-- simple: 2–4 planes
-- moderate: 5–10 planes
-- complex: 11+ planes
+Targets by roof type (use these as calibration, not lower bounds):
+- Simple front-back gable: **2 facets**
+- Simple hip (square ranch): **4 facets** — N, S, E, W triangles meeting at the peak
+- L-shaped gable: **4 facets** (2 per wing)
+- Cross-hip (typical FL ranch): **8–12 facets** — each wing has its own 4 hip faces
+- Cross-hip + dormers: **12–20 facets**
+- Multi-wing hip + turret + porch: **20–40 facets**
+
+**Key counting rules** — these are where most under-counts come from:
+- A 4-sided hip roof has **FOUR facets** (the four triangle faces meeting at the apex), NOT ONE "hip wing"
+- A hexagonal turret has **SIX facets**, not one cone
+- An L-shaped house with two crossed hips has **EIGHT facets** (4 hips × 2 wings), NOT 2
+- A gable with one dormer adds **3–4 facets** to the parent gable's 2 (front, back + dormer sides + dormer face)
+- Eyebrow vents and small architectural pop-ups are separate facets
+- Each side of a cross-hip valley is its own facet (the valley line separates two adjacent facets, doesn't merge them)
+
+Do NOT count as separate facets:
+- **Shadows cast on a face** by skylights, chimneys, dormers, ridges, or trees — same face with a dark patch, not a new face
+- **Attached porches / carports with a visibly shallower separate roof** — those are separate structures and don't count
+- **Two halves of the same rectangular plane** divided by a shingle-color seam — still one face
+
+Classification (recalibrated for per-face counting):
+- **simple**: 2–8 facets (gable, simple hip, L-shape)
+- **moderate**: 9–20 facets (cross-hip, multi-wing, single dormer cluster)
+- **complex**: 21+ facets (multi-wing hip with turret, dormer cluster, attached additions)
 
 Return: { count, complexity, confidence }
 
