@@ -202,7 +202,7 @@ export default function LeadsTable({
                       {l.name}
                       {l.roof_v3_json ? (
                         <span
-                          title="Has Gemini V3 roof analysis (painted overlay + edges + material)"
+                          title="Has Voxaris V3 roof analysis (painted overlay + edges + material)"
                           className="text-[9px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[#38C5EE]/40 text-[#38C5EE]"
                         >
                           V3
@@ -509,7 +509,7 @@ function LeadDrawer({
                   </span>
                 </div>
                 <p className="text-[12.5px] text-white/65 leading-relaxed mb-3">
-                  Run the Gemini V3 pipeline on this address to paint the
+                  Run the Voxaris V3 pipeline on this address to paint the
                   roof, measure sqft, classify edges, identify material,
                   and detect rooftop objects. Takes ~25 seconds.
                 </p>
