@@ -12,6 +12,8 @@ import {
   resolveOfficeIdBySlug,
   supabaseServiceRoleConfigured,
 } from "@/lib/supabase";
+import { validatePaintedPngBase64 } from "@/lib/validate-image";
+import { sanitizeRoofV3Payload } from "@/lib/validate-roof-v3";
 
 export const runtime = "nodejs";
 // Function needs to live long enough to (a) finish the synchronous lead
@@ -296,28 +298,44 @@ export async function POST(req: Request) {
           const { paintedImageBase64, ...rest } = body.roofV3;
           let paintedUrl: string | null = null;
           if (typeof paintedImageBase64 === "string" && paintedImageBase64.length > 0) {
-            try {
-              const bytes = Buffer.from(paintedImageBase64, "base64");
-              const objectKey = `${leadId}.png`;
-              const up = await supabase.storage
-                .from("painted-roofs")
-                .upload(objectKey, bytes, {
-                  contentType: "image/png",
-                  upsert: true,
-                });
-              if (up.error) {
-                console.error("[leads] painted upload failed:", up.error.message);
-              } else {
-                const { data: pub } = supabase.storage
+            // PNG magic-bytes + 2 MB size cap before write. Storage is
+            // public-served, so this is the gate that stops a hostile
+            // client from planting arbitrary content under our domain.
+            const validated = validatePaintedPngBase64(paintedImageBase64);
+            if (!validated.ok) {
+              console.warn(
+                `[leads] painted image rejected: ${validated.reason}`,
+              );
+            } else {
+              try {
+                const objectKey = `${leadId}.png`;
+                const up = await supabase.storage
                   .from("painted-roofs")
-                  .getPublicUrl(objectKey);
-                paintedUrl = pub.publicUrl;
+                  .upload(objectKey, validated.bytes, {
+                    contentType: "image/png",
+                    upsert: true,
+                  });
+                if (up.error) {
+                  console.error("[leads] painted upload failed:", up.error.message);
+                } else {
+                  const { data: pub } = supabase.storage
+                    .from("painted-roofs")
+                    .getPublicUrl(objectKey);
+                  paintedUrl = pub.publicUrl;
+                }
+              } catch (e) {
+                console.error("[leads] painted upload threw:", e);
               }
-            } catch (e) {
-              console.error("[leads] painted upload threw:", e);
             }
           }
-          roofV3Json = { ...rest, painted_url: paintedUrl };
+          // Allow-list sanitize the client payload — unknown fields are
+          // discarded so no future code path can ever read attacker-
+          // controlled JSON off the lead row.
+          const { json: sanitizedJson } = sanitizeRoofV3Payload(rest);
+          roofV3Json = {
+            ...(sanitizedJson as Record<string, unknown>),
+            painted_url: paintedUrl,
+          } as import("@/types/supabase").Json;
         }
 
         const row = {
@@ -405,18 +423,21 @@ export async function POST(req: Request) {
             // uses to decide between the legacy and V3 layouts.
             if (roofV3Json) {
               const propPubId = `prop_${leadId.replace(/^lead_/, "")}_v3`;
-              const sqft =
-                typeof body.estimatedSqft === "number"
-                  ? Math.round(body.estimatedSqft)
+              // Prefer the customer-visible price the client already
+              // computed (body.estimateLow / body.estimateHigh). When
+              // not on the request, leave total_low/high NULL on the
+              // proposal row rather than recomputing with a separate
+              // formula. The previous backend $6.50–$11.50/sqft band
+              // drifted from the customer-visible number, putting the
+              // rep on unfamiliar ground when they opened the lead.
+              const propLow =
+                typeof body.estimateLow === "number"
+                  ? Math.round(body.estimateLow)
                   : null;
-              // Rough $/sqft band for a quick headline range. Real
-              // pricing happens later; this just keeps the proposal
-              // row's total_low/high non-null so the leads-table $
-              // column displays something useful.
-              const lowPerSqft = 6.5;
-              const highPerSqft = 11.5;
-              const propLow = sqft ? Math.round(sqft * lowPerSqft) : null;
-              const propHigh = sqft ? Math.round(sqft * highPerSqft) : null;
+              const propHigh =
+                typeof body.estimateHigh === "number"
+                  ? Math.round(body.estimateHigh)
+                  : null;
               const { error: propV3Err } = await supabase
                 .from("proposals")
                 .upsert(

@@ -31,8 +31,10 @@ import { loadGoogle } from "@/lib/google";
 import { useRecaptcha } from "@/lib/useRecaptcha";
 import {
   calculateTieredPricing,
+  customerRatesForMaterial,
   flatCustomerWaste,
   FLAT_CUSTOMER_WASTE_PERCENT,
+  geminiMaterialToRateKey,
   type TierPrice,
 } from "@/lib/pricing/calculate-waste";
 
@@ -999,6 +1001,20 @@ function ResultScreen({
   void geminiEdges;
   void edges;
 
+  // Material-aware customer pricing: read Gemini's detected material
+  // and scale tier rates so a concrete-tile or metal roof gets quoted
+  // in the right ballpark instead of always at architectural-shingle
+  // prices. Falls back to architectural shingle when material is null
+  // or low-confidence — better to under-price slightly than over-price
+  // on a guess.
+  const detectedMaterialKey =
+    geminiMaterialToRateKey(result.geminiAnalysis.roofMaterial?.type) ?? null;
+  const detectedMaterialConfidence =
+    result.geminiAnalysis.roofMaterial?.confidence ?? 0;
+  const pricingMaterialKey =
+    detectedMaterialConfidence >= 0.65 ? detectedMaterialKey : null;
+  const pricingMaterial = customerRatesForMaterial(pricingMaterialKey);
+
   // Pricing — Good / Better / Best tiers built off sqft × (1 + waste).
   // The customer sees three real options (Essentials / Standard /
   // Fortified) instead of a single range. The rep can walk them up or
@@ -1012,8 +1028,8 @@ function ResultScreen({
 
   const tiers: TierPrice[] | null = useMemo(() => {
     if (sqft == null || waste == null) return null;
-    return calculateTieredPricing(sqft, waste);
-  }, [sqft, waste]);
+    return calculateTieredPricing(sqft, waste, pricingMaterialKey);
+  }, [sqft, waste, pricingMaterialKey]);
 
   const objectCounts = objects.reduce<Record<string, number>>((acc, o) => {
     acc[o.type] = (acc[o.type] ?? 0) + 1;
@@ -1036,11 +1052,9 @@ function ResultScreen({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            consent: true,
-            disclosureText:
-              "Customer authorized an automated outbound voice intro call after viewing their estimate.",
-          }),
+          // Server controls the disclosure text — sending it from the
+          // client would have been forgeable in the TCPA audit row.
+          body: JSON.stringify({ consent: true }),
         },
       );
       if (!res.ok) {
@@ -1153,7 +1167,7 @@ function ResultScreen({
                     opacity: 0.7,
                   }}
                 >
-                  {FLAT_CUSTOMER_WASTE_PERCENT}% waste assumed
+                  Priced as {pricingMaterial.label.toLowerCase()} · {FLAT_CUSTOMER_WASTE_PERCENT}% waste assumed
                 </div>
               </div>
             )}

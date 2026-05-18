@@ -115,6 +115,86 @@ export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 7.0;
 export const RATE_LOW_PER_SQFT = 6.3;
 export const RATE_HIGH_PER_SQFT = 7.7;
 
+/**
+ * Material-aware customer rate table.
+ *
+ * The customer flow originally locked to architectural-shingle rates
+ * regardless of what Gemini detected — that produced 3–4× UNDER-quotes
+ * on metal and 30%+ under-quotes on tile. For a lead-gen tool that's the
+ * worst direction to err (rep arrives with a number 2× higher than what
+ * the customer expected and the deal evaporates).
+ *
+ * Bands are full-turnkey installed costs per SLOPED-sqft (after the
+ * pitch slope multiplier, before waste). Source: lib/pricing.ts
+ * MATERIAL_RATES + Q2 2026 distributor pass-throughs. "unknown" is not
+ * in the table; the customerRatesForMaterial() helper falls through to
+ * architectural shingle.
+ */
+export const CUSTOMER_MATERIAL_RATES: Record<
+  string,
+  { label: string; low: number; mid: number; high: number }
+> = {
+  "asphalt-3tab": { label: "Builder-grade shingle", low: 3.8, mid: 4.4, high: 5.1 },
+  "asphalt-architectural": { label: "Architectural shingle", low: 6.3, mid: 7.0, high: 7.7 },
+  "metal-shingle": { label: "Metal shingle", low: 9.0, mid: 11.0, high: 13.5 },
+  "metal-standing-seam": { label: "Standing-seam metal", low: 18.0, mid: 22.0, high: 28.0 },
+  "tile-concrete": { label: "Concrete tile", low: 7.5, mid: 9.5, high: 12.0 },
+  "tile-clay": { label: "Clay tile", low: 11.0, mid: 14.0, high: 18.0 },
+  "wood-shake": { label: "Wood shake", low: 8.0, mid: 10.0, high: 14.0 },
+  "flat-membrane": { label: "Flat membrane", low: 5.5, mid: 7.0, high: 9.5 },
+};
+
+const DEFAULT_MATERIAL_KEY = "asphalt-architectural";
+
+/** Returns the customer-facing rate band for a detected material. Falls
+ *  back to architectural shingle when material is null / unknown / not
+ *  in the table. */
+export function customerRatesForMaterial(
+  material: string | null | undefined,
+): { key: string; label: string; low: number; mid: number; high: number } {
+  if (material && CUSTOMER_MATERIAL_RATES[material]) {
+    return { key: material, ...CUSTOMER_MATERIAL_RATES[material] };
+  }
+  return { key: DEFAULT_MATERIAL_KEY, ...CUSTOMER_MATERIAL_RATES[DEFAULT_MATERIAL_KEY] };
+}
+
+/**
+ * Translate Gemini Flash's `roof_material.type` enum to our
+ * customer-pricing keys. Gemini uses underscore_separated_lowercase;
+ * CUSTOMER_MATERIAL_RATES uses hyphen-separated-lowercase. Unknown /
+ * mismatched values return null (caller defaults to architectural).
+ */
+export function geminiMaterialToRateKey(
+  geminiType: string | null | undefined,
+): string | null {
+  if (!geminiType) return null;
+  switch (geminiType) {
+    case "asphalt_shingle_3tab":
+      return "asphalt-3tab";
+    case "asphalt_shingle_architectural":
+      return "asphalt-architectural";
+    case "concrete_tile":
+      return "tile-concrete";
+    case "clay_tile_barrel":
+    case "clay_tile_flat":
+      return "tile-clay";
+    case "metal_standing_seam":
+      return "metal-standing-seam";
+    case "metal_corrugated":
+      return "metal-shingle";
+    case "wood_shake":
+      return "wood-shake";
+    case "membrane_flat":
+      return "flat-membrane";
+    case "slate":
+      // No dedicated band; clay tile is the closest existing one.
+      return "tile-clay";
+    case "unknown":
+    default:
+      return null;
+  }
+}
+
 // ─── Penetration adders ─────────────────────────────────────────────────
 //
 // Per-object flashing + labor adders applied on top of sqft × rate ×
@@ -330,10 +410,16 @@ export interface TierPrice {
 export function calculateTieredPricing(
   totalSqft: number,
   waste: WasteResult,
+  /** Detected material key (CUSTOMER_MATERIAL_RATES). When omitted /
+   *  unknown, tier rates use the legacy architectural-shingle baseline. */
+  material?: string | null,
 ): TierPrice[] {
   const effectiveSqft = Math.round(totalSqft * (1 + waste.suggestedPercent / 100));
+  const rates = customerRatesForMaterial(material);
+  const materialMultiplier = rates.mid / ARCHITECTURAL_SHINGLE_RATE_PER_SQFT;
   return ROOFING_TIERS.map((tier) => {
-    const raw = effectiveSqft * tier.ratePerSqft;
+    const scaledRate = tier.ratePerSqft * materialMultiplier;
+    const raw = effectiveSqft * scaledRate;
     const total = Math.round(raw / 50) * 50;
     return { tier, effectiveSqft, total };
   });

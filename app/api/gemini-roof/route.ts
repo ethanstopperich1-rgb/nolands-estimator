@@ -56,6 +56,12 @@ import sharp from "sharp";
 import { checkBotId } from "botid/server";
 import { rateLimit } from "@/lib/ratelimit";
 import { checkOrigin } from "@/lib/origin-guard";
+import {
+  AI_CALL_COST_USD,
+  assertAiSpendUnderCap,
+  trackAiSpend,
+} from "@/lib/cost-cap";
+import { validatePaintedPngBase64 } from "@/lib/validate-image";
 import { watermarkPaintedPng } from "@/lib/watermark";
 import { isStaffRequest } from "@/lib/staff-auth";
 import { fetchWithTimeout } from "@/lib/safe-fetch";
@@ -1458,42 +1464,51 @@ async function persistEstimateToLead(
   // both work; once flipped, only signed URLs work.
   let paintedUrl: string | null = null;
   if (result.paintedImageBase64) {
-    try {
-      const bytes = Buffer.from(result.paintedImageBase64, "base64");
-      const objectKey = `${leadPublicId}.png`;
-      const up = await supabase.storage
-        .from("painted-roofs")
-        .upload(objectKey, bytes, {
-          contentType: "image/png",
-          upsert: true,
-        });
-      if (!up.error) {
-        // 7-day signed URL — long enough for the rep workbench's
-        // typical follow-up window without standing up a re-signer
-        // route. Customer-facing share pages should re-sign per
-        // request via a server handler (TODO once /p/<id> returns).
-        const { data: signed, error: signErr } = await supabase.storage
+    // Validate PNG magic-bytes + size cap even though the base64 here
+    // is server-produced. Cheap insurance against a future code path
+    // where this base64 turns out to be client-influenced.
+    const validated = validatePaintedPngBase64(result.paintedImageBase64);
+    if (!validated.ok) {
+      console.warn(
+        `[gemini-roof v3] painted_upload_rejected reason=${validated.reason}`,
+      );
+    } else {
+      try {
+        const objectKey = `${leadPublicId}.png`;
+        const up = await supabase.storage
           .from("painted-roofs")
-          .createSignedUrl(objectKey, 60 * 60 * 24 * 7);
-        if (signed?.signedUrl) {
-          paintedUrl = signed.signedUrl;
+          .upload(objectKey, validated.bytes, {
+            contentType: "image/png",
+            upsert: true,
+          });
+        if (!up.error) {
+          // 7-day signed URL — long enough for the rep workbench's
+          // typical follow-up window without standing up a re-signer
+          // route. Customer-facing share pages should re-sign per
+          // request via a server handler (TODO once /p/<id> returns).
+          const { data: signed, error: signErr } = await supabase.storage
+            .from("painted-roofs")
+            .createSignedUrl(objectKey, 60 * 60 * 24 * 7);
+          if (signed?.signedUrl) {
+            paintedUrl = signed.signedUrl;
+          } else {
+            console.warn(
+              "[gemini-roof v3] painted_signed_url_failed",
+              signErr?.message ?? "unknown",
+            );
+          }
         } else {
           console.warn(
-            "[gemini-roof v3] painted_signed_url_failed",
-            signErr?.message ?? "unknown",
+            "[gemini-roof v3] painted_upload_failed",
+            up.error.message,
           );
         }
-      } else {
+      } catch (err) {
         console.warn(
-          "[gemini-roof v3] painted_upload_failed",
-          up.error.message,
+          "[gemini-roof v3] painted_upload_threw",
+          err instanceof Error ? err.message : String(err),
         );
       }
-    } catch (err) {
-      console.warn(
-        "[gemini-roof v3] painted_upload_threw",
-        err instanceof Error ? err.message : String(err),
-      );
     }
   }
 
@@ -1506,10 +1521,28 @@ async function persistEstimateToLead(
     generated_via: "customer-flow",
   } as unknown as Json;
 
+  // Defense-in-depth: look up the lead's office_id first and include
+  // it in the update predicate. Service-role bypasses RLS, so omitting
+  // office_id would let a malformed publicId match across tenants.
+  // PublicId entropy makes that practically infeasible today, but the
+  // invariant documented in lib/supabase.ts says "Always tag office_id".
+  const { data: priorLead } = await supabase
+    .from("leads")
+    .select("office_id")
+    .eq("public_id", leadPublicId)
+    .maybeSingle();
+  if (!priorLead) {
+    console.warn(
+      `[gemini-roof v3] persist_skipped lead_not_found publicId=${leadPublicId}`,
+    );
+    return;
+  }
+
   const { error } = await supabase
     .from("leads")
     .update({ roof_v3_json: roofV3Json })
-    .eq("public_id", leadPublicId);
+    .eq("public_id", leadPublicId)
+    .eq("office_id", priorLead.office_id);
   if (error) {
     console.warn(
       "[gemini-roof v3] lead_update_failed",
@@ -1558,6 +1591,17 @@ async function handleV3Pinned(
   if (!geminiKey) {
     return NextResponse.json({ error: "missing_gemini_key" }, { status: 503 });
   }
+
+  // Post-call accounting — track cost AT pipeline entry rather than
+  // per-call, so a partial failure still bills the budget for whatever
+  // Gemini we did consume. Conservative: assume one paint + one Flash +
+  // one Solar fanout on every V3 entry that misses cache.
+  void trackAiSpend(
+    AI_CALL_COST_USD.gemini_pro_image_paint +
+      AI_CALL_COST_USD.gemini_flash_json +
+      AI_CALL_COST_USD.solar_findclosest,
+    `gemini-roof-v3 lat=${lat.toFixed(4)} lng=${lng.toFixed(4)}`,
+  );
 
   // Pin = tile center. Fixed zoom 21. No Solar recentering.
   const [tile, solar] = await Promise.all([
@@ -2472,6 +2516,11 @@ export async function GET(req: Request): Promise<NextResponse> {
   // staff member accidentally hammering refresh.
   const rl = await rateLimit(req, "expensive");
   if (rl) return rl;
+  // Daily $-spend circuit breaker. Rate limits are per-IP; the cap
+  // catches a distributed attacker or a buggy retry loop that stays
+  // under the per-IP cap and still drains the daily AI budget.
+  const capGate = await assertAiSpendUnderCap();
+  if (capGate) return capGate;
   const verdict = await checkBotId();
   if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
     return NextResponse.json({ error: "Bot detected" }, { status: 403 });
@@ -2501,6 +2550,8 @@ export async function POST(req: Request): Promise<NextResponse> {
   // See GET above — same expensive bucket + BotID gate.
   const rl = await rateLimit(req, "expensive");
   if (rl) return rl;
+  const capGate = await assertAiSpendUnderCap();
+  if (capGate) return capGate;
   const verdict = await checkBotId();
   if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
     return NextResponse.json({ error: "Bot detected" }, { status: 403 });

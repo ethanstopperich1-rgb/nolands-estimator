@@ -40,19 +40,29 @@ export const maxDuration = 30;
  * Body shape (defensive parse — additive client mistakes don't 400):
  *   {
  *     consent: true,           // must be true; false / missing → 400
- *     disclosureText?: string  // override the default disclosure
  *   }
+ *
+ * `disclosureText` USED to be accepted from the client. Removed — a
+ * malicious or buggy client could forge the audit-row disclosure to
+ * something other than what the customer actually saw, undermining
+ * TCPA defensibility. The server now substitutes the resolved office
+ * name into a fixed template (see below). Future per-office variants
+ * should be a server-side lookup keyed off office_id, never a client
+ * field.
  */
 
 interface RequestBody {
   consent?: unknown;
-  disclosureText?: unknown;
 }
 
-const DEFAULT_DISCLOSURE_TEXT =
+/** Canonical disclosure template. `{{office_name}}` is substituted
+ *  server-side from the resolved offices.name for the lead's office.
+ *  Naming the specific seller satisfies the FCC one-to-one consent
+ *  rule (effective Jan 2025). */
+const VOICE_CONSENT_DISCLOSURE_TEMPLATE =
   "Customer authorized an automated outbound voice intro call from " +
-  "the assigned business after viewing their estimate. Recording may " +
-  "apply where permitted by law. Reply STOP to opt out.";
+  "{{office_name}} after viewing their estimate. Recording may apply " +
+  "where permitted by law. Reply STOP to opt out.";
 
 export async function POST(
   req: Request,
@@ -159,10 +169,19 @@ export async function POST(
     );
   }
 
-  const disclosureText =
-    typeof body.disclosureText === "string" && body.disclosureText.trim()
-      ? body.disclosureText.trim()
-      : DEFAULT_DISCLOSURE_TEXT;
+  // Resolve the office's display name so the audit row names the
+  // specific seller (FCC one-to-one consent rule). Falls back to a
+  // generic placeholder only when the office row is unreachable.
+  const { data: officeRow } = await supabase
+    .from("offices")
+    .select("name")
+    .eq("id", lead.office_id)
+    .maybeSingle();
+  const officeDisplayName = officeRow?.name ?? "the assigned business";
+  const disclosureText = VOICE_CONSENT_DISCLOSURE_TEMPLATE.replace(
+    "{{office_name}}",
+    officeDisplayName,
+  );
 
   // Persist the audit row — append-only, regulator-grade.
   const { error: consentErr } = await supabase.from("consents").insert({
