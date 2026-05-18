@@ -556,9 +556,20 @@ function HeroScreen({
               </span>
             </div>
 
+            {/* Contact row — matches the address-row pattern: no visible
+                label, just a soft placeholder that fades when the user
+                starts typing. The example values ("Eleanor Whitaker",
+                "(407) 555-0117") had two problems: (1) they read as
+                placeholder data on screenshots / fake field hints, and
+                (2) some users mistook them for pre-filled text. Generic
+                "Your name / Your email / Your number" mirrors the
+                "Begin typing your address…" tone the row above uses.
+
+                Labels kept in the DOM as sr-only for screen readers
+                + form autofill heuristics. Visually hidden only. */}
             <div className="slim-row">
               <div className="slim-cell">
-                <label htmlFor="nm" className="field-label">
+                <label htmlFor="nm" className="sr-only">
                   Full name
                 </label>
                 <input
@@ -566,13 +577,13 @@ function HeroScreen({
                   className="slim-input"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Eleanor Whitaker"
+                  placeholder="Your name"
                   autoComplete="name"
                   required
                 />
               </div>
               <div className="slim-cell">
-                <label htmlFor="em" className="field-label">
+                <label htmlFor="em" className="sr-only">
                   Email address
                 </label>
                 <input
@@ -581,13 +592,13 @@ function HeroScreen({
                   className="slim-input"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="eleanor@whitaker.co"
+                  placeholder="Your email"
                   autoComplete="email"
                   required
                 />
               </div>
               <div className="slim-cell">
-                <label htmlFor="ph" className="field-label">
+                <label htmlFor="ph" className="sr-only">
                   Phone number
                 </label>
                 <input
@@ -595,7 +606,7 @@ function HeroScreen({
                   className="slim-input tabular"
                   value={phone}
                   onChange={(e) => setPhone(formatPhone(e.target.value))}
-                  placeholder="(407) 555-0117"
+                  placeholder="Your number"
                   inputMode="tel"
                   autoComplete="tel"
                   maxLength={14}
