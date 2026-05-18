@@ -775,7 +775,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // the paint-only pipeline + flat-segment filter (pool cage / lanai)
 // + flat 15% customer waste. Old cached results carry stale sqft and
 // inflated prices.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-rich";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-paint-rich-lines";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1516,13 +1516,61 @@ async function handleV3Pinned(
     console.warn("[gemini-roof v3] rich_data_call_failed", geminiRichErr);
   }
 
-  const linesValue: GeminiLineDetection[] | null = null;
+  // ─── Painted-pass line trace (serial after paint) ──────────────────
+  //
+  // The painted image has cyan strokes drawn along every legal edge by
+  // Pro Image's paint pass. Asking Flash to enumerate + classify those
+  // cyan lines is dramatically easier (and more accurate) than asking
+  // it to detect roof edges from raw satellite, OR than reconstructing
+  // edges from Solar's bbox-derived rectangles (which don't share
+  // vertices between adjacent facets and therefore can't be classified
+  // as ridge/hip/valley properly — the source of the user's "0 valleys,
+  // ridges -64% off EagleView" complaint).
+  //
+  // This runs serially after the paint call (~5–8s extra wall clock).
+  // Total budget after this addition: ~30–35s, well under the 45s
+  // ceiling. We also use the painted-pass facet count as the canonical
+  // visual count.
+  let linesValue: GeminiLineDetection[] | null = null;
+  let paintedFacetCount: GeminiFacetCount | null = null;
+  if (paintedImageBase64) {
+    try {
+      const lr = await callGeminiLines(
+        paintedImageBase64,
+        geminiKey,
+        GEMINI_LINES_FROM_PAINTED_PROMPT,
+      );
+      linesValue = lr.lines;
+      paintedFacetCount = lr.facetCount;
+      console.log(
+        `[gemini-roof v3] painted_lines lines=${lr.lines.length} ` +
+          `facets=${lr.facetCount?.count ?? "null"} ${lr.facetCount?.complexity ?? ""}`,
+      );
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] painted_lines_call_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // Painted-pass facet count is the canonical answer (cyan polygons
+  // were drawn by Pro Image itself, so Flash is just counting what's
+  // visually present). Overrides Solar's segment count + rich-data's
+  // raw-tile facet estimate.
+  if (paintedFacetCount && paintedFacetCount.count > 0) {
+    geminiAnalysis = {
+      ...geminiAnalysis,
+      facetCountEstimate: paintedFacetCount,
+    };
+  }
 
   console.log(
     `[gemini-roof v3] pinned (${lat.toFixed(5)},${lng.toFixed(5)}) ` +
       `painted=${paintedImageBase64 ? "yes" : "no"} ` +
       `objects=${objects.length} ` +
-      `facets_gemini=${geminiAnalysis.facetCountEstimate?.count ?? "null"}`,
+      `facets_canonical=${geminiAnalysis.facetCountEstimate?.count ?? "null"} ` +
+      `lines=${linesValue?.length ?? 0}`,
   );
 
   // Filter out flat / near-flat Solar segments before summing sqft.
@@ -1582,12 +1630,48 @@ async function handleV3Pinned(
     );
   }
 
-  // Gemini edge LFs are disabled in paint-only mode (the Flash line
-  // trace calls were removed). Solar's edge classifier still feeds
-  // `result.edges` below, which is what the rep workbench consumes.
-  const geminiEdges: GeminiRoofResponseV3["geminiEdges"] = null;
-  void linesValue;
-  void gemLineLengthFt;
+  // Convert Gemini's pixel line segments to linear feet using the
+  // tile's ground-sample-distance (meters per pixel at this lat/zoom),
+  // slope-corrected on hip/valley/rake LFs since those run along the
+  // pitched surface, not the ground.
+  let geminiEdges: GeminiRoofResponseV3["geminiEdges"] = null;
+  if (linesValue && linesValue.length > 0) {
+    const tileCosLatLocal = Math.cos((lat * Math.PI) / 180);
+    const tileMPerPxLocal =
+      (156_543.03392 * tileCosLatLocal) /
+      Math.pow(2, PIN_TILE_ZOOM + TILE_SCALE - 1);
+    let r = 0;
+    let v = 0;
+    let k = 0;
+    let e = 0;
+    for (const ln of linesValue) {
+      const isSloped =
+        ln.type === "hip" || ln.type === "valley" || ln.type === "rake";
+      const lf = gemLineLengthFt(
+        ln.start_pixel,
+        ln.end_pixel,
+        tileMPerPxLocal,
+        avgPitchDeg,
+        isSloped,
+      );
+      if (ln.type === "ridge" || ln.type === "hip") r += lf;
+      else if (ln.type === "valley") v += lf;
+      else if (ln.type === "rake") k += lf;
+      else if (ln.type === "eave") e += lf;
+    }
+    geminiEdges = {
+      ridgesHipsLf: Math.round(r),
+      valleysLf: Math.round(v),
+      rakesLf: Math.round(k),
+      eavesLf: Math.round(e),
+      linesCount: linesValue.length,
+    };
+    console.log(
+      `[gemini-roof v3] gemini_lines count=${linesValue.length} ` +
+        `ridges+hips=${Math.round(r)}ft valleys=${Math.round(v)}ft ` +
+        `rakes=${Math.round(k)}ft eaves=${Math.round(e)}ft`,
+    );
+  }
 
   // Raw Solar values (in sqft).
   const solarRawSloped = totalSlopedM2 > 0 ? Math.round(totalSlopedM2 * 10.7639) : 0;

@@ -384,21 +384,26 @@ function EstimatePage() {
     if (counts.skylight) items.push({ qty: counts.skylight, description: "Skylight flashing kit" });
     if (counts.hvac) items.push({ qty: counts.hvac, description: "HVAC curb flashing" });
     if (counts.dormer) items.push({ qty: counts.dormer, description: "Dormer step + headwall flashing" });
-    // Edge linear feet → ridge/hip/valley/rake/eave line items
-    if (result.edges.ridgesHipsLf != null && result.edges.ridgesHipsLf > 0) {
-      items.push({
-        qty: Math.ceil(result.edges.ridgesHipsLf),
-        description: "Ridge / hip cap (LF)",
-      });
+    // Edge linear feet — prefer Gemini's painted-pass classification
+    // over Solar's bbox-derived classifier. The painted pass operates
+    // on real cyan polylines drawn along every legal edge, so it
+    // gets ridges/hips/valleys/rakes/eaves much closer to EagleView
+    // than Solar's per-facet rectangle classifier can.
+    const ridgesHipsLf = result.geminiEdges?.ridgesHipsLf ?? result.edges.ridgesHipsLf;
+    const valleysLf = result.geminiEdges?.valleysLf ?? result.edges.valleysLf;
+    const rakesLf = result.geminiEdges?.rakesLf ?? result.edges.rakesLf;
+    const eavesLf = result.geminiEdges?.eavesLf ?? result.edges.eavesLf;
+    if (ridgesHipsLf != null && ridgesHipsLf > 0) {
+      items.push({ qty: Math.ceil(ridgesHipsLf), description: "Ridge / hip cap (LF)" });
     }
-    if (result.edges.valleysLf != null && result.edges.valleysLf > 0) {
-      items.push({ qty: Math.ceil(result.edges.valleysLf), description: "Valley metal (LF)" });
+    if (valleysLf != null && valleysLf > 0) {
+      items.push({ qty: Math.ceil(valleysLf), description: "Valley metal (LF)" });
     }
-    if (result.edges.rakesLf != null && result.edges.rakesLf > 0) {
-      items.push({ qty: Math.ceil(result.edges.rakesLf), description: "Rake edge / drip edge (LF)" });
+    if (rakesLf != null && rakesLf > 0) {
+      items.push({ qty: Math.ceil(rakesLf), description: "Rake edge / drip edge (LF)" });
     }
-    if (result.edges.eavesLf != null && result.edges.eavesLf > 0) {
-      items.push({ qty: Math.ceil(result.edges.eavesLf), description: "Eave drip edge + starter (LF)" });
+    if (eavesLf != null && eavesLf > 0) {
+      items.push({ qty: Math.ceil(eavesLf), description: "Eave drip edge + starter (LF)" });
     }
     return items;
   }, [result]);
