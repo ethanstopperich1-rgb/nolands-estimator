@@ -346,27 +346,27 @@ async function callGeminiMultimodal(
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const body = {
-    // System instruction carries the persona + rules (per Google's
-    // Gemini 3 prompting guidance: "Place essential behavioral
-    // constraints, role definitions (persona), and output format
-    // requirements in the System Instruction"). User content stays
-    // minimal: just the image + a trigger phrase that anchors the
-    // model to the visual context.
-    systemInstruction: { parts: [{ text: GEMINI_ROOF_SYSTEM_INSTRUCTION }] },
+    // IMPORTANT: image-editing tasks (`responseModalities: ["IMAGE",
+    // "TEXT"]`) require the edit instruction to travel WITH the
+    // image in user content — moving it to systemInstruction broke
+    // the painted output on 2026-05-18. For multimodal image-edit
+    // calls, keep the full prompt inline. Text-only Flash calls
+    // (callGeminiRichData, callGeminiLines) DO use systemInstruction
+    // because there's no image-edit binding to worry about.
     contents: [
       {
         parts: [
+          { text: GEMINI_ROOF_SYSTEM_INSTRUCTION },
           { inline_data: { mime_type: "image/png", data: tileBase64 } },
-          { text: GEMINI_ROOF_USER_TRIGGER },
         ] satisfies GeminiPart[],
       },
     ],
     generationConfig: {
-      // Gemini 3 docs warn: "Changing the temperature (setting it
-      // below 1.0) may lead to unexpected behavior, such as looping
-      // or degraded performance, particularly in complex
-      // mathematical or reasoning tasks." Roof analysis is heavy
-      // reasoning. Keep at the default 1.0.
+      // Gemini 3 docs: "we strongly recommend keeping the temperature
+      // at its default value of 1.0. Changing the temperature
+      // (setting it below 1.0) may lead to unexpected behavior, such
+      // as looping or degraded performance, particularly in complex
+      // mathematical or reasoning tasks."
       temperature: 1.0,
       // High media-resolution: small features (shadow vs dormer,
       // gutter-line vs eave, tiny skylights) need fine detail. Worth
