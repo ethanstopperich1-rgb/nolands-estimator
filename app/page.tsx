@@ -32,10 +32,8 @@ import { useRecaptcha } from "@/lib/useRecaptcha";
 import { Wordmark as SharedWordmark } from "@/components/Wordmark";
 import { ROOFING_FACTS } from "@/lib/roofing-facts";
 import {
-  calculateTieredPricing,
+  calculateTieredPricingWithPenetrations,
   customerRatesForMaterial,
-  flatCustomerWaste,
-  FLAT_CUSTOMER_WASTE_PERCENT,
   geminiMaterialToRateKey,
   type TierPrice,
 } from "@/lib/pricing/calculate-waste";
@@ -116,6 +114,37 @@ interface V3Response {
     secondaryStructures: Array<{ kind: string; confidence: number }>;
     siteObstacles: Array<{ kind: string; confidence: number }>;
     apparentAgeBand: { band: string; confidence: number } | null;
+  };
+  qualitySignals?: {
+    compactness: number | null;
+    azimuthClusters: number;
+    twoPassAgreementRate: number | null;
+    filterStats: {
+      raw: number;
+      afterConfidence: number;
+      afterBbox: number;
+      afterMask: number;
+      afterTwoPass: number;
+      afterDedup: number;
+      afterCaps: number;
+    };
+  };
+  pricing?: {
+    recommendedWastePercent: number;
+    wasteBreakdown: {
+      fromFacets: number;
+      fromAzimuthClusters: number;
+      fromCompactness: number;
+      fromSteepPitch: number;
+      fromSecondaryStructures: number;
+    };
+    penetrationAddersTotal: number;
+    penetrationAdderLines: Array<{
+      type: string;
+      count: number;
+      unit: number;
+      subtotal: number;
+    }>;
   };
   modelVersion?: string;
   computedAt?: string;
@@ -1004,21 +1033,35 @@ function ResultScreen({
     detectedMaterialConfidence >= 0.65 ? detectedMaterialKey : null;
   const pricingMaterial = customerRatesForMaterial(pricingMaterialKey);
 
-  // Pricing — Good / Better / Best tiers built off sqft × (1 + waste).
-  // The customer sees three real options (Essentials / Standard /
-  // Fortified) instead of a single range. The rep can walk them up or
-  // down on the on-site visit. Waste is flat 12% on the customer side
-  // (the rep workbench has the detailed waste formula); this is a
-  // quick visual estimate, not a binding number.
-  const waste = useMemo(() => {
-    if (sqft == null) return null;
-    return flatCustomerWaste(sqft);
-  }, [sqft]);
-
+  // Pricing — Good / Better / Best tiers with three layers stacked:
+  //   1. Material-aware tier scaling (concrete-tile / metal multiplier)
+  //   2. Server-provided geometric waste % (azimuth clusters +
+  //      compactness + facets, not the old flat 12%)
+  //   3. Per-fixture penetration adders for the chimneys / skylights
+  //      that survived the six-guard filter chain
+  // The rep workbench has the detailed waste breakdown; this is the
+  // customer-visible quote.
   const tiers: TierPrice[] | null = useMemo(() => {
-    if (sqft == null || waste == null) return null;
-    return calculateTieredPricing(sqft, waste, pricingMaterialKey);
-  }, [sqft, waste, pricingMaterialKey]);
+    if (sqft == null) return null;
+    const wastePercent = result.pricing?.recommendedWastePercent ?? 12;
+    const waste = {
+      suggestedPercent: wastePercent,
+      complexityScore: 0,
+      breakdown: {
+        fromFacets: 0,
+        fromValleys: 0,
+        fromRidgesHips: 0,
+        fromSteepPitch: 0,
+      },
+      table: [] as Array<{ percent: number; totalSquares: number }>,
+    };
+    return calculateTieredPricingWithPenetrations(
+      sqft,
+      waste,
+      objects,
+      pricingMaterialKey,
+    ).tiers;
+  }, [sqft, result.pricing, objects, pricingMaterialKey]);
 
   const objectCounts = objects.reduce<Record<string, number>>((acc, o) => {
     acc[o.type] = (acc[o.type] ?? 0) + 1;
@@ -1156,7 +1199,7 @@ function ResultScreen({
                     opacity: 0.7,
                   }}
                 >
-                  Priced as {pricingMaterial.label.toLowerCase()} · {FLAT_CUSTOMER_WASTE_PERCENT}% waste assumed
+                  Priced as {pricingMaterial.label.toLowerCase()} · {result.pricing?.recommendedWastePercent ?? 12}% waste assumed
                 </div>
                 <div
                   className="mt-1 text-center"

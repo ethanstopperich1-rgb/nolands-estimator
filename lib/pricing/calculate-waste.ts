@@ -276,6 +276,139 @@ export interface PriceResult {
   penetrations: PenetrationBreakdown;
 }
 
+// ─── Geometric customer-facing waste ────────────────────────────────────
+//
+// `calculateGeometricWaste` is the production replacement for the flat
+// 12% the customer used to see. It derives waste from signals we
+// actually measure reliably from satellite imagery:
+//
+//   - Facet count (cross-validated across three Flash passes)
+//   - Azimuth clusters from Solar's per-facet azimuth distribution
+//     (number of distinct "wings" of the house, mod 90°)
+//   - Compactness of the painted polygon (perimeter² / 4π × area)
+//   - Steep-pitch flag (kept from the original formula)
+//   - Secondary-structures count from the Flash rich-data pass
+//
+// What it deliberately does NOT use: edge linear feet from the Gemini
+// line-tracer. The tracer under-counts eaves and confuses rakes/hips,
+// so the prior edge-LF terms in `calculateSuggestedWaste` are unreliable.
+// Solar azimuth distribution + painted-polygon compactness are
+// deterministic geometric measurements; they don't depend on Flash's
+// edge-classification accuracy.
+//
+// Output is clamped to [10, 25] — the customer-side range we're
+// confident in. The rep workbench retains `calculateSuggestedWaste`
+// for the detailed breakdown when edge data is available.
+
+export interface GeometricWasteInputs {
+  /** Canonical facet count (painted-Flash > raw-Flash > Solar segments).
+   *  Null when no facet count is available — falls back to safe default. */
+  facetCount: number | null;
+  /** Distinct azimuth clusters from Solar (see countAzimuthClusters). */
+  azimuthClusters: number;
+  /** Painted-polygon compactness ratio. Null when paint failed. */
+  compactness: number | null;
+  /** Average pitch in degrees from Solar. */
+  avgPitchDeg: number | null;
+  /** Count of secondary_structures (attached garages, lanais, additions)
+   *  from the Flash rich-data pass. */
+  secondaryStructuresCount: number;
+  /** Total sloped sqft — used to size the waste table. */
+  totalSqft: number;
+}
+
+export interface GeometricWasteResult extends WasteResult {
+  breakdown: {
+    fromFacets: number;
+    /** New term — replaces fromValleys + fromRidgesHips. */
+    fromAzimuthClusters: number;
+    /** New term — painted-polygon shape complexity. */
+    fromCompactness: number;
+    fromSteepPitch: number;
+    /** New term — additions create cuts/seams that drive waste. */
+    fromSecondaryStructures: number;
+    /** Carried for interface compatibility with WasteResult; always 0. */
+    fromValleys: number;
+    fromRidgesHips: number;
+  };
+}
+
+const STEEP_PITCH_THRESHOLD_DEG_GEOMETRIC = 33.7; // ≈ 8/12
+
+export function calculateGeometricWaste(
+  inputs: GeometricWasteInputs,
+): GeometricWasteResult {
+  // Facet term — only contributes above the "simple roof" baseline of
+  // 4 facets (a hip with 4 sides). Each extra facet adds 0.8 points.
+  const facets = inputs.facetCount ?? 4;
+  const fromFacets = Math.max(0, facets - 4) * 0.8;
+
+  // Azimuth-clusters term — the strongest single signal. Each cluster
+  // beyond the first represents a distinct wing direction.
+  //   1 cluster → +0  (simple gable / simple hip)
+  //   2 clusters → +3.5  (L-shape, attached perpendicular addition)
+  //   3 clusters → +7.0  (cross-gable)
+  //   4+ clusters → +10.5+ (multi-wing complex)
+  const fromAzimuthClusters = Math.max(0, inputs.azimuthClusters - 1) * 3.5;
+
+  // Compactness term — measures shape complexity of the painted polygon.
+  // The 1.4 baseline corresponds to a simple rectangle; anything above
+  // that is shape complexity (notches, wings, L-shapes).
+  const fromCompactness =
+    inputs.compactness != null && inputs.compactness > 1.4
+      ? (inputs.compactness - 1.4) * 8
+      : 0;
+
+  // Steep-pitch term — same threshold as the legacy formula. Steep
+  // roofs waste more shingles in trim cuts at hip/rake intersections.
+  const fromSteepPitch =
+    inputs.avgPitchDeg != null && inputs.avgPitchDeg > STEEP_PITCH_THRESHOLD_DEG_GEOMETRIC
+      ? 4
+      : 0;
+
+  // Secondary-structures term — attached garages, lanais, and additions
+  // create extra valley/rake intersections regardless of facet count.
+  const fromSecondaryStructures =
+    inputs.secondaryStructuresCount >= 2
+      ? 3
+      : inputs.secondaryStructuresCount === 1
+        ? 1.5
+        : 0;
+
+  const score =
+    fromFacets +
+    fromAzimuthClusters +
+    fromCompactness +
+    fromSteepPitch +
+    fromSecondaryStructures;
+
+  // Clamp [10, 25]. The 25% ceiling is tighter than the legacy 28% —
+  // the customer-side number should be conservative; the rep can quote
+  // higher on the on-site visit when warranted.
+  const suggestedPercent = Math.min(25, Math.max(10, Math.round(10 + score)));
+
+  const baseSquares = inputs.totalSqft / 100;
+  const table = WASTE_TABLE_STEPS.map((percent) => ({
+    percent,
+    totalSquares: Math.ceil(baseSquares * (1 + percent / 100) * 10) / 10,
+  }));
+
+  return {
+    suggestedPercent,
+    complexityScore: Math.round(score * 10) / 10,
+    breakdown: {
+      fromFacets: Math.round(fromFacets * 10) / 10,
+      fromAzimuthClusters: Math.round(fromAzimuthClusters * 10) / 10,
+      fromCompactness: Math.round(fromCompactness * 10) / 10,
+      fromSteepPitch,
+      fromSecondaryStructures: Math.round(fromSecondaryStructures * 10) / 10,
+      fromValleys: 0,
+      fromRidgesHips: 0,
+    },
+    table,
+  };
+}
+
 // ─── Flat customer-facing waste ─────────────────────────────────────────
 //
 // The customer flow uses a flat waste assumption because we don't expose
@@ -469,6 +602,39 @@ export function calculateTieredPricing(
     const monthly = monthlyFromTotal(total);
     return { tier, effectiveSqft, total, monthly };
   });
+}
+
+/** Compute prices for all three tiers AND add per-fixture penetration
+ *  adders on top of each tier's shingle line. Real total = effectiveSqft
+ *  × tier.ratePerSqft × materialMultiplier + Σ(per-fixture adder × count),
+ *  rounded to $50.
+ *
+ *  This is what the customer should see — a roof with three skylights
+ *  and a chimney really does cost $1,260 more than an identical-sqft
+ *  bare roof, AND a concrete-tile roof costs ~35% more than the
+ *  architectural-shingle baseline. Stacks the material-aware tier
+ *  scaling (calculateTieredPricing) with per-fixture adders + monthly
+ *  amortization in one call. */
+export function calculateTieredPricingWithPenetrations(
+  totalSqft: number,
+  waste: WasteResult,
+  objects: Array<{ type: string }>,
+  /** Detected material key (CUSTOMER_MATERIAL_RATES). Falls back to
+   *  architectural shingle when omitted / unknown. */
+  material?: string | null,
+): { tiers: TierPrice[]; penetrations: PenetrationBreakdown } {
+  const penetrations = calculatePenetrationAdders(objects);
+  const effectiveSqft = Math.round(totalSqft * (1 + waste.suggestedPercent / 100));
+  const rates = customerRatesForMaterial(material);
+  const materialMultiplier = rates.mid / ARCHITECTURAL_SHINGLE_RATE_PER_SQFT;
+  const tiers = ROOFING_TIERS.map((tier) => {
+    const scaledRate = tier.ratePerSqft * materialMultiplier;
+    const raw = effectiveSqft * scaledRate + penetrations.total;
+    const total = Math.round(raw / 50) * 50;
+    const monthly = monthlyFromTotal(total);
+    return { tier, effectiveSqft, total, monthly };
+  });
+  return { tiers, penetrations };
 }
 
 export function calculateCustomerPrice(

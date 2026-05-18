@@ -91,6 +91,16 @@ import {
   GEMINI_ROOF_SYSTEM_INSTRUCTION,
   GEMINI_ROOF_USER_TRIGGER,
 } from "@/lib/gemini-roof-prompt";
+import { extractCyanMask, type CyanMask } from "@/lib/cyan-mask";
+import { countAzimuthClusters } from "@/lib/roof-geometry/azimuth-cluster";
+import {
+  filterPenetrations,
+  type RawObject,
+} from "@/lib/penetration-filter";
+import {
+  calculateGeometricWaste,
+  calculatePenetrationAdders,
+} from "@/lib/pricing/calculate-waste";
 
 export const runtime = "nodejs";
 // Paint-only mode budget: Pro Image is the only Gemini call now.
@@ -871,6 +881,58 @@ export interface GeminiRoofResponseV3 {
     secondaryStructures: Array<{ kind: string; confidence: number }>;
     siteObstacles: Array<{ kind: string; confidence: number }>;
     apparentAgeBand: { band: string; confidence: number } | null;
+  };
+  /** Deterministic geometric signals that drive the geometric waste
+   *  formula. Exposed so the rep workbench / debug tools can audit
+   *  "why is the suggested waste 17%?". */
+  qualitySignals: {
+    /** Painted-polygon compactness ratio (perimeter² / 4π × area).
+     *  Null when paint failed. Simple rectangle ≈ 1.3, L ≈ 1.8, cross
+     *  ≈ 2.2+. */
+    compactness: number | null;
+    /** Number of distinct azimuth clusters mod 90° from Solar facets.
+     *  1 = simple gable/hip, 2 = L-shape, 3+ = cross-gable/multi-wing. */
+    azimuthClusters: number;
+    /** Fraction of kept objects detected in BOTH the raw-tile and
+     *  painted-image rich-data passes. Null when the second pass didn't
+     *  run (paint failed or Flash 5xx'd). */
+    twoPassAgreementRate: number | null;
+    /** Pass-by-pass counts through the penetration-filter chain. */
+    filterStats: {
+      raw: number;
+      afterConfidence: number;
+      afterBbox: number;
+      afterMask: number;
+      afterTwoPass: number;
+      afterDedup: number;
+      afterCaps: number;
+    };
+  };
+  /** Customer-side pricing inputs derived from the V3 measurement.
+   *  Returned in the response so the frontend (and any other reader)
+   *  doesn't have to reproduce the formula. */
+  pricing: {
+    /** Geometric waste % — calculated from facet count, azimuth
+     *  clusters, compactness, pitch, and secondary structures. */
+    recommendedWastePercent: number;
+    wasteBreakdown: {
+      fromFacets: number;
+      fromAzimuthClusters: number;
+      fromCompactness: number;
+      fromSteepPitch: number;
+      fromSecondaryStructures: number;
+    };
+    /** Sum of per-fixture adders from `objects[]` (chimney $700,
+     *  skylight $280, etc.). Customer total = effectiveSqft × rate +
+     *  penetrationAddersTotal. */
+    penetrationAddersTotal: number;
+    /** Per-type breakdown of penetration adders. */
+    penetrationAdderLines: Array<{
+      type: string;
+      count: number;
+      unit: number;
+      subtotal: number;
+    }>;
   };
   modelVersion: string;
   computedAt: string;
@@ -1712,28 +1774,18 @@ async function handleV3Pinned(
     );
   }
 
+  // Raw object detections from the raw-tile rich-data pass. We DO NOT
+  // apply the old flat 0.60 confidence floor here any longer — instead
+  // we hand the unfiltered objects to filterPenetrations() further
+  // down, which layers six independent guards (type-specific
+  // confidence, bbox-in-feet, cyan-mask gate, two-pass agreement,
+  // dedup, per-sqft caps). The new chain is calibrated to handle the
+  // same "4 skylights, 3 vents" false-positive case without throwing
+  // out real high-confidence detections.
+  let rawObjects: RawObject[] = [];
   if (richResult.status === "fulfilled") {
     const rich = richResult.value;
-    // Strict 0.60 confidence floor — anything below is likely a
-    // shingle smudge, weathering patch, or shadow blob being read as
-    // a fixture. Calibrated after the "4 skylights, 3 vents" case
-    // landed on a roof with only one of each.
-    const OBJECT_CONFIDENCE_FLOOR = 0.60;
-    const rawObjectCount = rich.objects.length;
-    const kept = rich.objects.filter(
-      (o) =>
-        typeof o.confidence === "number" &&
-        o.confidence >= OBJECT_CONFIDENCE_FLOOR,
-    );
-    if (rawObjectCount !== kept.length) {
-      console.log(
-        `[gemini-roof v3] objects_filtered ` +
-          `raw=${rawObjectCount} kept=${kept.length} ` +
-          `dropped=${rawObjectCount - kept.length} (confidence<${OBJECT_CONFIDENCE_FLOOR})`,
-      );
-    }
-    objects = kept.map((o) => {
-      // box_2d → pixel coords via Google's documented descale step.
+    rawObjects = rich.objects.map((o) => {
       const { centerPx, bboxPx } = box2dToPx(o.box_2d);
       return {
         type: o.type,
@@ -1785,23 +1837,77 @@ async function handleV3Pinned(
 
   let paintedLinesValue: GeminiLineDetection[] = [];
   let paintedFacetCount: GeminiFacetCount | null = null;
+  // ─── Second-stage parallel block (runs only when paint succeeded) ───
+  //   - callGeminiLines on painted PNG       — for edge classification
+  //   - callGeminiRichData on painted PNG    — for two-pass agreement
+  //   - extractCyanMask on painted PNG       — for geometric gating +
+  //                                            compactness signal
+  // All three are independent and run concurrently. Adds ~$0.005 in
+  // Flash cost and keeps total wall clock at max(painted-rich) since
+  // these run in parallel.
+  let cyanMask: CyanMask | null = null;
+  let secondaryObjects: RawObject[] = [];
   if (paintedImageBase64) {
-    try {
-      const lr = await callGeminiLines(
-        paintedImageBase64,
-        geminiKey,
-        GEMINI_LINES_FROM_PAINTED_PROMPT,
-      );
-      paintedLinesValue = lr.lines;
-      paintedFacetCount = lr.facetCount;
+    const [paintedLinesSettled, paintedRichSettled, maskSettled] =
+      await Promise.allSettled([
+        callGeminiLines(paintedImageBase64, geminiKey, GEMINI_LINES_FROM_PAINTED_PROMPT),
+        callGeminiRichData(paintedImageBase64, geminiKey),
+        extractCyanMask(paintedImageBase64),
+      ]);
+
+    if (paintedLinesSettled.status === "fulfilled") {
+      paintedLinesValue = paintedLinesSettled.value.lines;
+      paintedFacetCount = paintedLinesSettled.value.facetCount;
       console.log(
-        `[gemini-roof v3] painted_lines lines=${lr.lines.length} ` +
-          `facets=${lr.facetCount?.count ?? "null"} ${lr.facetCount?.complexity ?? ""}`,
+        `[gemini-roof v3] painted_lines lines=${paintedLinesValue.length} ` +
+          `facets=${paintedFacetCount?.count ?? "null"} ${paintedFacetCount?.complexity ?? ""}`,
       );
-    } catch (err) {
+    } else {
       console.warn(
         "[gemini-roof v3] painted_lines_call_failed",
-        err instanceof Error ? err.message : String(err),
+        paintedLinesSettled.reason instanceof Error
+          ? paintedLinesSettled.reason.message
+          : String(paintedLinesSettled.reason),
+      );
+    }
+
+    if (paintedRichSettled.status === "fulfilled") {
+      secondaryObjects = paintedRichSettled.value.objects.map((o) => {
+        const { centerPx, bboxPx } = box2dToPx(o.box_2d);
+        return {
+          type: o.type,
+          centerPx,
+          bboxPx,
+          confidence: o.confidence,
+        };
+      });
+      console.log(
+        `[gemini-roof v3] painted_rich objects=${secondaryObjects.length}`,
+      );
+    } else {
+      console.warn(
+        "[gemini-roof v3] painted_rich_call_failed",
+        paintedRichSettled.reason instanceof Error
+          ? paintedRichSettled.reason.message
+          : String(paintedRichSettled.reason),
+      );
+    }
+
+    if (maskSettled.status === "fulfilled") {
+      cyanMask = maskSettled.value;
+      if (cyanMask) {
+        console.log(
+          `[gemini-roof v3] cyan_mask area_px=${cyanMask.areaPx} ` +
+            `perimeter_px=${cyanMask.perimeterPx} ` +
+            `compactness=${cyanMask.compactness?.toFixed(2) ?? "null"}`,
+        );
+      }
+    } else {
+      console.warn(
+        "[gemini-roof v3] cyan_mask_extract_failed",
+        maskSettled.reason instanceof Error
+          ? maskSettled.reason.message
+          : String(maskSettled.reason),
       );
     }
   }
@@ -1855,7 +1961,9 @@ async function handleV3Pinned(
   console.log(
     `[gemini-roof v3] pinned (${lat.toFixed(5)},${lng.toFixed(5)}) ` +
       `painted=${paintedImageBase64 ? "yes" : "no"} ` +
-      `objects=${objects.length} ` +
+      `raw_objects=${rawObjects.length} ` +
+      `secondary_objects=${secondaryObjects.length} ` +
+      `cyan_mask=${cyanMask ? "yes" : "no"} ` +
       `facets_canonical=${geminiAnalysis.facetCountEstimate?.count ?? "null"} ` +
       `lines=${linesValue?.length ?? 0}`,
   );
@@ -2192,6 +2300,52 @@ async function handleV3Pinned(
     (156_543.03392 * tileCosLat) / Math.pow(2, PIN_TILE_ZOOM + TILE_SCALE - 1);
   const M_TO_FT = 3.28084;
 
+  // ─── Six-guard penetration filter ─────────────────────────────────────
+  //
+  // Replaces the prior flat 0.60 confidence floor with the layered chain
+  // in lib/penetration-filter.ts:
+  //   1. Type-specific confidence floors (chimney 0.80, vent 0.55, …)
+  //   2. Bbox-in-feet sanity (a vent is not 6 ft wide)
+  //   3. Cyan-mask geometric gate (object must sit on painted roof)
+  //   4. Two-pass agreement (raw-tile AND painted-image both saw it)
+  //   5. Dedup within 24" (the skylight + its cast shadow case)
+  //   6. Per-sqft type caps (roofs have plumbing physics, not infinite vents)
+  //
+  // Each guard returns its own audit trail in filterStats.rejections so
+  // the rep workbench can show "why isn't this skylight in the quote?".
+  const filterCtxSqft =
+    finalSlopedSqft > 0
+      ? finalSlopedSqft
+      : finalFootprintSqft > 0
+        ? finalFootprintSqft
+        : 2000;
+  const { kept: filteredObjects, stats: filterStats } = filterPenetrations(
+    rawObjects,
+    {
+      cyanMask,
+      tileMPerPx,
+      totalSqft: filterCtxSqft,
+      secondaryDetections: paintedImageBase64 ? secondaryObjects : null,
+    },
+  );
+  objects = filteredObjects.map((o) => ({
+    type: o.type,
+    centerPx: o.centerPx,
+    bboxPx: o.bboxPx,
+    confidence: o.confidence,
+  }));
+  console.log(
+    `[gemini-roof v3] filter_chain ` +
+      `raw=${filterStats.raw} ` +
+      `→conf=${filterStats.afterConfidence} ` +
+      `→bbox=${filterStats.afterBbox} ` +
+      `→mask=${filterStats.afterMask} ` +
+      `→2pass=${filterStats.afterTwoPass} ` +
+      `→dedup=${filterStats.afterDedup} ` +
+      `→caps=${filterStats.afterCaps} ` +
+      `(agreement=${filterStats.twoPassAgreementRate?.toFixed(2) ?? "n/a"})`,
+  );
+
   // Penetration totals (perimeter + area) from Gemini's object bboxes.
   let penetrationPerimeterFt = 0;
   let penetrationAreaSqft = 0;
@@ -2293,6 +2447,36 @@ async function handleV3Pinned(
     geminiAnalysis.facetCountEstimate?.complexity ??
     (facets.length >= 11 ? "complex" : facets.length >= 5 ? "moderate" : "simple");
 
+  // ─── Geometric waste + penetration adders ────────────────────────────
+  //
+  // Both feed the customer-facing tier prices. Waste replaces the old
+  // flat 12% with a property-specific formula derived from facet count,
+  // azimuth clusters (number of distinct wings), painted-polygon
+  // compactness, average pitch, and the count of attached additions.
+  const azimuthClusters = countAzimuthClusters(
+    shingleSegments
+      .filter((s) => typeof s.azimuthDegrees === "number" && s.stats?.areaMeters2)
+      .map((s) => ({
+        azimuthDegrees: s.azimuthDegrees ?? 0,
+        areaSqft: (s.stats?.areaMeters2 ?? 0) * 10.7639,
+      })),
+  );
+  const geometricWaste = calculateGeometricWaste({
+    facetCount: geminiAnalysis.facetCountEstimate?.count ?? facets.length ?? null,
+    azimuthClusters,
+    compactness: cyanMask?.compactness ?? null,
+    avgPitchDeg,
+    secondaryStructuresCount: geminiAnalysis.secondaryStructures.length,
+    totalSqft: filterCtxSqft,
+  });
+  const penetrationAdders = calculatePenetrationAdders(objects);
+  console.log(
+    `[gemini-roof v3] waste=${geometricWaste.suggestedPercent}% ` +
+      `azimuth_clusters=${azimuthClusters} ` +
+      `compactness=${cyanMask?.compactness?.toFixed(2) ?? "null"} ` +
+      `penetration_adders=$${penetrationAdders.total}`,
+  );
+
   // Stamp the painted PNG with a faint `voxaris.io` watermark BEFORE
   // it goes into the response / Supabase Storage. This runs AFTER the
   // line-classification Gemini passes above so the stamp doesn't pollute
@@ -2335,6 +2519,32 @@ async function handleV3Pinned(
       annualSunshineHours: solar?.solarPotential?.maxSunshineHoursPerYear ?? null,
     },
     geminiAnalysis,
+    qualitySignals: {
+      compactness: cyanMask?.compactness ?? null,
+      azimuthClusters,
+      twoPassAgreementRate: filterStats.twoPassAgreementRate,
+      filterStats: {
+        raw: filterStats.raw,
+        afterConfidence: filterStats.afterConfidence,
+        afterBbox: filterStats.afterBbox,
+        afterMask: filterStats.afterMask,
+        afterTwoPass: filterStats.afterTwoPass,
+        afterDedup: filterStats.afterDedup,
+        afterCaps: filterStats.afterCaps,
+      },
+    },
+    pricing: {
+      recommendedWastePercent: geometricWaste.suggestedPercent,
+      wasteBreakdown: {
+        fromFacets: geometricWaste.breakdown.fromFacets,
+        fromAzimuthClusters: geometricWaste.breakdown.fromAzimuthClusters,
+        fromCompactness: geometricWaste.breakdown.fromCompactness,
+        fromSteepPitch: geometricWaste.breakdown.fromSteepPitch,
+        fromSecondaryStructures: geometricWaste.breakdown.fromSecondaryStructures,
+      },
+      penetrationAddersTotal: penetrationAdders.total,
+      penetrationAdderLines: penetrationAdders.lines,
+    },
     modelVersion: GEMINI_MODEL,
     computedAt: new Date().toISOString(),
   };
