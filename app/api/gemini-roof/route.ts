@@ -386,10 +386,28 @@ function box2dToPx(
 async function callGeminiMultimodal(
   tileBase64: string,
   apiKey: string,
+  /**
+   * Solar API's segment count for this roof. When > 1, we inject a
+   * floor-count hint into the system prompt so Pro Image is forced to
+   * draw at least that many interior boundary lines. Pro Image
+   * working from a single overhead photo can otherwise visually merge
+   * adjacent hip planes with similar pitch — the customer-visible
+   * "one big diamond" failure mode the rep flagged on Jupiter
+   * 2026-05-18. Solar already has the photogrammetric truth; we just
+   * weren't telling Pro Image about it. Free fix, no extra API cost.
+   */
+  solarSegmentCount: number | null = null,
 ): Promise<GeminiMultimodalResult> {
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  // Append a per-request hint when Solar gave us a useful count.
+  // ≥2 because a single segment doesn't need a "split more" nudge.
+  const hint =
+    solarSegmentCount != null && solarSegmentCount >= 2
+      ? `\n\n## SEGMENTATION HINT (per-request)\nPhotogrammetric data for this property reports ${solarSegmentCount} distinct roof planes. Your interior 1-pixel boundary lines must reflect at least that many facets — every fold where two planes meet at a different pitch or azimuth gets its own crisp line. Do NOT merge adjacent planes into one continuous polygon just because they share a similar visual color from straight above.`
+      : "";
+  const promptForThisCall = GEMINI_ROOF_SYSTEM_INSTRUCTION + hint;
   const body = {
     // IMPORTANT: image-editing tasks (`responseModalities: ["IMAGE",
     // "TEXT"]`) require the edit instruction to travel WITH the
@@ -408,7 +426,7 @@ async function callGeminiMultimodal(
         // 17) is text-first. Image-first reduced facet-outline
         // crispness in side-by-side tests. Keep this as-is.
         parts: [
-          { text: GEMINI_ROOF_SYSTEM_INSTRUCTION },
+          { text: promptForThisCall },
           { inline_data: { mime_type: "image/png", data: tileBase64 } },
         ] satisfies GeminiPart[],
       },
@@ -881,7 +899,10 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // image" + image-before-text order to fix the cyan-blob-on-black
 // regression. Also fixed Solar slope-factor fallback for the
 // `sloped<footprint` impossible-data case.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-restored-paint";
+// Bumped 2026-05-18 — Pro Image now receives a per-request Solar
+// segment-count hint that forces interior facet subdivisions. Prior
+// cache entries lack that segmentation detail.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-solar-hint";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1648,8 +1669,16 @@ async function handleV3Pinned(
   //     This is the fallback if the painted-pass below returns empty
   //     lines (the painted-pass strokes can get absorbed into the
   //     translucent cyan fill on some roofs — observed on Newcomb).
+  // Pull Solar's segment count BEFORE firing Pro Image so we can inject
+  // it as a "minimum facets" hint. Solar's already resolved at this
+  // point (it ran in parallel with the tile fetch), so this is a free
+  // synchronous read. On Jupiter's hip-and-turret composition Solar
+  // returns ~5 distinct shingle segments. Without this hint Pro Image
+  // visually merged adjacent same-pitch hips into one big polygon.
+  const solarSegmentsForHint =
+    solar?.solarPotential?.roofSegmentStats?.length ?? null;
   const [paintedResult, richResult, rawLinesResult] = await Promise.allSettled([
-    callGeminiMultimodal(tile.base64, geminiKey),
+    callGeminiMultimodal(tile.base64, geminiKey, solarSegmentsForHint),
     callGeminiRichData(tile.base64, geminiKey),
     callGeminiLines(tile.base64, geminiKey),
   ]);
