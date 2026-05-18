@@ -146,8 +146,53 @@ interface V3Response {
       subtotal: number;
     }>;
   };
+  /** FL statewide cadastral lookup wired in Phase 2/step 2. Drives the
+   *  "Why this roof needs attention" customer card. Null when the
+   *  property is non-residential, out of state, or Solar didn't return
+   *  a building footprint for the FDOR query. */
+  parcel: {
+    parcelId: string;
+    countyNumber: number;
+    yearBuilt: number | null;
+    effectiveYearBuilt: number | null;
+    livingSqft: number | null;
+    lotSqft: number | null;
+    justValue: number | null;
+    buildingCount: number | null;
+    lastSale: { priceUsd: number; year: number } | null;
+    dorUseCode: string;
+    assessmentYear: number | null;
+  } | null;
   modelVersion?: string;
   computedAt?: string;
+}
+
+/**
+ * IEM Local Storm Reports shape returned by /api/storms/recent.
+ * Used by the "Why this roof needs attention" card to surface real
+ * severe-weather events the homeowner can recognize.
+ */
+interface RecentStormsResponse {
+  events: Array<{
+    type: string;
+    date: string | null;
+    magnitude: number | null;
+    magnitudeType: string | null;
+    distanceMiles: number | null;
+    eventLat?: number;
+    eventLng?: number;
+    remark?: string;
+  }>;
+  summary: {
+    total: number;
+    hailCount: number;
+    tornadoCount: number;
+    windCount: number;
+    maxHailInches: number | null;
+    radiusMiles: number;
+    daysBack: number;
+    source: "iem-lsr";
+  };
 }
 
 const LOADING_MESSAGES: Array<{ at: number; text: string }> = [
@@ -171,6 +216,7 @@ export default function HomePage() {
           { path: "/api/gemini-roof", method: "POST" },
           { path: "/api/places/autocomplete", method: "GET" },
           { path: "/api/places/details", method: "GET" },
+          { path: "/api/storms/recent", method: "GET" },
         ]}
       />
       <VoxarisFlow />
@@ -1068,6 +1114,40 @@ function ResultScreen({
     return acc;
   }, {});
 
+  // "Why this roof needs attention" data sources — both load
+  // asynchronously after the V3 result arrives so the customer sees the
+  // measurement instantly and the narrative card flows in below the
+  // fold a moment later. Parcel data ships INSIDE the V3 response (no
+  // extra fetch); storms come from /api/storms/recent.
+  const parcel = result.parcel;
+  const [storms, setStorms] = useState<RecentStormsResponse | null>(null);
+  useEffect(() => {
+    // Query the IEM LSR mirror around the tile center (already the
+    // building centroid for pin-confirmed flows). 25mi radius, 365 days
+    // back — wide enough to capture "the storm that prompted this
+    // estimate" even when the customer is researching weeks later.
+    const ctrl = new AbortController();
+    const params = new URLSearchParams({
+      lat: String(result.tile.centerLat),
+      lng: String(result.tile.centerLng),
+      radiusMiles: "25",
+      daysBack: "365",
+    });
+    fetch(`/api/storms/recent?${params.toString()}`, {
+      signal: ctrl.signal,
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: RecentStormsResponse | null) => {
+        if (d && d.summary) setStorms(d);
+      })
+      .catch(() => {
+        // Soft-fail — the card hides the weather section if storms
+        // never resolves, the parcel section still renders.
+      });
+    return () => ctrl.abort();
+  }, [result.tile.centerLat, result.tile.centerLng]);
+
   // Voice-consent / "rep at my door" state. The customer must explicitly
   // tick the consent box before the call dispatch fires.
   const [voiceConsent, setVoiceConsent] = useState(false);
@@ -1372,6 +1452,15 @@ function ResultScreen({
           </div>
         )}
 
+        {/* "Why this roof needs attention" — parcel age + recent storms.
+            The two strongest signals an honest roofer can show a homeowner
+            before quoting: how old the structure actually is (FL DOR
+            statewide cadastral, free) and what the property has been
+            through recently (NWS Local Storm Reports via the Iowa State
+            Mesonet, ~T+1h fresh, free). Card hides itself entirely when
+            neither data source resolved — no "no data" placeholders. */}
+        <WhyNowCard parcel={parcel} storms={storms} />
+
         {/* Detail line under the price (full-width below the fold so it
             doesn't crowd the above-the-fold price card). */}
         {tiers && (
@@ -1414,6 +1503,392 @@ function ResultScreen({
       <VoxarisFooter />
     </div>
   );
+}
+
+// ─── "Why this roof needs attention" card ──────────────────────────────
+//
+// Renders two evidence-based reasons the homeowner should be thinking
+// about their roof right now:
+//
+//   1. PROPERTY FACTS — pulled from the FL statewide cadastral
+//      (ACT_YR_BLT, EFF_YR_BLT, last recorded sale). Aerial imagery
+//      cannot answer "how old is this thing?" — the cadastral can,
+//      from official county tax-roll data, for free.
+//
+//   2. RECENT SEVERE WEATHER — pulled from the NWS Local Storm Reports
+//      mirrored by Iowa State Mesonet, last 12 months, 25mi radius.
+//      "Wind gusts to 61mph at the Port of Palm Beach in April" hits
+//      different than a generic "storm damage matters" disclaimer.
+//
+// Layout: card with two sections side-by-side on desktop, stacked on
+// mobile. Each section gracefully hides if its data didn't resolve.
+// Card hides entirely when both are null — no "no data" UI noise.
+//
+// The italic serif footer below the rows is the narrative payoff —
+// reads like a paragraph, not a stat sheet. That's where this whole
+// card earns its keep.
+
+function WhyNowCard({
+  parcel,
+  storms,
+}: {
+  parcel: V3Response["parcel"];
+  storms: RecentStormsResponse | null;
+}) {
+  // Bail out if neither data source resolved. Keeps the page calm when
+  // we're estimating for an out-of-state property, a brand-new build,
+  // or in the brief window before storms finishes loading on a property
+  // that the cadastral didn't cover.
+  const hasParcel = parcel != null && parcel.yearBuilt != null;
+  const hasStorms = storms != null && storms.summary.total > 0;
+  if (!hasParcel && !hasStorms) return null;
+
+  const currentYear = new Date().getFullYear();
+  const age = hasParcel ? currentYear - (parcel.yearBuilt as number) : null;
+  const effAge =
+    hasParcel && parcel.effectiveYearBuilt && parcel.effectiveYearBuilt > 0
+      ? currentYear - parcel.effectiveYearBuilt
+      : null;
+  const yearsOwned =
+    hasParcel && parcel.lastSale ? currentYear - parcel.lastSale.year : null;
+
+  // Recent-storm narrative pieces. We summarize at a level the customer
+  // actually recognizes ("3 wind events past year", "hail to 1.5"") and
+  // pull at most 3 most-significant events for the bullet list.
+  const sortedEvents = (storms?.events ?? [])
+    .slice()
+    .sort((a, b) => (b.magnitude ?? 0) - (a.magnitude ?? 0))
+    .slice(0, 3);
+
+  // The italic-serif closer. Builds dynamically off whatever data we
+  // have so the card never looks like a fill-in-the-blank template.
+  const closer = buildWhyNowNarrative({
+    age,
+    effAge,
+    yearsOwned,
+    storms: storms?.summary ?? null,
+  });
+
+  return (
+    <div className="mt-12 mx-auto" style={{ maxWidth: "920px" }}>
+      <div className="text-center eyebrow mb-4">Why this roof needs attention</div>
+      <div
+        className="result-card relative"
+        style={{ padding: "26px 24px" }}
+      >
+        {/* Brand corner markers, same as the painted-image frame */}
+        <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+        <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+        <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+        <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+          {/* ── Property facts ── */}
+          {hasParcel ? (
+            <section>
+              <div
+                className="font-serif italic mb-3"
+                style={{ fontSize: "13px", color: "var(--vx-terra)" }}
+              >
+                Property record
+              </div>
+              <dl className="space-y-2">
+                {age != null && (
+                  <WhyRow
+                    label="Year built"
+                    value={
+                      <>
+                        <span className="tabular">{parcel!.yearBuilt}</span>
+                        <span
+                          className="font-serif italic ml-2"
+                          style={{ color: "var(--vx-ink-soft)" }}
+                        >
+                          {age} yr old
+                        </span>
+                      </>
+                    }
+                  />
+                )}
+                {effAge != null && effAge !== age && (
+                  <WhyRow
+                    label="Last renovated"
+                    value={
+                      <>
+                        <span className="tabular">{parcel!.effectiveYearBuilt}</span>
+                        <span
+                          className="font-serif italic ml-2"
+                          style={{ color: "var(--vx-ink-soft)" }}
+                        >
+                          {effAge} yr ago
+                        </span>
+                      </>
+                    }
+                  />
+                )}
+                {parcel?.livingSqft != null && (
+                  <WhyRow
+                    label="Living area"
+                    value={
+                      <span className="tabular">
+                        {parcel.livingSqft.toLocaleString()} sqft
+                      </span>
+                    }
+                  />
+                )}
+                {parcel?.lastSale && yearsOwned != null && (
+                  <WhyRow
+                    label="Last sale"
+                    value={
+                      <>
+                        <span className="tabular">
+                          ${(parcel.lastSale.priceUsd / 1000).toFixed(0)}k
+                        </span>
+                        <span
+                          className="font-serif italic ml-2"
+                          style={{ color: "var(--vx-ink-soft)" }}
+                        >
+                          {parcel.lastSale.year} · {yearsOwned} yr owned
+                        </span>
+                      </>
+                    }
+                  />
+                )}
+              </dl>
+              <div
+                className="mt-3 font-serif italic"
+                style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+              >
+                Source: Florida Dept. of Revenue cadastral
+                {parcel?.assessmentYear ? `, ${parcel.assessmentYear} roll` : ""}.
+              </div>
+            </section>
+          ) : (
+            <section aria-hidden />
+          )}
+
+          {/* ── Recent severe weather ── */}
+          {hasStorms ? (
+            <section>
+              <div
+                className="font-serif italic mb-3"
+                style={{ fontSize: "13px", color: "var(--vx-terra)" }}
+              >
+                Severe weather, last 12 months
+              </div>
+              <dl className="space-y-2">
+                <WhyRow
+                  label="Events within 25 mi"
+                  value={
+                    <span className="tabular">{storms!.summary.total}</span>
+                  }
+                />
+                {storms!.summary.hailCount > 0 && (
+                  <WhyRow
+                    label="Hail reports"
+                    value={
+                      <>
+                        <span className="tabular">{storms!.summary.hailCount}</span>
+                        {storms!.summary.maxHailInches != null && (
+                          <span
+                            className="font-serif italic ml-2"
+                            style={{ color: "var(--vx-ink-soft)" }}
+                          >
+                            up to {storms!.summary.maxHailInches.toFixed(2)}″
+                          </span>
+                        )}
+                      </>
+                    }
+                  />
+                )}
+                {storms!.summary.windCount > 0 && (
+                  <WhyRow
+                    label="Damaging-wind reports"
+                    value={
+                      <span className="tabular">{storms!.summary.windCount}</span>
+                    }
+                  />
+                )}
+                {storms!.summary.tornadoCount > 0 && (
+                  <WhyRow
+                    label="Tornado / funnel reports"
+                    value={
+                      <span className="tabular">
+                        {storms!.summary.tornadoCount}
+                      </span>
+                    }
+                  />
+                )}
+              </dl>
+
+              {sortedEvents.length > 0 && (
+                <ul
+                  className="mt-3 space-y-1"
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--vx-ink-soft)",
+                  }}
+                >
+                  {sortedEvents.map((e, i) => (
+                    <li key={i} className="flex justify-between gap-3">
+                      <span style={{ textTransform: "capitalize" }}>
+                        {e.type}
+                        {e.magnitude != null && e.type === "hail" && (
+                          <span className="ml-1 tabular">
+                            {e.magnitude.toFixed(2)}″
+                          </span>
+                        )}
+                        {e.magnitude != null && e.type !== "hail" && (
+                          <span className="ml-1 tabular">
+                            {Math.round(e.magnitude)} mph
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className="font-serif italic"
+                        style={{ color: "var(--vx-muted)", whiteSpace: "nowrap" }}
+                      >
+                        {e.distanceMiles != null
+                          ? `${e.distanceMiles.toFixed(1)} mi`
+                          : "—"}{" "}
+                        ·{" "}
+                        {e.date
+                          ? new Date(e.date).toLocaleDateString(undefined, {
+                              month: "short",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div
+                className="mt-3 font-serif italic"
+                style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+              >
+                Source: NWS Local Storm Reports via Iowa Environmental Mesonet.
+              </div>
+            </section>
+          ) : (
+            <section aria-hidden />
+          )}
+        </div>
+
+        {/* Narrative closer — italic serif, full width under both columns.
+            Reads like a sentence, not a bullet point. */}
+        {closer && (
+          <div
+            className="mt-6 pt-5 mx-auto font-serif italic text-center"
+            style={{
+              fontSize: "15px",
+              lineHeight: 1.55,
+              color: "var(--vx-ink)",
+              maxWidth: "56ch",
+              borderTop: "1px solid var(--vx-rule)",
+            }}
+          >
+            {closer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WhyRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex justify-between items-baseline gap-4">
+      <dt
+        style={{
+          fontSize: "11px",
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--vx-muted)",
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </dt>
+      <dd
+        style={{
+          fontSize: "15px",
+          color: "var(--vx-ink)",
+          fontWeight: 600,
+          textAlign: "right",
+        }}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * Build the italic-serif closing sentence. Dynamic so the line never
+ * reads like template-fill: prioritizes the strongest signal we have.
+ *
+ * Priority order:
+ *   1. Recent hail with measurable size  — most actionable, most credible
+ *   2. Damaging-wind events at the right magnitude
+ *   3. Old roof structure (age >= 18 yr, the asphalt-shingle retirement mark)
+ *   4. Long ownership tenure + age combo
+ *   5. Generic age-only fallback
+ *
+ * Returns null when we genuinely have nothing meaningful to say — better
+ * to hide the closer entirely than ship a hollow "based on the data above"
+ * filler line.
+ */
+function buildWhyNowNarrative({
+  age,
+  effAge,
+  yearsOwned,
+  storms,
+}: {
+  age: number | null;
+  effAge: number | null;
+  yearsOwned: number | null;
+  storms: RecentStormsResponse["summary"] | null;
+}): string | null {
+  // 1. Recent hail — the highest-leverage talking point.
+  if (storms && storms.hailCount > 0 && storms.maxHailInches != null) {
+    const hailSize = storms.maxHailInches;
+    if (hailSize >= 1.0) {
+      return `Hail up to ${hailSize.toFixed(2)} inches was reported within 25 miles in the last year. Hail at that size impacts asphalt-shingle granule loss and shortens the roof's remaining life — even when damage isn't visible from the ground.`;
+    }
+    return `${storms.hailCount} hail event${storms.hailCount > 1 ? "s" : ""} reported within 25 miles in the last 12 months. Recurrent hail accelerates granule loss and shortens shingle life, regardless of any single event being a total-loss claim.`;
+  }
+
+  // 2. Damaging wind at a magnitude that matters (≥ 45 mph gust).
+  if (storms && storms.windCount >= 3) {
+    return `${storms.windCount} damaging-wind events were logged within 25 miles in the past year. Repeated high-wind exposure stresses fasteners and seal strips — small failures now become leaks at the next big storm.`;
+  }
+
+  // 3. Old roof structure — the asphalt-shingle retirement signal.
+  const effectiveAge = effAge ?? age;
+  if (effectiveAge != null && effectiveAge >= 18) {
+    if (yearsOwned != null && yearsOwned >= 10) {
+      return `You've owned this home ${yearsOwned} years and the roof structure is ${effectiveAge}. Asphalt shingles typically retire between 18 and 25 — your roof is in that window now, and most homeowners replace once before they sell.`;
+    }
+    return `This roof structure is ${effectiveAge} years old. Asphalt shingles typically retire between 18 and 25 years — your roof is in that replacement window now.`;
+  }
+
+  // 4. Moderate-age roof + storm activity, even when neither alone is strong.
+  if (storms && storms.total >= 3 && age != null && age >= 10) {
+    return `This roof is ${age} years old, and ${storms.total} severe-weather events have been logged within 25 miles in the last year. Both signals compound — older roofs lose more granules per storm than new ones.`;
+  }
+
+  // 5. Generic age-only — light closer.
+  if (age != null && age >= 10) {
+    return `This roof is ${age} years old. Most Florida asphalt roofs see a measurable performance drop in their second decade — UV, salt air, and afternoon thunderstorms all contribute.`;
+  }
+
+  return null;
 }
 
 // ─── Error screen ───────────────────────────────────────────────────────
