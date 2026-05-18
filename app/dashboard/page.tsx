@@ -1,18 +1,5 @@
 import Link from "next/link";
-import {
-  Users,
-  PhoneCall,
-  FileText,
-  TrendingUp,
-  Sparkles,
-  ArrowUpRight,
-  Activity,
-  Radio,
-  BarChart3,
-  Wallet,
-  ArrowUp,
-  ArrowDown,
-} from "lucide-react";
+import { Radio } from "lucide-react";
 import {
   fmtDateTime,
   fmtUSD,
@@ -342,26 +329,19 @@ export default async function OverviewPage() {
 
   return (
     <div className="flex flex-col gap-6 lg:gap-7">
-      {/* HEADER ROW — eyebrow + status, no big paragraph */}
+      {/* HEADER ROW — one strip, no slash, no eyebrow, no redundant date.
+       *  Topbar carries the date; sidebar carries the brand wordmark +
+       *  "Operator Console" subtitle. The earlier eyebrow + meta date
+       *  row was the 4th and 5th instance of the same chrome on the
+       *  same viewport. The audit calls it "5× chrome redundancy". */}
       <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
         <div>
-          <span className="glass-eyebrow">Operator Console · {monthLabel()}</span>
-          <h1 className="text-[28px] sm:text-[34px] lg:text-[40px] tracking-[-0.025em] font-semibold leading-[1.04] mt-3 text-white/95">
-            <span className="iridescent-text">Voxaris pipeline</span>{" "}
-            <span className="text-white/40 font-medium">/ overview</span>
+          <h1 className="font-display text-[34px] sm:text-[40px] lg:text-[46px] tracking-[-0.022em] font-medium leading-[1.02] text-white/95">
+            Pipeline overview
           </h1>
-        </div>
-        <div className="flex items-center gap-3 text-[10.5px] font-mono tabular uppercase tracking-[0.18em] text-white/45">
-          <span>
-            office{" "}
-            <span className="text-cy-300">
-              {new Date().toLocaleDateString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })}
-            </span>
-          </span>
+          <p className="mt-1.5 text-[13px] text-white/55 italic font-serif">
+            {monthLabel()} · live across every office
+          </p>
         </div>
       </header>
 
@@ -372,13 +352,21 @@ export default async function OverviewPage() {
         <Link href={`${basePath}/leads`} className="scoreboard-tile">
           <div className="label">Leads · MTD</div>
           <div className="value">{metrics.leadsThisMonth.toLocaleString()}</div>
-          <div className="sublabel">from your estimator</div>
+          <div className="sublabel">
+            {metrics.leadsThisMonth === 0
+              ? "no leads yet this month"
+              : `${(metrics.leadsThisMonth / Math.max(1, daysIntoMonth())).toFixed(1)} per day`}
+          </div>
         </Link>
 
         <Link href={`${basePath}/calls`} className="scoreboard-tile">
           <div className="label">Sydney calls</div>
           <div className="value">{metrics.callsThisMonth.toLocaleString()}</div>
-          <div className="sublabel">answered 24/7</div>
+          <div className="sublabel">
+            {metrics.callsThisMonth === 0
+              ? "no inbound this month"
+              : `${(metrics.callsThisMonth / Math.max(1, daysIntoMonth())).toFixed(1)} per day`}
+          </div>
         </Link>
 
         <Link href={`${basePath}/leads`} className="scoreboard-tile accent-amber">
@@ -435,7 +423,9 @@ export default async function OverviewPage() {
             <ul className="flex flex-col">
               {activity.slice(0, 6).map((item) => (
                 <li key={item.id} className="log-row">
-                  <span className="ts">{shortTime(item.at)}</span>
+                  <span className="ts" title={shortTime(item.at)}>
+                    {relTime(item.at)}
+                  </span>
                   <span className={`kind ${item.kind}`}>{item.kind}</span>
                   <span className="body">{item.title}</span>
                   <span className="meta">{item.detail ?? ""}</span>
@@ -447,39 +437,27 @@ export default async function OverviewPage() {
 
         <aside className="flex flex-col">
           <div className="glass-panel overflow-hidden">
-            <div className="px-4 pt-3.5 pb-2 text-[10.5px] font-mono tabular uppercase tracking-[0.18em] text-white/45 border-b border-white/[0.06]">
+            <div className="px-4 pt-3.5 pb-2 text-[10.5px] uppercase tracking-[0.14em] text-white/45 border-b border-white/[0.06] font-medium">
               Jump in
             </div>
             <div className="flex flex-col">
               <Link href={`${basePath}/calls`} className="jump-row">
-                <span className="glyph">▸</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] text-white/92 font-medium">Sydney call inbox</div>
-                  <div className="text-[11px] text-white/45 font-mono tabular uppercase tracking-wider mt-0.5">
-                    live transcripts
-                  </div>
+                  <div className="jump-label">Sydney call inbox</div>
+                  <div className="jump-sub">live transcripts</div>
                 </div>
-                <ArrowUpRight className="w-3.5 h-3.5 text-white/35" />
               </Link>
               <Link href={`${basePath}/leads`} className="jump-row">
-                <span className="glyph">▸</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] text-white/92 font-medium">Lead pipeline</div>
-                  <div className="text-[11px] text-white/45 font-mono tabular uppercase tracking-wider mt-0.5">
-                    by status · by office
-                  </div>
+                  <div className="jump-label">Lead pipeline</div>
+                  <div className="jump-sub">by status · by office</div>
                 </div>
-                <ArrowUpRight className="w-3.5 h-3.5 text-white/35" />
               </Link>
               <Link href={`${basePath}/analytics`} className="jump-row">
-                <span className="glyph">▸</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] text-white/92 font-medium">30-day analytics</div>
-                  <div className="text-[11px] text-white/45 font-mono tabular uppercase tracking-wider mt-0.5">
-                    funnel + outcomes
-                  </div>
+                  <div className="jump-label">30-day analytics</div>
+                  <div className="jump-sub">funnel · outcomes</div>
                 </div>
-                <ArrowUpRight className="w-3.5 h-3.5 text-white/35" />
               </Link>
             </div>
           </div>
@@ -495,9 +473,23 @@ function shortTime(iso: string): string {
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+function relTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "—";
+  const diffSec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return `${Math.floor(diffSec / 86400)}d ago`;
+}
+
 
 function monthLabel(): string {
   return new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function daysIntoMonth(): number {
+  return new Date().getDate();
 }
 
 function StandbyState({ title, body }: { title: string; body: string }) {

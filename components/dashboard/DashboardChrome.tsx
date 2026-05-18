@@ -253,26 +253,21 @@ export default function DashboardChrome({
           {children}
         </div>
 
-        {/* Footer ribbon */}
-        <div className="border-t border-white/[0.06] px-4 sm:px-6 lg:px-8 py-4 mt-auto bg-[rgba(8,11,17,0.28)] backdrop-blur-xl">
-          <div className="max-w-[1400px] mx-auto flex flex-wrap items-center justify-between gap-3 text-[11px] font-mono tabular uppercase tracking-[0.16em] text-white/40">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_8px_rgba(95,227,176,0.5)] animate-pulse" />
-                Live
-              </span>
-              <span className="text-white/15">·</span>
-              <span>Sydney online</span>
-              <span className="text-white/15">·</span>
-              <span>
-                {offices.length} offices · routed to {activeOffice.shortName}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span>Voxaris AI</span>
-              <span className="text-white/15">·</span>
-              <span>Operator Console</span>
-            </div>
+        {/* Footer ribbon — single line, single signal. The earlier
+         *  version repeated "Voxaris AI · Operator Console" on the
+         *  right which was a third instance of the same wordmark
+         *  already shown in the sidebar header. 2026-05 audit
+         *  collapsed it. */}
+        <div className="border-t border-white/[0.06] px-4 sm:px-6 lg:px-8 py-3 mt-auto bg-[rgba(8,11,17,0.28)] backdrop-blur-xl">
+          <div className="max-w-[1400px] mx-auto flex items-center gap-3 text-[11px] font-mono tabular uppercase tracking-[0.14em] text-white/40">
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_8px_rgba(95,227,176,0.5)] animate-pulse" />
+              Sydney online
+            </span>
+            <span className="text-white/15">·</span>
+            <span>
+              {offices.length} offices · routed to {activeOffice.shortName}
+            </span>
           </div>
         </div>
       </main>

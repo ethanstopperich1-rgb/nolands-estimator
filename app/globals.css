@@ -2687,19 +2687,36 @@ article p,
 /* Selection — match customer site (ink on cream). */
 .voxaris ::selection { background: var(--vx-ink); color: var(--vx-cream); }
 
-/* Console-section-rule (animated cyan pulses) → flat ink underline,
-   no pulse. Brand discipline forbids gratuitous motion. */
+/* Console-section-rule → hairline + label.
+ * Was previously stripped to text-only (`display:none` on both pseudo-
+ * elements + zero padding) which left "Live feed · last 60 minutes"
+ * floating without any anchor. The audit flagged it as "no visual
+ * anchor". This restores a single right-hand rule line so the label
+ * reads as a chapter divider, not a floating eyebrow. Brand discipline
+ * still forbids the animated cyan pulse — that stays hidden. */
 .voxaris .console-section-rule {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.85rem !important;
   color: var(--vx-muted) !important;
+  font-family: var(--vx-font-ui) !important;
   font-size: 10.5px !important;
-  letter-spacing: 0.18em !important;
+  letter-spacing: 0.14em !important;
   text-transform: uppercase !important;
+  font-weight: 600 !important;
   border-top: 0 !important;
   border-bottom: 0 !important;
-  padding: 0 !important;
+  padding: 0.4rem 0 !important;
 }
-.voxaris .console-section-rule::before,
-.voxaris .console-section-rule::after { display: none !important; }
+.voxaris .console-section-rule::before { display: none !important; }
+.voxaris .console-section-rule::after {
+  content: "" !important;
+  flex: 1 !important;
+  height: 1px !important;
+  background: var(--vx-rule) !important;
+  display: block !important;
+  position: static !important;
+}
 .voxaris .console-section-rule .pulse,
 .voxaris .animate-ping { display: none !important; }
 
@@ -2750,6 +2767,67 @@ article p,
 .voxaris aside img[src="/brand/voxaris-ai-wordmark.png"] {
   height: 48px !important;
   width: auto !important;
+  /* Kill the leftover sky-blue drop-shadow (set by Tailwind utility
+   * `drop-shadow-[0_6px_18px_rgba(125,211,252,0.18)]` on the <img>).
+   * Cyan glow on cream paper reads as the AI-aesthetic fingerprint
+   * the brand explicitly disallows. */
+  filter: none !important;
+}
+
+/* Active sidebar nav — the original markup paints a cy-300 dot + glow
+ * for the active state. Cyan glow on cream is the same dark-theme leak
+ * we stripped from the wordmark. Re-paint as a flat terra marker. */
+.voxaris aside nav a[class*="bg-white"] {
+  background: var(--vx-paper) !important;
+  border-color: var(--vx-rule) !important;
+  box-shadow: none !important;
+  color: var(--vx-ink) !important;
+}
+.voxaris aside nav a[class*="bg-cy-"] {
+  background: rgba(199, 107, 63, 0.08) !important;
+  border-color: rgba(199, 107, 63, 0.35) !important;
+  box-shadow: none !important;
+  color: var(--vx-ink) !important;
+}
+.voxaris aside nav a[class*="bg-cy-"] span[class*="bg-cy-"] {
+  background: rgba(199, 107, 63, 0.18) !important;
+  border-color: rgba(199, 107, 63, 0.40) !important;
+  color: var(--vx-terra) !important;
+  box-shadow: none !important;
+}
+.voxaris aside nav a span[class*="bg-cy-300"]:last-child {
+  /* The trailing 4px dot that marks the active page — terra, no glow. */
+  background: var(--vx-terra) !important;
+  box-shadow: none !important;
+}
+
+/* Sidebar "Sydney online" card — was originally a glass-blur card with
+ * its own border on a dark surface. Under the cream remap it became
+ * a heavy paper rectangle that read as an orphan object below the nav.
+ * Strip the border + raised background so it reads as a continuation
+ * of the sidebar rhythm, with just the pulse + label carrying state. */
+.voxaris aside [class*="rounded-2xl"][class*="border-white"] {
+  background: transparent !important;
+  border: 0 !important;
+  border-top: 1px solid var(--vx-rule) !important;
+  border-radius: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  backdrop-filter: none !important;
+}
+
+/* Footer ribbon — strip the dark backdrop-blur and the redundant
+ * "Operator Console" tail. The brand wordmark in the sidebar is
+ * already a third source of the same string; the footer doesn't need
+ * to be the fifth. */
+.voxaris main > div:last-child[class*="border-t"] {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-top: 1px solid var(--vx-rule) !important;
+}
+.voxaris main > div:last-child .animate-pulse {
+  animation: none !important;
 }
 
 /* ─── Dashboard overview surfaces ────────────────────────────────────
@@ -2775,7 +2853,7 @@ article p,
 }
 @media (min-width: 1024px) {
   .voxaris .scoreboard {
-    grid-template-columns: 1fr 1fr 1.4fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
   }
 }
 .voxaris .scoreboard-tile {
@@ -2794,6 +2872,9 @@ article p,
 }
 .voxaris a.scoreboard-tile:hover {
   background: var(--vx-cream);
+}
+.voxaris a.scoreboard-tile:hover .value {
+  color: var(--vx-ink);
 }
 .voxaris a.scoreboard-tile:active {
   transform: translateY(1px);
@@ -2814,27 +2895,31 @@ article p,
   .voxaris .scoreboard-tile { border-right: none; }
   .voxaris .scoreboard-tile:last-child { border-bottom: none; }
 }
-/* Left-side terracotta accent bar — channels each tile. */
+/* Top hairline accent — the previous left-side 2px-at-14%-inset bar
+ * rendered as a dust speck on cream. Top-edge full-width hairline reads
+ * as intentional, sits on the existing tile divider, and lets the
+ * accent tiles (amber/mint) trade color without changing position. */
 .voxaris .scoreboard-tile::before {
   content: "";
   position: absolute;
+  top: 0;
   left: 0;
-  top: 14%;
-  bottom: 14%;
-  width: 2px;
+  right: 0;
+  height: 2px;
   background: var(--vx-terra);
-  opacity: 0.6;
+  opacity: 0;
+  transition: opacity 200ms ease;
 }
-.voxaris .scoreboard-tile.accent-mint::before { opacity: 0.35; }
-.voxaris .scoreboard-tile.accent-amber::before { background: var(--vx-terra-dark); opacity: 0.8; }
+.voxaris a.scoreboard-tile:hover::before { opacity: 0.85; }
+.voxaris .scoreboard-tile.accent-mint::before { background: var(--vx-muted); opacity: 0.55; }
+.voxaris .scoreboard-tile.accent-amber::before { background: var(--vx-terra); opacity: 0.85; }
 
 .voxaris .scoreboard-tile .label {
-  font-family: var(--vx-font-mono, ui-monospace, monospace);
-  font-size: 10px;
-  letter-spacing: 0.22em;
+  font-family: var(--vx-font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--vx-ink-soft);
-  opacity: 0.7;
+  color: var(--vx-muted);
   font-weight: 600;
 }
 .voxaris .scoreboard-tile .value {
@@ -2893,10 +2978,11 @@ article p,
 .voxaris .log-row .kind.call     { color: #2a6f4f; }
 .voxaris .log-row .kind.proposal { color: var(--vx-terra-dark); }
 .voxaris .log-row .kind.event    { color: var(--vx-ink-soft); opacity: 0.65; }
-.voxaris .log-row .kind::before {
-  content: "▸ ";
-  opacity: 0.6;
-}
+/* The `▸` glyph prefix used to ride in front of every kind. Visually
+ * it shouted "log row, log row, log row" — six identical glyphs down
+ * the column. The kind label itself is enough; the colored text (terra
+ * for lead, green for call, etc.) carries the affordance. Removed
+ * per 2026-05 audit. */
 .voxaris .log-row .body {
   color: var(--vx-ink);
   overflow: hidden;
@@ -2923,28 +3009,31 @@ article p,
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.85rem 1.1rem;
+  padding: 0.95rem 1.1rem;
   border-bottom: 1px solid var(--vx-rule);
   color: var(--vx-ink);
   text-decoration: none;
   transition: background 150ms ease;
+  position: relative;
 }
 .voxaris .jump-row:last-child { border-bottom: none; }
 .voxaris .jump-row:hover { background: var(--vx-cream); }
+.voxaris .jump-row:hover .jump-label { color: var(--vx-terra); }
 .voxaris .jump-row .jump-label {
   font-family: var(--vx-font-display);
-  font-size: 14px;
+  font-size: 15px;
   color: var(--vx-ink);
   font-weight: 500;
   flex: 1;
+  letter-spacing: -0.005em;
+  transition: color 150ms ease;
 }
 .voxaris .jump-row .jump-sub {
-  font-family: var(--vx-font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--vx-ink-soft);
-  opacity: 0.7;
+  font-family: var(--vx-font-ui);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--vx-muted);
+  margin-top: 0.15rem;
 }
 
 /* Hide the floating reCAPTCHA v3 badge — Google permits hiding it as
