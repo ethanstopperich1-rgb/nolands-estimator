@@ -481,7 +481,21 @@ function EstimatePage() {
         </h1>
       </header>
 
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+      {/* Progressive disclosure — matches the customer-flow rhythm at /.
+       *  On address / pin / loading the rep gets a single centered
+       *  column and the workbench aside is hidden. The aside (rep
+       *  inputs, notes, live pricing) only matters once there's a
+       *  painted result on screen, so it's lazy-mounted at that point.
+       *  User asked for the workbench to "look like the main customer
+       *  side" — hiding the rep panel during the pre-result steps is
+       *  the biggest single change toward that. */}
+      <div
+        className={
+          step === "result"
+            ? "max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6"
+            : "max-w-2xl mx-auto"
+        }
+      >
         <main className="space-y-6">
           {step === "address" && (
             <AddressStep
@@ -510,51 +524,74 @@ function EstimatePage() {
             <LoadingPanel elapsed={loadingElapsed} message={loadingMessageFor(loadingElapsed)} />
           )}
           {step === "result" && result && resolved && (
-            <ResultPanels
-              result={result}
-              resolved={resolved}
-              effectiveSqft={effectiveSqft}
-              effectivePitchDeg={effectivePitchDeg}
-              confidence={confidence}
-              squaresAndWaste={squaresAndWaste}
-              tearOffPlan={tearOffPlan}
-              lineItems={lineItems}
-              recentLsr={recentLsr}
-              stormsAfterImagery={stormsAfterImagery}
-              pinLat={pinLat}
-              pinLng={pinLng}
-              onReRun={runEstimate}
-            />
+            <>
+              <ResultPanels
+                result={result}
+                resolved={resolved}
+                effectiveSqft={effectiveSqft}
+                effectivePitchDeg={effectivePitchDeg}
+                confidence={confidence}
+                squaresAndWaste={squaresAndWaste}
+                tearOffPlan={tearOffPlan}
+                lineItems={lineItems}
+                recentLsr={recentLsr}
+                stormsAfterImagery={stormsAfterImagery}
+                pinLat={pinLat}
+                pinLng={pinLng}
+                onReRun={runEstimate}
+              />
+              <SaveEstimateCard
+                lead={lead}
+                resolved={resolved}
+                result={result}
+                material={material}
+                manualPitchOn12={manualPitchOn12}
+                tearOff={tearOff}
+                laborMult={laborMult}
+                materialMult={materialMult}
+                notes={notes}
+                effectiveSqft={effectiveSqft}
+                effectivePitchDeg={effectivePitchDeg}
+                pricing={pricing}
+              />
+            </>
           )}
           {step === "error" && (
-            <div className="rounded-2xl border border-rose/40 bg-rose/5 p-6">
-              <p className="text-rose font-medium">Measurement failed</p>
-              <p className="text-sm text-slate-300 mt-2">{error}</p>
-              <button type="button" onClick={startOver} className="mt-4 text-sm text-cy-400 underline">
+            <div className="border p-6" style={{ borderColor: "var(--vx-rule)", background: "var(--vx-paper)" }}>
+              <p className="font-medium" style={{ color: "var(--vx-terra-dark)" }}>Measurement failed</p>
+              <p className="text-sm mt-2" style={{ color: "var(--vx-ink-soft)" }}>{error}</p>
+              <button
+                type="button"
+                onClick={startOver}
+                className="mt-4 text-sm underline"
+                style={{ color: "var(--vx-terra)" }}
+              >
                 Start over
               </button>
             </div>
           )}
         </main>
 
-        <aside className="space-y-6">
-          {lead && <LeadContextCard lead={lead} />}
-          <RepInputs
-            material={material}
-            setMaterial={setMaterial}
-            manualPitchOn12={manualPitchOn12}
-            setManualPitchOn12={setManualPitchOn12}
-            pitchAutoDetected={result?.solar.pitchDegrees ?? null}
-            tearOff={tearOff}
-            setTearOff={setTearOff}
-            laborMult={laborMult}
-            setLaborMult={setLaborMult}
-            materialMult={materialMult}
-            setMaterialMult={setMaterialMult}
-          />
-          <NotesCard notes={notes} setNotes={setNotes} />
-          {pricing && <PricingCard pricing={pricing} sqft={effectiveSqft} pitchDeg={effectivePitchDeg} />}
-        </aside>
+        {step === "result" && (
+          <aside className="space-y-6">
+            {lead && <LeadContextCard lead={lead} />}
+            <RepInputs
+              material={material}
+              setMaterial={setMaterial}
+              manualPitchOn12={manualPitchOn12}
+              setManualPitchOn12={setManualPitchOn12}
+              pitchAutoDetected={result?.solar.pitchDegrees ?? null}
+              tearOff={tearOff}
+              setTearOff={setTearOff}
+              laborMult={laborMult}
+              setLaborMult={setLaborMult}
+              materialMult={materialMult}
+              setMaterialMult={setMaterialMult}
+            />
+            <NotesCard notes={notes} setNotes={setNotes} />
+            {pricing && <PricingCard pricing={pricing} sqft={effectiveSqft} pitchDeg={effectivePitchDeg} />}
+          </aside>
+        )}
       </div>
     </div>
   );
@@ -614,8 +651,19 @@ function AddressStep({ onResolved }: { onResolved: (a: AddressResolved) => void 
     };
   }, [onResolved]);
   return (
-    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-      <label htmlFor="address" className="block text-[10px] uppercase tracking-[0.22em] text-slate-400 mb-3">
+    <section
+      className="p-8 lg:p-10"
+      style={{
+        background: "var(--vx-paper)",
+        border: "1px solid var(--vx-rule)",
+        borderRadius: "var(--vx-radius-card)",
+      }}
+    >
+      <label
+        htmlFor="address"
+        className="block text-[10.5px] uppercase tracking-[0.18em] mb-4 font-medium"
+        style={{ color: "var(--vx-muted)" }}
+      >
         Property address
       </label>
       <input
@@ -623,13 +671,20 @@ function AddressStep({ onResolved }: { onResolved: (a: AddressResolved) => void 
         id="address"
         type="text"
         placeholder="123 Main St, Jupiter, FL 33458"
-        className="w-full bg-ink-800 border border-ink-600 rounded-xl px-4 py-3 text-base text-slate-100 placeholder-slate-500 outline-none focus:border-cy-400"
+        className="w-full px-5 py-4 text-lg tracking-tight outline-none"
+        style={{
+          background: "var(--vx-cream)",
+          border: "1px solid var(--vx-rule)",
+          borderRadius: 0,
+          color: "var(--vx-ink)",
+          fontFamily: "var(--vx-font-ui)",
+        }}
         autoFocus
         spellCheck={false}
         autoComplete="off"
       />
-      <p className="text-xs text-slate-500 mt-3">
-        Pick from the dropdown. Next step you&apos;ll drop a pin on the exact center of the roof.
+      <p className="text-[13px] mt-4 italic font-serif" style={{ color: "var(--vx-ink-soft)" }}>
+        Pick from the dropdown. Next you&apos;ll drop a pin on the exact center of the roof.
       </p>
     </section>
   );
@@ -1629,6 +1684,182 @@ function PricingCard({
           </span>
         </div>
       </div>
+    </section>
+  );
+}
+
+
+// ─── Save estimate ──────────────────────────────────────────────────────
+//
+// Persists the rep's just-computed estimate to /api/estimates so it
+// lands in the leads table tagged source="rep-workbench". After save,
+// the rep gets a link straight into /dashboard/leads → drawer where
+// the painted overlay + storm history + their inputs are all wired
+// up exactly the same way a customer-captured lead's drawer renders.
+//
+// When the workbench was opened with `?leadId=<existing>` (lead is
+// non-null), saving is a no-op — the estimate already belongs to that
+// lead and the drawer already shows it. We hide the card in that case.
+function SaveEstimateCard({
+  lead,
+  resolved,
+  result,
+  material,
+  manualPitchOn12,
+  tearOff,
+  laborMult,
+  materialMult,
+  notes,
+  effectiveSqft,
+  effectivePitchDeg,
+  pricing,
+}: {
+  lead: LeadRow | null;
+  resolved: AddressResolved;
+  result: EstimateResult;
+  material: Material;
+  manualPitchOn12: number;
+  tearOff: boolean;
+  laborMult: number;
+  materialMult: number;
+  notes: string;
+  effectiveSqft: number | null;
+  effectivePitchDeg: number;
+  pricing: { mid: number; low: number; high: number; rateLabel: string } | null;
+}) {
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedPublicId, setSavedPublicId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Opened on an existing lead — nothing to save, drawer covers it.
+  if (lead) return null;
+
+  async function save() {
+    if (saveStatus === "saving") return;
+    setSaveStatus("saving");
+    setSaveError(null);
+    try {
+      const r = await fetch("/api/estimates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: resolved.formatted,
+          lat: resolved.lat,
+          lng: resolved.lng,
+          zip: resolved.zip ?? null,
+          roofV3: result,
+          material,
+          manualPitchOn12,
+          tearOff,
+          laborMult,
+          materialMult,
+          notes,
+        }),
+      });
+      if (!r.ok) {
+        const data = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+        throw new Error(data.message ?? data.error ?? `HTTP ${r.status}`);
+      }
+      const data = (await r.json()) as { publicId?: string };
+      if (!data.publicId) throw new Error("save_returned_no_id");
+      setSavedPublicId(data.publicId);
+      setSaveStatus("saved");
+    } catch (err) {
+      setSaveStatus("error");
+      setSaveError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return (
+    <section
+      className="p-6"
+      style={{
+        background: "var(--vx-paper)",
+        border: "1px solid var(--vx-rule)",
+        borderRadius: "var(--vx-radius-card)",
+      }}
+    >
+      <div className="flex items-baseline justify-between gap-3 mb-4">
+        <div>
+          <p
+            className="text-[10.5px] uppercase tracking-[0.18em] font-medium"
+            style={{ color: "var(--vx-muted)" }}
+          >
+            Save to leads
+          </p>
+          <h3
+            className="font-display mt-1"
+            style={{ color: "var(--vx-ink)", fontSize: "22px", lineHeight: 1.1 }}
+          >
+            {saveStatus === "saved" ? "Estimate saved" : "Save estimate"}
+          </h3>
+        </div>
+        {pricing ? (
+          <span
+            className="tabular text-[14px]"
+            style={{ color: "var(--vx-ink-soft)" }}
+          >
+            ${pricing.mid.toLocaleString()} mid
+          </span>
+        ) : null}
+      </div>
+
+      {saveStatus === "saved" && savedPublicId ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-[13px]" style={{ color: "var(--vx-ink-soft)" }}>
+            This estimate is now in your leads list, attached to{" "}
+            <span style={{ color: "var(--vx-ink)" }}>{resolved.formatted}</span>.
+            Add a customer name / phone later from the lead drawer.
+          </p>
+          <a
+            href="/dashboard/leads"
+            className="self-start inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium transition-colors"
+            style={{
+              background: "var(--vx-ink)",
+              color: "var(--vx-cream)",
+              borderRadius: 0,
+            }}
+          >
+            View in leads →
+          </a>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="text-[13px]" style={{ color: "var(--vx-ink-soft)" }}>
+            Keep this estimate against {resolved.formatted}. The painted
+            roof, measurements, your inputs, and notes will all save —
+            no customer contact info needed.
+            {effectiveSqft != null ? (
+              <span className="block mt-1 tabular" style={{ color: "var(--vx-muted)", fontSize: "11.5px" }}>
+                {effectiveSqft.toLocaleString()} ft² · {effectivePitchDeg.toFixed(1)}° · {pricing?.rateLabel ?? material}
+              </span>
+            ) : null}
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={save}
+              disabled={saveStatus === "saving"}
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: "var(--vx-terra)",
+                color: "var(--vx-cream)",
+                borderRadius: 0,
+              }}
+            >
+              {saveStatus === "saving" ? "Saving…" : "Save estimate"}
+            </button>
+            {saveStatus === "error" && saveError ? (
+              <span className="text-[12px]" style={{ color: "var(--vx-terra-dark)" }}>
+                {saveError}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
