@@ -90,8 +90,6 @@ import {
   GEMINI_ROOF_SCHEMA,
   GEMINI_ROOF_SYSTEM_INSTRUCTION,
   GEMINI_ROOF_USER_TRIGGER,
-  GEMINI_GROUND_LEVEL_PROMPT,
-  GEMINI_GROUND_LEVEL_SCHEMA,
 } from "@/lib/gemini-roof-prompt";
 import { extractCyanMask, type CyanMask } from "@/lib/cyan-mask";
 import { countAzimuthClusters } from "@/lib/roof-geometry/azimuth-cluster";
@@ -103,10 +101,6 @@ import {
   calculateGeometricWaste,
   calculatePenetrationAdders,
 } from "@/lib/pricing/calculate-waste";
-import {
-  fetchStreetViewForProperty,
-  type StreetViewResult,
-} from "@/lib/streetview";
 
 export const runtime = "nodejs";
 // Paint-only mode budget: Pro Image is the only Gemini call now.
@@ -940,41 +934,6 @@ export interface GeminiRoofResponseV3 {
       subtotal: number;
     }>;
   };
-  /**
-   * Ground-level (Street View) analysis. Lower resolution roof but
-   * orders of magnitude better detail on fascia, drip edge, gutter,
-   * and exterior condition signals that aerial cannot resolve.
-   *
-   * `null` when the property has no nearby Street View panorama (rural
-   * acreage, private road, recently built). The customer flow degrades
-   * gracefully — aerial analysis still ships.
-   */
-  groundLevelAnalysis: {
-    /** Public Street View image URL we showed the model. Useful for
-     *  debugging + future "Photo from your street" UI placement. */
-    panoLat: number;
-    panoLng: number;
-    panoDate: string | null;
-    heading: number;
-    roofVisibility: "good" | "partial" | "poor" | "none";
-    visibleRoofSignals: Array<{
-      kind: string;
-      severity: "minor" | "moderate" | "major";
-      confidence: number;
-      location_hint?: string;
-    }>;
-    fasciaGutterCondition: {
-      state: "good" | "fair" | "poor" | "failing" | "not_visible";
-      confidence: number;
-      observation?: string;
-    } | null;
-    dripEdgeObservation: {
-      state: "present_clean" | "present_rusted" | "missing" | "not_visible";
-      confidence: number;
-    } | null;
-    exteriorSignals: Array<{ kind: string; confidence: number }>;
-    caveats: string[];
-  } | null;
   modelVersion: string;
   computedAt: string;
 }
@@ -1009,10 +968,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // counting (EagleView-style) instead of per-wing counting. Cached
 // "5–10 facets on Jupiter" entries from before this change are no
 // longer correct — re-paint forces fresh per-face counts.
-// Bumped 2026-05-18 — V3 response now carries `groundLevelAnalysis`
-// from a Street View pass. Existing cached entries don't have it; we
-// force a re-paint so the new field populates on next request.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-streetview-ground";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-per-face-facets";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1577,132 +1533,6 @@ async function callGeminiRichData(
 }
 
 /**
- * Ground-level Flash call — analyzes a Street View image of the
- * property's front facade. Surfaces fascia / drip edge / gutter / roof
- * signals that single-angle aerial at zoom 21 cannot resolve.
- *
- * Runs in parallel with the aerial Pro Image paint + Flash rich-data
- * calls. Failure here never blocks the customer flow — we soft-return
- * `null` so the rest of the V3 pipeline carries on.
- */
-type GroundLevelRaw = {
-  roof_visibility?: "good" | "partial" | "poor" | "none";
-  visible_roof_signals?: Array<{
-    kind: string;
-    severity: "minor" | "moderate" | "major";
-    confidence: number;
-    location_hint?: string;
-  }>;
-  fascia_gutter_condition?: {
-    state: "good" | "fair" | "poor" | "failing" | "not_visible";
-    confidence: number;
-    observation?: string;
-  };
-  drip_edge_observation?: {
-    state: "present_clean" | "present_rusted" | "missing" | "not_visible";
-    confidence: number;
-  };
-  exterior_signals?: Array<{ kind: string; confidence: number }>;
-  street_view_caveats?: string[];
-};
-
-async function callGeminiGroundLevel(
-  streetView: StreetViewResult,
-  apiKey: string,
-): Promise<GeminiRoofResponseV3["groundLevelAnalysis"] | null> {
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/` +
-    `${GEMINI_OBJECTS_MODEL}:generateContent?key=${apiKey}`;
-  const body = {
-    systemInstruction: { parts: [{ text: GEMINI_GROUND_LEVEL_PROMPT }] },
-    contents: [
-      {
-        parts: [
-          {
-            inline_data: {
-              mime_type: "image/jpeg",
-              data: streetView.imageBase64,
-            },
-          },
-          {
-            text:
-              "Analyze the ground-level Street View photograph above per " +
-              "your system instructions. Return strict JSON.",
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 1.0,
-      mediaResolution: "MEDIA_RESOLUTION_HIGH",
-      responseMimeType: "application/json",
-      responseSchema: GEMINI_GROUND_LEVEL_SCHEMA,
-    },
-  };
-  let raw: GroundLevelRaw;
-  try {
-    const res = await fetchWithTimeout(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      timeoutMs: 25_000,
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      console.warn(
-        `[gemini-ground] http_${res.status}: ${txt.slice(0, 200)}`,
-      );
-      return null;
-    }
-    const json = (await res.json()) as {
-      candidates?: Array<{
-        content?: { parts?: Array<{ text?: string }> };
-      }>;
-    };
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return null;
-    raw = JSON.parse(text) as GroundLevelRaw;
-  } catch (err) {
-    console.warn(
-      "[gemini-ground] threw:",
-      err instanceof Error ? err.message : String(err),
-    );
-    return null;
-  }
-
-  // Filter signals at the 0.60 confidence floor — same threshold the
-  // aerial pipeline uses to kill hallucinations.
-  const SIGNAL_FLOOR = 0.6;
-  const visibleRoofSignals = (raw.visible_roof_signals ?? []).filter(
-    (s) => typeof s.confidence === "number" && s.confidence >= SIGNAL_FLOOR,
-  );
-  const exteriorSignals = (raw.exterior_signals ?? []).filter(
-    (s) => typeof s.confidence === "number" && s.confidence >= SIGNAL_FLOOR,
-  );
-
-  console.log(
-    `[gemini-ground] visibility=${raw.roof_visibility ?? "?"} ` +
-      `roof_signals=${visibleRoofSignals.length} ` +
-      `fascia=${raw.fascia_gutter_condition?.state ?? "?"} ` +
-      `drip_edge=${raw.drip_edge_observation?.state ?? "?"} ` +
-      `caveats=${raw.street_view_caveats?.length ?? 0}`,
-  );
-
-  return {
-    panoLat: streetView.panoLat,
-    panoLng: streetView.panoLng,
-    panoDate: streetView.panoDate,
-    heading: streetView.heading,
-    roofVisibility: raw.roof_visibility ?? "none",
-    visibleRoofSignals,
-    fasciaGutterCondition: raw.fascia_gutter_condition ?? null,
-    dripEdgeObservation: raw.drip_edge_observation ?? null,
-    exteriorSignals,
-    caveats: raw.street_view_caveats ?? [],
-  };
-}
-
-/**
  * Persists the V3 result to leads.roof_v3_json so the rep workbench
  * can render "See report" instantly. Painted image (base64) is moved
  * to Supabase Storage; the row carries the URL plus the structured
@@ -1927,50 +1757,11 @@ async function handleV3Pinned(
   // visually merged adjacent same-pitch hips into one big polygon.
   const solarSegmentsForHint =
     solar?.solarPotential?.roofSegmentStats?.length ?? null;
-
-  // Kick off the Street View fetch in parallel with the aerial Gemini
-  // calls. The Street View static API is fast (~500ms) and the
-  // ground-level Flash call is similarly quick — both finish well
-  // inside the Pro Image paint budget, so adding this pass is free
-  // wall-clock latency. When no panorama exists (rural / private road)
-  // we soft-fail to null and the rest of the V3 result still ships.
-  const streetViewPromise: Promise<StreetViewResult | null> =
-    fetchStreetViewForProperty(lat, lng, googleKey).catch((err) => {
-      console.warn(
-        "[street-view] fetch_threw",
-        err instanceof Error ? err.message : String(err),
-      );
-      return null;
-    });
-
   const [paintedResult, richResult, rawLinesResult] = await Promise.allSettled([
     callGeminiMultimodal(tile.base64, geminiKey, solarSegmentsForHint),
     callGeminiRichData(tile.base64, geminiKey),
     callGeminiLines(tile.base64, geminiKey),
   ]);
-
-  // Ground-level analysis — runs AFTER the Street View image lands.
-  // It's a Flash call against a different image so it doesn't share
-  // any state with the aerial fan-out; we just await it here so the
-  // result is ready when we build the response payload below.
-  let groundLevelAnalysis:
-    | GeminiRoofResponseV3["groundLevelAnalysis"]
-    | null = null;
-  try {
-    const sv = await streetViewPromise;
-    if (sv) {
-      groundLevelAnalysis = await callGeminiGroundLevel(sv, geminiKey);
-    } else {
-      console.log(
-        `[street-view] no_panorama lat=${lat.toFixed(5)} lng=${lng.toFixed(5)}`,
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[street-view] ground_level_call_failed",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
 
   if (paintedResult.status === "fulfilled") {
     paintedImageBase64 = paintedResult.value.paintedImageBase64;
@@ -2754,7 +2545,6 @@ async function handleV3Pinned(
       penetrationAddersTotal: penetrationAdders.total,
       penetrationAdderLines: penetrationAdders.lines,
     },
-    groundLevelAnalysis,
     modelVersion: GEMINI_MODEL,
     computedAt: new Date().toISOString(),
   };
