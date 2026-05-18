@@ -402,15 +402,40 @@ function HeroScreen({
         <div className="ambient" />
         <CrescentSvg />
 
-        {/* Top bar — wordmark only. No nav (how-it-works / FAQ pulled per
-            §06 "whitespace is a feature"). The picture element prefers a
-            self-hosted brand asset at /brand/voxaris-ai-wordmark.png and
-            falls back to the DragonEF text wordmark when the image is
-            missing. */}
-        <header className="relative z-20 pt-7 lg:pt-10">
-          <div className="max-w-7xl mx-auto px-6 lg:px-10 flex justify-center">
-            <Link href="/" className="leading-none" aria-label="Voxaris — home">
-              <Wordmark size="lg" tone="ink" />
+        {/* Top bar — small wordmark in the corner, rep Login link
+            opposite. The big VOXARIS announcement happens via the
+            serif headline below; the header is just a brand anchor +
+            rep door. Per brand §06 "whitespace is a feature" — no nav
+            links other than the one rep Login. */}
+        <header className="relative z-20 pt-6 lg:pt-7">
+          <div className="max-w-7xl mx-auto px-6 lg:px-10 flex items-center justify-between">
+            <Link
+              href="/"
+              className="leading-none"
+              aria-label="Voxaris — home"
+            >
+              <Wordmark size="sm" tone="ink" />
+            </Link>
+            <Link
+              href="/login"
+              className="leading-none inline-flex items-center gap-2 transition-colors"
+              style={{
+                fontFamily: "var(--vx-font-ui)",
+                fontWeight: 600,
+                fontSize: "11px",
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: "var(--vx-ink-soft)",
+                padding: "8px 14px",
+                border: "1px solid var(--vx-rule)",
+                borderRadius: 0,
+              }}
+              aria-label="Rep login"
+            >
+              Login
+              <span aria-hidden="true" style={{ fontWeight: 400 }}>
+                →
+              </span>
             </Link>
           </div>
         </header>
