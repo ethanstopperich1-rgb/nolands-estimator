@@ -73,17 +73,22 @@ function haversineMiles(
 const IEM_TYPETEXT_ALLOW = new Set([
   "HAIL",
   "TORNADO",
+  "FUNNEL CLOUD",
+  "WATERSPOUT",
   "TSTM WND DMG",
   "TSTM WND GST",
+  "NON-TSTM WND DMG",
+  "NON-TSTM WND GST",
   "HIGH WIND",
-  "FUNNEL CLOUD",
+  "HIGH SUST WINDS",
+  "MARINE TSTM WIND",
 ]);
 
 function normalizeType(raw: string): string {
   const u = raw.toUpperCase();
   if (u === "HAIL") return "hail";
-  if (u === "TORNADO" || u === "FUNNEL CLOUD") return "tornado";
-  if (u.startsWith("TSTM WND") || u === "HIGH WIND") return "thunderstorm wind";
+  if (u === "TORNADO" || u === "FUNNEL CLOUD" || u === "WATERSPOUT") return "tornado";
+  if (u.includes("WND") || u.includes("WIND")) return "thunderstorm wind";
   return raw.toLowerCase();
 }
 
@@ -126,12 +131,25 @@ export async function GET(req: Request) {
   // IEM hard-caps practical queries around ~30 days. 7 is the canvass
   // default; 30 covers the "last month" pill on the UI.
   const days = Math.max(1, Math.min(365, Number(searchParams.get("daysBack")) || 90));
-  // Optional 2-letter state hint — used to bound the IEM upstream
-  // payload. Defaults to FL because that's the only territory we
-  // serve. Validated against a safe-list to keep this off the SSRF
-  // / injection radar.
-  const stateRaw = (searchParams.get("state") ?? "FL").toUpperCase();
-  const state = /^[A-Z]{2}$/.test(stateRaw) ? stateRaw : "FL";
+  // WFO (NWS Weather Forecast Office) bound on the upstream payload.
+  // IEM's `state=XX` parameter is silently ignored on `lsr.geojson`
+  // (verified 2026-05 — passing state=FL returned CO/MA/NY data), so
+  // we have to enumerate the WFOs that cover the territory. The
+  // `wfos` query param IS respected.
+  //
+  // Florida WFO coverage:
+  //   TBW  Tampa Bay   JAX  Jacksonville   MFL  Miami / S. Florida
+  //   MLB  Melbourne (incl. Orlando + Volusia)
+  //   TAE  Tallahassee (panhandle)         KEY  Key West
+  //   EYW  Key West (legacy alias kept for safety)
+  //
+  // Caller can override with ?wfos=ABC,DEF,... when serving other
+  // territories. Validated against a safe pattern.
+  const wfosRaw = searchParams.get("wfos");
+  const wfos =
+    wfosRaw && /^[A-Z]{3}(,[A-Z]{3})*$/.test(wfosRaw.toUpperCase())
+      ? wfosRaw.toUpperCase()
+      : "TBW,JAX,MFL,MLB,TAE,KEY,EYW";
 
   if (
     !Number.isFinite(lat) ||
@@ -179,12 +197,11 @@ export async function GET(req: Request) {
   const url = new URL("https://mesonet.agron.iastate.edu/geojson/lsr.geojson");
   url.searchParams.set("sts", fmt(start));
   url.searchParams.set("ets", fmt(etsBucket));
-  // Bound the upstream payload by state — without this, IEM returns
-  // every LSR in CONUS for the window. On an active severe-weather
-  // day that's 5k-50k features and several MB, blowing past our 8s
-  // timeout. With state=FL the payload stays small even during a
-  // tropical-system landfall.
-  url.searchParams.set("state", state);
+  // Bound the upstream payload to our WFO list (see comment up top).
+  // Without this IEM returns every LSR in CONUS for the window —
+  // 5k-50k features, hits the 10k cap, our bbox filter then misses
+  // every nearby event because the cap truncated FL data out.
+  url.searchParams.set("wfos", wfos);
 
   let raw: IEMResponse;
   try {
