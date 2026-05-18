@@ -61,6 +61,27 @@ export default function LeadReport({ lead }: { lead: Lead }) {
   const paintedUrl =
     typeof v3?.painted_url === "string" ? v3.painted_url : null;
 
+  // Property fallbacks. Many leads land with `zip` and `county` empty
+  // on the row even when the address string carries them — /api/leads
+  // doesn't enrich, and rep-workbench saves have no extras. Pull the
+  // ZIP out of the address text as a last resort; leave county null
+  // unless we wire a reverse-geocode step later.
+  const zipMatch = lead.address?.match(/\b\d{5}(?:-\d{4})?\b/);
+  const derivedZip = lead.zip?.trim() || zipMatch?.[0] || null;
+  // Cleaner display address — drop the duplicate trailing ZIP and the
+  // ", USA" we always append, so the Property card reads as a street
+  // address only. Original `lead.address` stays untouched everywhere
+  // else (directions link, lead lookups, etc).
+  const displayAddress = (() => {
+    if (!lead.address) return "—";
+    let s = lead.address.replace(/,\s*USA$/i, "").trim();
+    if (derivedZip) {
+      s = s.replace(new RegExp(`\\s*${derivedZip.replace(/[^\d]/g, "")}$`), "").trim();
+      s = s.replace(/,\s*$/, "").trim();
+    }
+    return s || lead.address;
+  })();
+
   // ── Storm history (rep-adjustable) ─────────────────────────────────
   const [stormRadius, setStormRadius] = useState<number>(10);
   const [stormDays, setStormDays] = useState<number>(90);
@@ -268,17 +289,27 @@ export default function LeadReport({ lead }: { lead: Lead }) {
         >
           <DefList
             rows={[
-              { label: "Address", value: lead.address },
-              { label: "ZIP", value: lead.zip ?? "—", mono: true },
-              { label: "County", value: lead.county ?? "—" },
-              {
-                label: "Lat / Lng",
-                mono: true,
-                value:
-                  lead.lat != null && lead.lng != null
-                    ? `${lead.lat.toFixed(6)}, ${lead.lng.toFixed(6)}`
-                    : "—",
-              },
+              // Address with the trailing ZIP + ", USA" peeled off so it
+              // doesn't double up with the dedicated ZIP row below.
+              { label: "Address", value: displayAddress },
+              ...(derivedZip
+                ? [{ label: "ZIP", value: derivedZip, mono: true }]
+                : []),
+              // County is only populated by reverse geocoding (not wired
+              // yet). Hide the row entirely when missing instead of
+              // showing an em-dash that looks like a missing field.
+              ...(lead.county
+                ? [{ label: "County", value: lead.county }]
+                : []),
+              ...(lead.lat != null && lead.lng != null
+                ? [
+                    {
+                      label: "Lat / Lng",
+                      mono: true,
+                      value: `${lead.lat.toFixed(6)}, ${lead.lng.toFixed(6)}`,
+                    },
+                  ]
+                : []),
             ]}
           />
         </Section>
@@ -348,7 +379,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
         if (!e) return null;
         const source = gem
           ? `Voxaris V3 · ${gem.linesCount ?? 0} lines`
-          : "Solar estimate";
+          : "Estimate";
         return (
           <Section title="Edges" badge={source}>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
