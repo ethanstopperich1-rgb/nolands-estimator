@@ -1427,10 +1427,14 @@ function Wordmark({
   size?: "lg" | "md" | "sm";
   tone?: "ink" | "cream";
 }) {
-  // Size targets: lg (hero) = ~72px tall, md (page header) = ~48px,
-  // sm (compact) = ~32px. The earlier sizes (40 / 28 / 22) were way too
-  // small to register as a brand mark.
-  const dim = size === "lg" ? 72 : size === "md" ? 48 : 32;
+  // Size targets:
+  //   lg (hero on /) = ~140px tall — pairs with the clamp(54px,8.2vw,
+  //       120px) display headline below. Anything smaller reads as a
+  //       footer brand mark, not a hero brand mark.
+  //   md (page header) = ~52px — used on internal pages where the
+  //       wordmark is a nav anchor, not the page identity.
+  //   sm (compact) = ~32px — footer + chips.
+  const dim = size === "lg" ? 140 : size === "md" ? 52 : 32;
   const color = tone === "ink" ? "var(--vx-ink)" : "var(--vx-cream)";
   const textSize = size === "lg" ? 56 : size === "md" ? 36 : 24;
   return (
