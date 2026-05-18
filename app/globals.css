@@ -2672,6 +2672,30 @@ article p,
 .voxaris .theme-terminal::before,
 .voxaris .theme-terminal::after { display: none !important; }
 
+/* Two-tone background fix.
+ *
+ * The dashboard chrome (sidebar `<aside>` + desktop topbar + mobile
+ * topbar + drawer + footer) was painted with inline Tailwind classes
+ * like `bg-[rgba(8,11,17,0.32)] backdrop-blur-2xl` for the dark-glass
+ * aesthetic. Under the .voxaris cream remap those translucent dark
+ * fills bleed THROUGH the cream parent and render as a muddy khaki
+ * strip beside the cream content, making the layout look like two
+ * different background colors slammed together.
+ *
+ * Force every chrome surface onto the same cream + drop the blur.
+ * Hairline borders (already mapped to --vx-rule) carry the
+ * separation; we don't need a second background.
+ *
+ * Targeting `aside` (the sidebar) + every `backdrop-blur-*` class
+ * catches all current chrome surfaces AND future ones that drag in
+ * the dark-glass utility — single rule, no class-name fragility. */
+.voxaris aside,
+.voxaris [class*="backdrop-blur"] {
+  background: var(--vx-cream) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* Strip any neon shadow / glow that escaped. Brand says no glow. */
 .voxaris [class*="shadow-[0_0_"] { box-shadow: none !important; }
 
