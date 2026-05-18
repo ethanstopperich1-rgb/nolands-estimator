@@ -446,7 +446,7 @@ function LeadDrawer({
           </div>
           <div className="flex items-center gap-2">
             <Link
-              href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
+              href={`/dashboard/leads/${encodeURIComponent(lead.public_id)}`}
               className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-[12.5px] font-medium bg-[var(--vx-terra)] hover:bg-[var(--vx-terra-dark)] text-[var(--vx-cream)] transition-colors"
             >
               See report
