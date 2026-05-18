@@ -31,6 +31,7 @@ import {
   calculateSuggestedWaste,
 } from "@/lib/pricing/calculate-waste";
 import type { Material } from "@/types/estimate";
+import { ROOFING_FACTS } from "@/lib/roofing-facts";
 
 type Step = "address" | "pin" | "loading" | "result" | "error";
 
@@ -664,40 +665,78 @@ function AddressStep({ onResolved }: { onResolved: (a: AddressResolved) => void 
   }, [onResolved]);
   return (
     <section
-      className="p-8 lg:p-10"
+      className="overflow-hidden"
       style={{
         background: "var(--vx-paper)",
         border: "1px solid var(--vx-rule)",
         borderRadius: "var(--vx-radius-card)",
+        boxShadow: "0 1px 2px rgba(15, 27, 45, 0.06)",
       }}
     >
-      <label
-        htmlFor="address"
-        className="block text-[10.5px] uppercase tracking-[0.18em] mb-4 font-medium"
-        style={{ color: "var(--vx-muted)" }}
-      >
-        Property address
-      </label>
-      <input
-        ref={inputRef}
-        id="address"
-        type="text"
-        placeholder="123 Main St, Jupiter, FL 33458"
-        className="w-full px-5 py-4 text-lg tracking-tight outline-none"
+      {/* Ink banner — gives the rep workbench chromatic weight against
+          the otherwise all-cream chrome. Customer feedback was "too
+          cream" — ink-on-cream is the second strongest visual register
+          in the brand (after terra-on-cream), and using it here as a
+          banner lets the workbench feel like an instrument panel, not
+          a marketing surface. */}
+      <div
+        className="px-6 py-5 flex items-center gap-3"
         style={{
-          background: "var(--vx-cream)",
-          border: "1px solid var(--vx-rule)",
-          borderRadius: 0,
-          color: "var(--vx-ink)",
-          fontFamily: "var(--vx-font-ui)",
+          background: "var(--vx-ink)",
+          color: "var(--vx-paper)",
         }}
-        autoFocus
-        spellCheck={false}
-        autoComplete="off"
-      />
-      <p className="text-[13px] mt-4 italic font-serif" style={{ color: "var(--vx-ink-soft)" }}>
-        Pick from the dropdown. Next you&apos;ll drop a pin on the exact center of the roof.
-      </p>
+      >
+        <span
+          aria-hidden="true"
+          className="marker"
+          style={{ background: "var(--vx-terra)" }}
+        />
+        <div
+          className="eyebrow"
+          style={{
+            color: "rgba(236, 227, 208, 0.6)",
+            letterSpacing: "0.22em",
+          }}
+        >
+          Property address
+        </div>
+      </div>
+
+      <div className="px-6 py-7">
+        <input
+          ref={inputRef}
+          id="address"
+          type="text"
+          placeholder="123 Main St, Jupiter, FL 33458"
+          className="addr-input w-full"
+          style={{
+            borderBottom: "2px solid var(--vx-rule)",
+            paddingBottom: "10px",
+            transition: "border-color 200ms ease",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderBottomColor = "var(--vx-terra)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderBottomColor = "var(--vx-rule)";
+          }}
+          autoFocus
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <p
+          className="mt-4 italic"
+          style={{
+            fontFamily: "var(--vx-font-display)",
+            fontSize: "13.5px",
+            color: "var(--vx-ink-soft)",
+            lineHeight: 1.55,
+          }}
+        >
+          Pick from the dropdown. Next you&apos;ll drop a pin on the exact
+          center of the roof.
+        </p>
+      </div>
     </section>
   );
 }
@@ -789,18 +828,115 @@ function PinStep({
 
 // ─── Loading panel ──────────────────────────────────────────────────────
 
-function LoadingPanel({ elapsed, message }: { elapsed: number; message: string }) {
-  const pct = Math.min(100, Math.round((elapsed / 22) * 100));
+/**
+ * Loading panel — mirrors the customer LoadingScreen on `/`.
+ *
+ * Rotating-fact carousel + terracotta progress bar. The rep sees the
+ * same wait experience as their customer, which matters for two
+ * reasons:
+ *   1. Calibration — when reps know what their customer is seeing in
+ *      the 25-second wait, they pitch the experience confidently.
+ *   2. Brand consistency — the rep workbench shouldn't feel like a
+ *      different product than the customer-facing root.
+ *
+ * Facts shuffled once per loading session via a lazy useState
+ * initializer so repeat estimates don't cycle the same five.
+ */
+function LoadingPanel({
+  elapsed,
+  message,
+}: {
+  elapsed: number;
+  message: string;
+}) {
+  // Asymptotic — fast climb, slow finish. Never hits 100% until the
+  // response actually lands.
+  const pct = Math.min(99, Math.round(100 * (1 - Math.exp(-elapsed / 22))));
+
+  const [shuffled] = useState<readonly string[]>(() => {
+    const arr = [...ROOFING_FACTS];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  });
+  const FACT_INTERVAL = 7;
+  const factIndex = Math.min(
+    shuffled.length - 1,
+    Math.floor(elapsed / FACT_INTERVAL),
+  );
+  const fact = shuffled[factIndex];
+
   return (
-    <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-8 text-center">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-cy-400">Measuring</p>
-      <h2 className="font-display text-2xl mt-3">{message}</h2>
-      <div className="mt-6 mx-auto max-w-xs h-px bg-ink-700 relative overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-cy-400 transition-[width] duration-300" style={{ width: `${pct}%` }} />
+    <section
+      className="p-10 md:p-14 text-center"
+      style={{
+        background: "var(--vx-paper)",
+        border: "1px solid var(--vx-rule)",
+        borderRadius: "var(--vx-radius-card)",
+        boxShadow: "0 1px 2px rgba(15, 27, 45, 0.06)",
+      }}
+    >
+      {/* Status eyebrow — muted, sits above the fact */}
+      <div
+        className="eyebrow"
+        style={{ color: "var(--vx-muted)", marginBottom: "28px" }}
+      >
+        Measuring · {message}
       </div>
-      <p className="mt-3 text-[10px] tracking-[0.18em] uppercase text-slate-400 tabular-nums">
-        {Math.min(elapsed, 22)} / 22 sec
+
+      {/* Fact — the editorial hero. Cross-fade keyed on factIndex. */}
+      <p
+        key={factIndex}
+        className="font-serif mx-auto rise"
+        data-d="1"
+        style={{
+          fontSize: "clamp(22px, 2.6vw, 30px)",
+          lineHeight: 1.4,
+          fontWeight: 400,
+          color: "var(--vx-ink)",
+          fontStyle: "italic",
+          maxWidth: "60ch",
+        }}
+      >
+        {fact}
       </p>
+
+      {/* Terracotta progress bar — the one terra moment on this screen */}
+      <div
+        className="mt-10 mx-auto"
+        style={{
+          maxWidth: "520px",
+          height: "3px",
+          background: "var(--vx-rule)",
+          position: "relative",
+          overflow: "hidden",
+          borderRadius: "2px",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: `${pct}%`,
+            background: "var(--vx-terra)",
+            transition: "width 0.4s ease",
+          }}
+        />
+      </div>
+      <div
+        className="mt-3 tabular"
+        style={{
+          fontSize: "10.5px",
+          letterSpacing: "0.22em",
+          textTransform: "uppercase",
+          color: "var(--vx-muted)",
+          fontFamily: "var(--vx-font-ui)",
+        }}
+      >
+        {pct}% · {Math.min(elapsed, 60)} s elapsed
+      </div>
     </section>
   );
 }
