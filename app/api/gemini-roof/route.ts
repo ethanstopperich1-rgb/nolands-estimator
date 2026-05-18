@@ -769,7 +769,20 @@ export interface GeminiRoofResponseV3 {
    *  trail). The customer always sees the corrected number — the raw
    *  Solar values are preserved under `correction.solarRawSqft` etc. */
   solar: {
+    /** Customer-facing total sloped roof area in sqft.
+     *  Includes every Solar segment ≥ 3° pitch — i.e. the homeowner's
+     *  full "this is my roof" mental model: main shingle, low-slope
+     *  additions, lanai covers, screened-porch roofs. Excludes only
+     *  pool cages (0-2°) and pergolas. */
     sqft: number | null;
+    /** Pricing-eligible asphalt-shingle roof area in sqft.
+     *  Tighter filter (≥ 12° pitch) so the tier prices stay calibrated
+     *  to the 4/12 manufacturer-warranty minimum. Customer page uses
+     *  this — not `sqft` — when computing Good/Better/Best tiers, so
+     *  the displayed roof number can be wider than the priced area
+     *  without the price ballooning. Equals `sqft` when every segment
+     *  is steeper than 12° (the common case on modern FL builds). */
+    quotableSqft: number | null;
     footprintSqft: number | null;
     pitchDegrees: number | null;
     segmentCount: number;
@@ -2011,16 +2024,42 @@ async function handleV3Pinned(
   // Modern flat-roof homes (rare in FL) would be filtered too — but
   // those need a different product anyway, so the shingles estimator
   // declining to quote them is the right behavior.
-  // 12° (~ 2.5/12) — Florida residential shingles are 4/12 (18.4°)
-  // minimum; anything below is a lanai / pool cage / patio cover /
-  // pergola / carport awning, none of which get re-shingled. Earlier
-  // 5° and 8° thresholds were too generous and let pool overhangs
-  // slip through, inflating sqft (and price) by 30–50% on homes with
-  // big screen enclosures. The 4/12 minimum is a hard FL code +
-  // manufacturer-warranty constraint so 12° is safely below the
-  // legitimate-shingle floor.
+  // ─── Two-threshold split (May 2026) ───────────────────────────────
+  // The customer's gut check is "is the sqft number the size of MY roof?"
+  // Filtering all sub-12° segments out of the displayed total broke that
+  // check on 8450 Oak Park (real customer report): the house's two
+  // low-slope wings (11.6° / 6.6°) were eaten by the filter, displayed
+  // 4,357 vs Solar's actual 5,487 (-20%). Customer immediately said
+  // "that's not my house" and trust collapsed.
+  //
+  // The earlier 12° threshold wasn't wrong — it was answering a
+  // DIFFERENT question (what area do we PRICE as asphalt-shingle re-roof,
+  // given the 4/12 manufacturer-warranty floor). Both questions matter.
+  //
+  // Resolution: two thresholds.
+  //   • DISPLAY_MIN_PITCH_DEG = 3°  — everything above this is "real
+  //     roof you'd recognize as yours." 3° excludes pool cages (0-2°)
+  //     and pergolas (effectively flat) but includes lanai covers and
+  //     low-slope additions that the homeowner identifies as their roof.
+  //   • SHINGLE_MIN_PITCH_DEG = 12° — used for the *pricing-eligible
+  //     shingle area*. Anything 5-12° gets re-roofed but with a
+  //     different (membrane / metal / TPO) product, priced elsewhere.
+  //
+  // The customer-facing header sqft = displayedSlopedSqft.
+  // Pricing tiers + facets array continue to use the 12°-filtered set
+  // so Brad's prior calibration on Newcomb/Jupiter holds.
+  const DISPLAY_MIN_PITCH_DEG = 3;
   const SHINGLE_MIN_PITCH_DEG = 12;
   const allSegments = solar?.solarPotential?.roofSegmentStats ?? [];
+
+  const displaySegments = allSegments.filter(
+    (seg) => (seg.pitchDegrees ?? 0) >= DISPLAY_MIN_PITCH_DEG,
+  );
+  const displaySlopedM2 = displaySegments.reduce(
+    (s, seg) => s + (seg.stats?.areaMeters2 ?? 0),
+    0,
+  );
+
   const shingleSegments = allSegments.filter(
     (seg) => (seg.pitchDegrees ?? 0) >= SHINGLE_MIN_PITCH_DEG,
   );
@@ -2527,9 +2566,36 @@ async function handleV3Pinned(
     return null;
   });
 
+  // Customer-facing display sqft (wider, 3° filter) vs pricing-eligible
+  // shingle sqft (narrower, 12° filter). See the two-threshold comment
+  // up at the SHINGLE_MIN_PITCH_DEG declaration for the full reasoning.
+  //
+  // When undercount correction kicks in (Solar MEDIUM/LOW imagery →
+  // OSM × slope-factor swap), `finalSlopedSqft` IS the corrected
+  // full-roof estimate, so both display and pricing fall back to it
+  // rather than to the segment-level numbers Solar didn't trust enough
+  // to publish at full quality.
+  const displaySlopedSqftRaw =
+    displaySlopedM2 > 0 ? Math.round(displaySlopedM2 * 10.7639) : 0;
+  const customerDisplaySqft = correction?.applied
+    ? finalSlopedSqft
+    : displaySlopedSqftRaw > 0
+      ? displaySlopedSqftRaw
+      : finalSlopedSqft;
+
+  if (customerDisplaySqft !== finalSlopedSqft && customerDisplaySqft > 0) {
+    console.log(
+      `[gemini-roof v3] display_vs_quotable ` +
+        `display=${customerDisplaySqft}sqft (3°+) ` +
+        `quotable=${finalSlopedSqft}sqft (12°+) ` +
+        `delta=${customerDisplaySqft - finalSlopedSqft}sqft`,
+    );
+  }
+
   const result: GeminiRoofResponseV3 = {
     solar: {
-      sqft: finalSlopedSqft > 0 ? finalSlopedSqft : null,
+      sqft: customerDisplaySqft > 0 ? customerDisplaySqft : null,
+      quotableSqft: finalSlopedSqft > 0 ? finalSlopedSqft : null,
       footprintSqft: finalFootprintSqft > 0 ? finalFootprintSqft : null,
       pitchDegrees: avgPitchDeg,
       segmentCount: shingleSegments.length,

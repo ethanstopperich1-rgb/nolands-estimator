@@ -48,7 +48,14 @@ interface AddressResolved {
 
 interface V3Response {
   solar: {
+    /** Customer-facing total sloped sqft (includes low-slope wings + lanai
+     *  cover, excludes pool cages and pergolas). Drives the headline number. */
     sqft: number | null;
+    /** Pricing-eligible asphalt-shingle sqft (≥ 12° pitch). Used when
+     *  computing Good/Better/Best tier prices so quotes stay calibrated
+     *  to asphalt-roof costs even when the headline includes low-slope
+     *  area. */
+    quotableSqft: number | null;
     footprintSqft: number | null;
     pitchDegrees: number | null;
     segmentCount: number;
@@ -1087,8 +1094,17 @@ function ResultScreen({
   //      that survived the six-guard filter chain
   // The rep workbench has the detailed waste breakdown; this is the
   // customer-visible quote.
+  // Pricing-eligible sqft. We deliberately price on `quotableSqft` (the
+  // ≥ 12° asphalt-shingle portion) rather than the wider headline `sqft`
+  // so the tier dollars stay calibrated to asphalt costs even when the
+  // headline includes a low-slope addition or lanai cover. Falls back
+  // to the headline sqft on responses that predate the split (e.g.
+  // cached estimates rendered before the May 18 fix), or when the V3
+  // pipeline routed through the OSM correction (MEDIUM/LOW imagery) —
+  // both cases mean `quotableSqft === sqft` already.
+  const pricingSqft = result.solar.quotableSqft ?? sqft;
   const tiers: TierPrice[] | null = useMemo(() => {
-    if (sqft == null) return null;
+    if (pricingSqft == null) return null;
     const wastePercent = result.pricing?.recommendedWastePercent ?? 12;
     const waste = {
       suggestedPercent: wastePercent,
@@ -1102,12 +1118,12 @@ function ResultScreen({
       table: [] as Array<{ percent: number; totalSquares: number }>,
     };
     return calculateTieredPricingWithPenetrations(
-      sqft,
+      pricingSqft,
       waste,
       objects,
       pricingMaterialKey,
     ).tiers;
-  }, [sqft, result.pricing, objects, pricingMaterialKey]);
+  }, [pricingSqft, result.pricing, objects, pricingMaterialKey]);
 
   const objectCounts = objects.reduce<Record<string, number>>((acc, o) => {
     acc[o.type] = (acc[o.type] ?? 0) + 1;
