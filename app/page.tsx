@@ -545,7 +545,7 @@ function HeroScreen({
                   className="slim-input tabular"
                   value={phone}
                   onChange={(e) => setPhone(formatPhone(e.target.value))}
-                  placeholder="(239) 555-0117"
+                  placeholder="(407) 555-0117"
                   inputMode="tel"
                   autoComplete="tel"
                   maxLength={14}
@@ -1543,10 +1543,10 @@ function VoxarisFooter() {
               style={{ fontSize: "13px", color: "rgba(236, 227, 208, 0.78)", fontWeight: 600 }}
             >
               <li>
-                <a href="mailto:hello@voxaris.com">hello@voxaris.com</a>
+                <a href="mailto:admin@voxaris.io">admin@voxaris.io</a>
               </li>
               <li className="tabular">
-                <a href="tel:+12395550117">+1 (239) 555 · 0117</a>
+                <a href="tel:+14078195809">(407) 819 · 5809</a>
               </li>
             </ul>
           </div>

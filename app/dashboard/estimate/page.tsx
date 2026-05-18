@@ -107,17 +107,16 @@ interface EstimateResult {
   computedAt: string;
 }
 
-interface StormEvent {
-  event_type: string;
-  event_begin_time: string;
+/** Iowa State Mesonet LSR event shape — returned by /api/storms/recent.
+ *  Real-time NWS Local Storm Reports, updated within an hour of filing.
+ *  Replaces the prior NOAA SPC + MRMS combo (which lagged weeks). */
+interface RecentLsrEvent {
+  type: string; // "hail" | "tornado" | "thunderstorm wind" | ...
+  date: string | null;
   magnitude: number | null;
-  magnitude_type: string | null;
-  distance_miles: number;
-}
-interface HailEvent {
-  date: string;
-  maxSizeInches: number;
-  distance_miles: number;
+  magnitudeType: string | null;
+  distanceMiles: number | null;
+  remark?: string;
 }
 interface LeadRow {
   public_id: string;
@@ -172,8 +171,7 @@ function EstimatePage() {
 
   // Rep-only enrichments
   const [lead, setLead] = useState<LeadRow | null>(null);
-  const [storms, setStorms] = useState<StormEvent[] | null>(null);
-  const [hail, setHail] = useState<HailEvent[] | null>(null);
+  const [recentLsr, setRecentLsr] = useState<RecentLsrEvent[] | null>(null);
 
   // Load lead from deep link
   useEffect(() => {
@@ -215,24 +213,28 @@ function EstimatePage() {
     return () => window.clearInterval(id);
   }, [step]);
 
-  // Fetch storm history once we have a result
+  // Fetch RECENT severe weather (last 14 days, 10 miles) via the Iowa
+  // State Mesonet LSR feed. This is the real-time NWS Local Storm
+  // Reports endpoint — reports show up within an hour of being filed
+  // by NWS forecasters. Replaces the prior NOAA SPC BigQuery + MRMS
+  // radar combo which lagged 1-12 weeks and was useless for "what
+  // happened this weekend".
   useEffect(() => {
     if (!result || pinLat == null || pinLng == null) return;
     let cancelled = false;
-    Promise.allSettled([
-      fetch(`/api/storms?lat=${pinLat}&lng=${pinLng}&radiusMiles=5&yearsBack=5`).then(async (r) =>
-        r.ok ? ((await r.json()) as { events?: StormEvent[] }) : null,
-      ),
-      fetch(`/api/hail-mrms?lat=${pinLat}&lng=${pinLng}&radiusMiles=2&yearsBack=3`).then(async (r) =>
-        r.ok ? ((await r.json()) as { events?: HailEvent[] }) : null,
-      ),
-    ]).then(([sRes, hRes]) => {
-      if (cancelled) return;
-      if (sRes.status === "fulfilled" && sRes.value?.events) setStorms(sRes.value.events);
-      else setStorms([]);
-      if (hRes.status === "fulfilled" && hRes.value?.events) setHail(hRes.value.events);
-      else setHail([]);
-    });
+    fetch(
+      `/api/storms/recent?lat=${pinLat}&lng=${pinLng}&radiusMiles=10&daysBack=14`,
+    )
+      .then(async (r) =>
+        r.ok ? ((await r.json()) as { events?: RecentLsrEvent[] }) : null,
+      )
+      .then((data) => {
+        if (cancelled) return;
+        setRecentLsr(data?.events ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setRecentLsr([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -243,8 +245,7 @@ function EstimatePage() {
     setStep("loading");
     setError(null);
     setResult(null);
-    setStorms(null);
-    setHail(null);
+    setRecentLsr(null);
     try {
       const res = await fetch(`/api/gemini-roof?lat=${pinLat}&lng=${pinLng}&pinConfirmed=1`, {
         cache: "no-store",
@@ -269,8 +270,7 @@ function EstimatePage() {
     setPinLng(null);
     setResult(null);
     setError(null);
-    setStorms(null);
-    setHail(null);
+    setRecentLsr(null);
     setLead(null);
   }
 
@@ -408,35 +408,31 @@ function EstimatePage() {
     return items;
   }, [result]);
 
-  // Storm-vs-imagery: count storms that occurred AFTER the imagery date.
+  // Storm-vs-imagery: list LSRs that occurred AFTER the satellite
+  // imagery date. Tells the rep "your imagery is stale by N storms".
   const stormsAfterImagery = useMemo(() => {
-    if (!result?.solar.imageryDate) return null;
-    if (storms == null && hail == null) return null;
+    if (!result?.solar.imageryDate || recentLsr == null) return null;
     const cutoff = new Date(result.solar.imageryDate).getTime();
     const after: Array<{ date: string; label: string; mag: string }> = [];
-    for (const s of storms ?? []) {
-      const d = new Date(s.event_begin_time).getTime();
+    for (const e of recentLsr) {
+      if (!e.date) continue;
+      const d = new Date(e.date).getTime();
       if (d > cutoff) {
         after.push({
-          date: s.event_begin_time.slice(0, 10),
-          label: s.event_type,
-          mag: s.magnitude != null ? `${s.magnitude}${s.magnitude_type ?? ""}` : "—",
-        });
-      }
-    }
-    for (const h of hail ?? []) {
-      const d = new Date(h.date).getTime();
-      if (d > cutoff) {
-        after.push({
-          date: h.date.slice(0, 10),
-          label: "Hail (radar-derived)",
-          mag: `${h.maxSizeInches.toFixed(2)}″`,
+          date: e.date.slice(0, 10),
+          label: e.type,
+          mag:
+            e.magnitude != null
+              ? `${e.magnitude}${
+                  e.magnitudeType === "inches" ? "″" : e.magnitudeType ?? ""
+                }`
+              : "—",
         });
       }
     }
     after.sort((a, b) => (a.date < b.date ? 1 : -1));
     return after.slice(0, 8);
-  }, [result, storms, hail]);
+  }, [result, recentLsr]);
 
   // Pricing — V3 sqft × material rate × multipliers.
   const pricing = useMemo(() => {
@@ -510,8 +506,7 @@ function EstimatePage() {
               squaresAndWaste={squaresAndWaste}
               tearOffPlan={tearOffPlan}
               lineItems={lineItems}
-              storms={storms}
-              hail={hail}
+              recentLsr={recentLsr}
               stormsAfterImagery={stormsAfterImagery}
               pinLat={pinLat}
               pinLng={pinLng}
@@ -741,8 +736,7 @@ function ResultPanels({
   squaresAndWaste,
   tearOffPlan,
   lineItems,
-  storms,
-  hail,
+  recentLsr,
   stormsAfterImagery,
   pinLat,
   pinLng,
@@ -756,8 +750,7 @@ function ResultPanels({
   squaresAndWaste: { base: number; waste: number; ordered: number; bundles: number } | null;
   tearOffPlan: { tons: number; dumpster: string } | null;
   lineItems: Array<{ qty: number; description: string }> | null;
-  storms: StormEvent[] | null;
-  hail: HailEvent[] | null;
+  recentLsr: RecentLsrEvent[] | null;
   stormsAfterImagery: Array<{ date: string; label: string; mag: string }> | null;
   pinLat: number | null;
   pinLng: number | null;
@@ -936,8 +929,9 @@ function ResultPanels({
         effectivePitchDeg={effectivePitchDeg}
       />
 
-      {/* Storm history */}
-      <StormHistoryCard storms={storms} hail={hail} />
+      {/* Recent severe weather — Iowa State Mesonet LSR feed, real-
+          time NWS Local Storm Reports, last 14 days within 10 miles. */}
+      <RecentSevereWeatherCard events={recentLsr} />
 
       {/* Drive-there + jobsite ops */}
       {driveLink && (
@@ -1348,58 +1342,85 @@ function SiteConditionNotes({
   );
 }
 
-function StormHistoryCard({ storms, hail }: { storms: StormEvent[] | null; hail: HailEvent[] | null }) {
-  if (storms == null && hail == null) {
+/**
+ * Recent severe weather — Iowa State Mesonet LSR feed.
+ *
+ * Real-time NWS Local Storm Reports, last 14 days within 10 miles of
+ * the pin. Replaces the prior NOAA SPC + MRMS combo which lagged by
+ * 1-12 weeks and could not tell the rep "what hit your customer's
+ * roof this weekend".
+ *
+ * The LSR feed updates within an hour of the NWS forecaster filing the
+ * report, so reps can react to weekend storms before the homeowner
+ * even calls.
+ */
+function RecentSevereWeatherCard({
+  events,
+}: {
+  events: RecentLsrEvent[] | null;
+}) {
+  if (events == null) {
     return (
       <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Storm history</p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+          Recent severe weather
+        </p>
         <p className="mt-2 text-sm text-slate-500">Loading…</p>
       </section>
     );
   }
-  const stormCount = storms?.length ?? 0;
-  const hailCount = hail?.length ?? 0;
-  const maxHail =
-    hail && hail.length > 0
-      ? hail.reduce((m, h) => Math.max(m, h.maxSizeInches), 0)
-      : null;
+  const total = events.length;
+  const hail = events.filter((e) => e.type === "hail");
+  const wind = events.filter((e) => e.type === "thunderstorm wind");
+  const tornado = events.filter((e) => e.type === "tornado");
+  const maxHailIn = hail.reduce<number | null>((m, e) => {
+    if (e.magnitude == null) return m;
+    return m == null || e.magnitude > m ? e.magnitude : m;
+  }, null);
+  const mostRecent = events[0]?.date?.slice(0, 10);
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">Storm history</p>
-      <div className="grid grid-cols-3 gap-4 mb-4">
-        <Metric label="Reports (5yr)" value={stormCount.toString()} sub="hail / wind / tornado" />
-        <Metric label="Hail events (3yr)" value={hailCount.toString()} sub="radar-derived" />
-        <Metric label="Max hail" value={maxHail != null ? `${maxHail.toFixed(2)}″` : "—"} />
+      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+        Recent severe weather{" "}
+        <span className="text-slate-500 normal-case">
+          · last 14 days within 10 mi · live LSR feed
+        </span>
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+        <Metric
+          label="Reports"
+          value={total.toString()}
+          sub={mostRecent ? `latest ${mostRecent}` : "—"}
+        />
+        <Metric label="Hail" value={hail.length.toString()} sub={maxHailIn != null ? `max ${maxHailIn.toFixed(2)}″` : null} />
+        <Metric label="Wind" value={wind.length.toString()} />
+        <Metric label="Tornado" value={tornado.length.toString()} />
       </div>
-      {(storms && storms.length > 0) || (hail && hail.length > 0) ? (
+      {events.length > 0 ? (
         <ul className="space-y-1.5 text-sm">
-          {[
-            ...(storms ?? []).slice(0, 4).map((s) => ({
-              date: typeof s.event_begin_time === "string" ? s.event_begin_time.slice(0, 10) : "",
-              label: s.event_type,
-              mag: s.magnitude != null ? `${s.magnitude}${s.magnitude_type ?? ""}` : "—",
-              dist: s.distance_miles,
-            })),
-            ...(hail ?? []).slice(0, 4).map((h) => ({
-              date: h.date.slice(0, 10),
-              label: "Hail (radar)",
-              mag: `${h.maxSizeInches.toFixed(2)}″`,
-              dist: h.distance_miles,
-            })),
-          ]
-            .sort((a, b) => (a.date < b.date ? 1 : -1))
-            .slice(0, 6)
-            .map((e, i) => (
-              <li key={i} className="flex gap-3 text-slate-200 tabular-nums">
-                <span className="text-slate-400 w-24">{e.date}</span>
-                <span className="flex-1">{e.label}</span>
-                <span className="text-slate-400">{e.mag}</span>
-                <span className="text-slate-500">{e.dist.toFixed(1)} mi</span>
-              </li>
-            ))}
+          {events.slice(0, 8).map((e, i) => (
+            <li key={i} className="flex gap-3 text-slate-200 tabular-nums">
+              <span className="text-slate-400 w-24">
+                {e.date ? e.date.slice(0, 10) : "—"}
+              </span>
+              <span className="flex-1 capitalize">{e.type}</span>
+              <span className="text-slate-400">
+                {e.magnitude != null
+                  ? `${e.magnitude}${
+                      e.magnitudeType === "inches" ? "″" : e.magnitudeType ?? ""
+                    }`
+                  : "—"}
+              </span>
+              <span className="text-slate-500">
+                {e.distanceMiles != null ? `${e.distanceMiles.toFixed(1)} mi` : "—"}
+              </span>
+            </li>
+          ))}
         </ul>
       ) : (
-        <p className="text-sm text-slate-500">No severe weather reports in this radius / window.</p>
+        <p className="text-sm text-slate-500">
+          No NWS storm reports filed within 10 miles in the last 14 days.
+        </p>
       )}
     </section>
   );

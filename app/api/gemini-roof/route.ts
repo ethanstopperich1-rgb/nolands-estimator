@@ -355,9 +355,16 @@ async function callGeminiMultimodal(
     // because there's no image-edit binding to worry about.
     contents: [
       {
+        // Google's image-understanding docs: "When using a single
+        // image with text, place the text prompt AFTER the image part
+        // in the contents array." Plus the prompt opens with an
+        // explicit EDIT directive so Pro Image doesn't drift into
+        // "generate a new image of a roof inspection" — the failure
+        // mode we hit on Jupiter 2026-05-18 (output was a solid cyan
+        // blob on black, no source pixels preserved).
         parts: [
-          { text: GEMINI_ROOF_SYSTEM_INSTRUCTION },
           { inline_data: { mime_type: "image/png", data: tileBase64 } },
+          { text: GEMINI_ROOF_SYSTEM_INSTRUCTION },
         ] satisfies GeminiPart[],
       },
     ],
@@ -825,7 +832,11 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // the temperature: 1.0 + mediaResolution HIGH + systemInstruction split
 // changes from the same commit — any of those could produce a
 // different output even at the same lat/lng.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-box2d";
+// Bumped 2026-05-18 (round 2) — prompt now leads with "EDIT this
+// image" + image-before-text order to fix the cyan-blob-on-black
+// regression. Also fixed Solar slope-factor fallback for the
+// `sloped<footprint` impossible-data case.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-editfix-slopefix";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1926,7 +1937,36 @@ async function handleV3Pinned(
         const solarUndercounting = ratio < 0.6;
 
         if (gisIsResidential && gisCentroidNearPin && solarUndercounting) {
-          const slopeFactor = solarRawSloped / solarRawFootprint;
+          // Slope factor: ratio of sloped surface area to ground
+          // footprint. For a pitched roof, this MUST be >= 1.0
+          // (sloped surface is the hypotenuse). When Solar's
+          // imagery is bad, it sometimes returns `sloped < footprint`
+          // — physically impossible. Verified on Jupiter 2026-05-18:
+          // Solar returned sloped=1419 / footprint=1612 → 0.88,
+          // which then dragged OSM 3,336 × 0.88 = 2,937 instead of
+          // the correct ~3,594. Fix: detect the bad case and use the
+          // physical slope factor from avgPitchDeg.
+          const rawSlopeFactor = solarRawSloped / solarRawFootprint;
+          const physicalSlopeFactor =
+            avgPitchDeg != null && avgPitchDeg > 0 && avgPitchDeg < 80
+              ? 1 / Math.cos((avgPitchDeg * Math.PI) / 180)
+              : null;
+          let slopeFactor: number;
+          let slopeFactorSource: string;
+          if (rawSlopeFactor >= 1.0) {
+            slopeFactor = rawSlopeFactor;
+            slopeFactorSource = "solar raw ratio";
+          } else if (physicalSlopeFactor != null) {
+            // Solar gave a physically-impossible ratio. Recompute
+            // from average pitch (1 / cos(θ)).
+            slopeFactor = physicalSlopeFactor;
+            slopeFactorSource = `physical 1/cos(${avgPitchDeg!.toFixed(1)}°)`;
+          } else {
+            // No pitch data either — assume a 5/12 (22.6°) typical
+            // FL residential roof, slope factor ≈ 1.083.
+            slopeFactor = 1.083;
+            slopeFactorSource = "default 5/12";
+          }
           const correctedSloped = Math.round(gisSqft * slopeFactor);
           finalSlopedSqft = correctedSloped;
           finalFootprintSqft = Math.round(gisSqft);
@@ -1935,7 +1975,8 @@ async function handleV3Pinned(
             reason:
               `Solar imagery ${solar?.imageryQuality ?? "?"} undercounted: ` +
               `${solarRawFootprint} sqft → ${Math.round(gisSqft)} sqft footprint ` +
-              `(${gis.source} GIS, slope factor ${slopeFactor.toFixed(3)})`,
+              `(${gis.source} GIS, slope ${slopeFactor.toFixed(3)} ` +
+              `from ${slopeFactorSource})`,
             solarRawSlopedSqft: solarRawSloped,
             solarRawFootprintSqft: solarRawFootprint,
             gisSource: gis.source,
