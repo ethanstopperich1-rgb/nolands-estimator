@@ -1044,7 +1044,13 @@ function ResultPanels({
           <Metric label="Facets" value={result.facets.length.toString()} sub={`${result.derived.complexity} roof`} />
         </div>
         <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
-          <span>Stories: {result.derived.stories}</span>
+          {/* Stories removed from the rep workbench 2026-05-18 —
+              single-angle satellite can't reliably distinguish
+              single-story from multi-story homes. EagleView reads it
+              from oblique imagery we don't license. The backend still
+              computes `result.derived.stories` from a pitch + footprint
+              heuristic; we just don't surface a number we can't stand
+              behind to the rep. */}
           {result.derived.predominantCompass && (
             <span>Predominant face: {result.derived.predominantCompass}</span>
           )}

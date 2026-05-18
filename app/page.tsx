@@ -1303,9 +1303,13 @@ function ResultScreen({
               </span>
             );
           })()}
-          <span className="chip">
-            Stories <span className="chip-value">{derived.stories}</span>
-          </span>
+          {/* Stories chip removed 2026-05-18 — single-angle satellite
+              can't reliably tell single-story from multi-story (no
+              parallax, no shadow cast off vertical walls in the
+              tile). EagleView gets it from oblique imagery; we don't
+              have that signal. Rather than show a wrong number, we
+              omit it. `derived.stories` is still computed server-
+              side for the rep workbench and rep PDF flow. */}
           <span className="chip">
             Complexity <span className="chip-value">{derived.complexity}</span>
           </span>
