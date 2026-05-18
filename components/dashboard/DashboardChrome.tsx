@@ -147,8 +147,21 @@ export default function DashboardChrome({
         </button>
       </div>
 
-      {/* Sidebar — desktop */}
-      <aside className="hidden lg:flex lg:w-72 xl:w-80 shrink-0 flex-col gap-5 px-6 py-7 border-r border-white/[0.06] sticky top-0 h-screen bg-[rgba(8,11,17,0.32)] backdrop-blur-2xl">
+      {/* Sidebar — desktop.
+       *  - `sticky top-0` pins it to the viewport top when the main
+       *    content scrolls past it.
+       *  - `h-[100dvh]` clamps it to the dynamic viewport height
+       *    (better than h-screen on iPad / mobile-Safari address-bar
+       *    behaviour, equivalent on desktop).
+       *  - `overflow-y-auto` is the key bit: on shorter laptops the
+       *    nav + Sydney card + V1.0 footer can exceed the viewport
+       *    height; without an internal scroll, flex `mt-auto` pushes
+       *    the Sydney card to the bottom and clips the wordmark + nav
+       *    items off the TOP. Giving the aside its own scroll track
+       *    keeps every nav item reachable regardless of viewport
+       *    height, AND decouples sidebar scroll from main-content
+       *    scroll. */}
+      <aside className="hidden lg:flex lg:w-72 xl:w-80 shrink-0 flex-col gap-5 px-6 py-7 border-r border-white/[0.06] sticky top-0 h-[100dvh] overflow-y-auto bg-[rgba(8,11,17,0.32)] backdrop-blur-2xl">
         <SidebarContent pathname={pathname} basePath={basePath} isDemo={isDemo} role={role} />
       </aside>
 
