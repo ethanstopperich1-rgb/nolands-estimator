@@ -439,7 +439,12 @@ function HeroScreen({
               className="leading-none"
               aria-label="Voxaris — home"
             >
-              <Wordmark size="sm" tone="ink" />
+              {/* Header wordmark now matches the footer's `size="lg"`
+                  for symmetric brand bookends. Earlier corner-mark
+                  treatment (size="sm" 32px) read as a tiny chip; the
+                  footer carries the brand at 140px so the header
+                  should too. */}
+              <Wordmark size="lg" tone="ink" />
             </Link>
             <Link
               href="/login"
@@ -1635,7 +1640,7 @@ function VoxarisFooter() {
               className="eyebrow mb-6"
               style={{ color: "rgba(236, 227, 208, 0.55)" }}
             >
-              Premium voice &amp; vision agents
+              Premium roof intelligence
             </div>
             <p
               className="font-serif italic"
@@ -1693,7 +1698,7 @@ function VoxarisFooter() {
             fontWeight: 600,
           }}
         >
-          <span>© MMXXVI Voxaris, Inc.</span>
+          <span>© 2026 Voxaris, Inc.</span>
           <span>Orlando · Florida</span>
         </div>
       </div>
