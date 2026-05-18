@@ -2946,3 +2946,17 @@ article p,
   color: var(--vx-ink-soft);
   opacity: 0.7;
 }
+
+/* Hide the floating reCAPTCHA v3 badge — Google permits hiding it as
+   long as the brand-attribution copy ("This site is protected by
+   reCAPTCHA…") appears near the form. We put that copy on the lead
+   consent line in app/page.tsx; this rule removes the corner sticker
+   so it doesn't fight the brand. */
+.grecaptcha-badge {
+  visibility: hidden;
+  /* Belt + suspenders: hidden + positioned out of view in case Google
+     ever changes how the visibility flag interacts with their iframe. */
+  position: fixed !important;
+  bottom: -200px !important;
+  right: -200px !important;
+}

@@ -217,10 +217,29 @@ export function isRepRole(role: DashboardRole): boolean {
   return role === "rep";
 }
 
+/**
+ * Set `STRICT_DASHBOARD_AUTH=1` to disable the legacy service-role
+ * fallback paths in this file (both `getDashboardOfficeId()` and
+ * `getDashboardSupabase()`). Recommended for production once every
+ * staff user has been migrated to Supabase magic-link auth — at that
+ * point a missing session SHOULD route to the login page instead of
+ * silently returning the seed office's data via the service role.
+ *
+ * Audit (2026-05) flagged the fallback as a cross-tenant exposure risk
+ * because RLS doesn't apply to the service role. The flag is opt-in
+ * (not default-on) so an accidental Supabase outage doesn't lock every
+ * rep out mid-shift; flip it as soon as the magic-link rollout
+ * stabilizes.
+ */
+function strictDashboardAuth(): boolean {
+  return process.env.STRICT_DASHBOARD_AUTH === "1";
+}
+
 /** Resolve the office_id the dashboard should query.
  *
  *  When a Supabase session exists, we read it from public.users for
- *  the JWT user. When no session, fall back to the seed Voxaris office.
+ *  the JWT user. When no session, fall back to the seed Voxaris office
+ *  (unless STRICT_DASHBOARD_AUTH is on — see flag comment above).
  *  Returns null when Supabase isn't configured at all. */
 export async function getDashboardOfficeId(): Promise<string | null> {
   if (await isDemoRoute()) return null;
@@ -244,6 +263,7 @@ export async function getDashboardOfficeId(): Promise<string | null> {
       console.warn("[dashboard] auth-aware office_id lookup failed:", err);
     }
   }
+  if (strictDashboardAuth()) return null;
   if (!supabaseServiceRoleConfigured()) return null;
   return resolveOfficeIdBySlug(FALLBACK_OFFICE_SLUG);
 }
@@ -275,6 +295,10 @@ export async function getDashboardSupabase(): Promise<SupabaseService | null> {
       console.warn("[dashboard] server client init failed:", err);
     }
   }
+  // Service-role fallback (RLS-bypassing). Disabled when
+  // STRICT_DASHBOARD_AUTH=1 — pages get null and render the sign-in
+  // state instead of cross-tenant data via the seed office.
+  if (strictDashboardAuth()) return null;
   if (!supabaseServiceRoleConfigured()) return null;
   return createServiceRoleClient();
 }

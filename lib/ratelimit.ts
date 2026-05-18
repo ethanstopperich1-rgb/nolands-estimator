@@ -99,7 +99,24 @@ export async function rateLimit(
   bucket: Bucket = "standard",
 ): Promise<NextResponse | null> {
   const limiter = getLimiter(bucket);
-  if (!limiter) return null; // No Redis → fail open (dev / preview)
+  if (!limiter) {
+    // No Redis configured. Behavior depends on environment:
+    //   - dev / preview: fail OPEN so localhost + branch deploys still
+    //     work without provisioning Upstash.
+    //   - production: fail CLOSED with 503. The audit (2026-05) flagged
+    //     fail-open here as the primary $ abuse vector for the public
+    //     Gemini route. Set KV_REST_API_URL/TOKEN or UPSTASH_REDIS_REST_*
+    //     to lift the gate. To consciously opt back into fail-open in
+    //     prod (don't), set RATELIMIT_FAIL_OPEN=1.
+    if (process.env.NODE_ENV === "production" &&
+        process.env.RATELIMIT_FAIL_OPEN !== "1") {
+      return NextResponse.json(
+        { error: "rate_limit_unavailable" },
+        { status: 503, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return null;
+  }
 
   const id = clientIdentifier(req);
   try {

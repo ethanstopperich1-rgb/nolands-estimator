@@ -35,6 +35,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { AgentDispatchClient, SipClient } from "livekit-server-sdk";
 import { rateLimit } from "@/lib/ratelimit";
 
@@ -81,7 +82,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "service_unavailable" }, { status: 503 });
   }
   const provided = req.headers.get("x-dispatch-secret") ?? "";
-  if (provided !== expected) {
+  // Constant-time compare — for a long random secret the timing leak is
+  // small, but it's free to do this correctly and lets the audit close
+  // the finding without a footnote.
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

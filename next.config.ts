@@ -27,6 +27,10 @@ const config: NextConfig = {
       { source: "/estimate-v2/:path*", destination: "/", permanent: true },
       { source: "/estimate", destination: "/", permanent: true },
       { source: "/estimate/:path*", destination: "/", permanent: true },
+      // Customer-proposal share pages (/p/<id>) were retired — old links
+      // land on the customer estimator instead of 404.
+      { source: "/p/:slug", destination: "/", permanent: true },
+      { source: "/p/:slug/:path*", destination: "/", permanent: true },
     ];
   },
   // Permit /embed and /embed.js to be loaded cross-origin by third-party

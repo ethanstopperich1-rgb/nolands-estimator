@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { checkBotId } from "botid/server";
 import { rateLimit } from "@/lib/ratelimit";
+import { checkOrigin } from "@/lib/origin-guard";
 
 interface PlacePrediction {
   placePrediction?: {
@@ -9,8 +11,14 @@ interface PlacePrediction {
 }
 
 export async function GET(req: Request) {
+  const __o = checkOrigin(req);
+  if (__o) return __o;
   const __rl = await rateLimit(req, "standard");
   if (__rl) return __rl;
+  const __bot = await checkBotId();
+  if ("isBot" in __bot && __bot.isBot && !__bot.isVerifiedBot) {
+    return NextResponse.json({ error: "Bot detected" }, { status: 403 });
+  }
   const apiKey = process.env.GOOGLE_SERVER_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
   if (!apiKey) return NextResponse.json({ error: "Missing key" }, { status: 503 });
   const { searchParams } = new URL(req.url);

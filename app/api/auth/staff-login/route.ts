@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import {
+  checkLockout,
+  clearFailures,
+  recordFailure,
+  LOGIN_THROTTLE_MAX,
+  LOGIN_THROTTLE_WINDOW_SECONDS,
+} from "@/lib/login-throttle";
 
 export const runtime = "nodejs";
 
@@ -18,6 +25,29 @@ export const runtime = "nodejs";
  * password.
  */
 export async function POST(req: Request): Promise<NextResponse> {
+  // Brute-force throttle — 5 failed attempts in a 15-minute sliding
+  // window blocks further attempts from the same IP until the window
+  // expires. Read-only check up front; we don't consume budget on a
+  // request we're about to validate. Failures are recorded below.
+  const lock = await checkLockout(req);
+  if (lock.locked) {
+    return NextResponse.json(
+      {
+        error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSeconds / 60)} minutes.`,
+        retryAfterSeconds: lock.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(lock.retryAfterSeconds),
+          "X-RateLimit-Limit": String(LOGIN_THROTTLE_MAX),
+          "X-RateLimit-Window": String(LOGIN_THROTTLE_WINDOW_SECONDS),
+          "Cache-Control": "no-store",
+        },
+      },
+    );
+  }
+
   let body: { username?: string; password?: string };
   try {
     body = (await req.json()) as { username?: string; password?: string };
@@ -56,12 +86,16 @@ export async function POST(req: Request): Promise<NextResponse> {
     constantTimeEq(reqUser, user) &&
     constantTimeEq(reqPass, pass);
   if (!ok) {
+    await recordFailure(req);
     return NextResponse.json(
       { error: "Incorrect username or password." },
       { status: 401 },
     );
   }
 
+  // Successful login — wipe the failure counter so a legit user who
+  // mistyped once or twice doesn't carry residue toward future lockout.
+  await clearFailures(req);
   return setStaffCookie(NextResponse.json({ ok: true }), reqUser, reqPass);
 }
 

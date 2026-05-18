@@ -53,7 +53,11 @@
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import sharp from "sharp";
+import { checkBotId } from "botid/server";
 import { rateLimit } from "@/lib/ratelimit";
+import { checkOrigin } from "@/lib/origin-guard";
+import { watermarkPaintedPng } from "@/lib/watermark";
+import { isStaffRequest } from "@/lib/staff-auth";
 import { fetchWithTimeout } from "@/lib/safe-fetch";
 import { getCached, setCached } from "@/lib/cache";
 import { fetchGisFootprint } from "@/lib/reconcile-roof-polygon";
@@ -1440,6 +1444,18 @@ async function persistEstimateToLead(
   const supabase = createServiceRoleClient();
 
   // Upload painted PNG to Storage so the JSON row stays small.
+  //
+  // The `painted-roofs` bucket should be PRIVATE — earlier versions
+  // emitted a public URL, which meant anyone who learned a publicId
+  // (lead_<32-hex>) could pull customer-property imagery anonymously.
+  // Audit (2026-05) flagged this. Switch to a signed URL with a short
+  // TTL; the rep workbench renews on demand, and customer-facing share
+  // pages should fetch via a server route that re-signs per request.
+  //
+  // Migration note: bucket needs to be marked Private in Supabase
+  // Studio (or via SQL: update storage.buckets set public=false where
+  // id='painted-roofs'). Until that flips, getPublicUrl + signed URL
+  // both work; once flipped, only signed URLs work.
   let paintedUrl: string | null = null;
   if (result.paintedImageBase64) {
     try {
@@ -1452,10 +1468,21 @@ async function persistEstimateToLead(
           upsert: true,
         });
       if (!up.error) {
-        const { data: pub } = supabase.storage
+        // 7-day signed URL — long enough for the rep workbench's
+        // typical follow-up window without standing up a re-signer
+        // route. Customer-facing share pages should re-sign per
+        // request via a server handler (TODO once /p/<id> returns).
+        const { data: signed, error: signErr } = await supabase.storage
           .from("painted-roofs")
-          .getPublicUrl(objectKey);
-        paintedUrl = pub.publicUrl;
+          .createSignedUrl(objectKey, 60 * 60 * 24 * 7);
+        if (signed?.signedUrl) {
+          paintedUrl = signed.signedUrl;
+        } else {
+          console.warn(
+            "[gemini-roof v3] painted_signed_url_failed",
+            signErr?.message ?? "unknown",
+          );
+        }
       } else {
         console.warn(
           "[gemini-roof v3] painted_upload_failed",
@@ -2175,6 +2202,14 @@ async function handleV3Pinned(
     geminiAnalysis.facetCountEstimate?.complexity ??
     (facets.length >= 11 ? "complex" : facets.length >= 5 ? "moderate" : "simple");
 
+  // Stamp the painted PNG with a faint `voxaris.io` watermark BEFORE
+  // it goes into the response / Supabase Storage. This runs AFTER the
+  // line-classification Gemini passes above so the stamp doesn't pollute
+  // downstream model input. Soft-fails to the unwatermarked image.
+  if (paintedImageBase64) {
+    paintedImageBase64 = await watermarkPaintedPng(paintedImageBase64);
+  }
+
   const result: GeminiRoofResponseV3 = {
     solar: {
       sqft: finalSlopedSqft > 0 ? finalSlopedSqft : null,
@@ -2428,26 +2463,48 @@ async function handle(
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
-  const rl = await rateLimit(req, "standard");
+  const origin = checkOrigin(req);
+  if (origin) return origin;
+  // Bucket dropped from "standard" (60/min) → "expensive" (10/min):
+  // each invocation costs ~$0.05–$0.15 in Gemini credits, so the cap
+  // needs to match the cost class. BotID + origin allowlist already
+  // filter the obvious abusers; the rate limit catches a logged-in
+  // staff member accidentally hammering refresh.
+  const rl = await rateLimit(req, "expensive");
   if (rl) return rl;
+  const verdict = await checkBotId();
+  if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
+    return NextResponse.json({ error: "Bot detected" }, { status: 403 });
+  }
   const parsed = parseInputs(req, null);
   if (parsed instanceof NextResponse) return parsed;
+  // ?debug=1 returns raw Gemini text + caught errors — useful for ops,
+  // but a prompt-leak vector for the public. Strip it unless the caller
+  // is staff (cookie / Basic / Supabase session).
+  if (parsed.debug && !isStaffRequest(req)) parsed.debug = false;
   try {
     return await (parsed.pinConfirmed
       ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
       : handle(parsed.lat, parsed.lng, parsed.skipCache));
   } catch (err) {
+    // Log the full error for operators (Sentry / Vercel logs); return a
+    // generic shape to the client so stack hints / prompt fragments /
+    // dependency names don't leak. The audit flagged this in 2026-05.
     console.error("[gemini-roof] unhandled", err);
-    return NextResponse.json(
-      { error: "internal", detail: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const rl = await rateLimit(req, "standard");
+  const origin = checkOrigin(req);
+  if (origin) return origin;
+  // See GET above — same expensive bucket + BotID gate.
+  const rl = await rateLimit(req, "expensive");
   if (rl) return rl;
+  const verdict = await checkBotId();
+  if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
+    return NextResponse.json({ error: "Bot detected" }, { status: 403 });
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -2456,15 +2513,17 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const parsed = parseInputs(req, body);
   if (parsed instanceof NextResponse) return parsed;
+  // See GET above — staff-only debug flag.
+  if (parsed.debug && !isStaffRequest(req)) parsed.debug = false;
   try {
     return await (parsed.pinConfirmed
       ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
       : handle(parsed.lat, parsed.lng, parsed.skipCache));
   } catch (err) {
+    // Log the full error for operators (Sentry / Vercel logs); return a
+    // generic shape to the client so stack hints / prompt fragments /
+    // dependency names don't leak. The audit flagged this in 2026-05.
     console.error("[gemini-roof] unhandled", err);
-    return NextResponse.json(
-      { error: "internal", detail: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }

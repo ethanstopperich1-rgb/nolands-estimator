@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { rateLimit } from "@/lib/ratelimit";
 import { checkBotId } from "botid/server";
+import { verifyRecaptcha } from "@/lib/recaptcha";
 import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
 import { attachLeadContext } from "@/lib/sms-conversation";
 import {
@@ -64,6 +65,12 @@ interface LeadPayload {
    *  the same public_id so the final submit updates instead of inserting
    *  a duplicate. Server requires the same email as the original row. */
   existingLeadPublicId?: string;
+  /** reCAPTCHA v3 token minted on the client right before submit, with
+   *  action="submit_lead". Verified server-side via
+   *  `lib/recaptcha.ts` → Google siteverify. Score below the threshold
+   *  (default 0.5) is rejected. Optional in dev / when
+   *  RECAPTCHA_SECRET_KEY is unset; required + enforced in prod. */
+  recaptchaToken?: string;
   /** Full customer-side Estimate snapshot. When set on the FINAL /quote
    *  submit (not the step-1 partial), the server writes a `proposals`
    *  row pinned to this lead so the rep dashboard's lead drawer surfaces
@@ -142,6 +149,34 @@ export async function POST(req: Request) {
     body = (await req.json()) as LeadPayload;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // reCAPTCHA v3 — second bot signal, layered on top of BotID above.
+  // Verifier soft-fails when RECAPTCHA_SECRET_KEY is unset (dev /
+  // preview) and enforces the score threshold + action match when
+  // configured. Score / action are logged on every call so we can tune
+  // the threshold if false-positives start hurting conversion.
+  const captcha = await verifyRecaptcha(
+    body.recaptchaToken,
+    "submit_lead",
+    consentIp,
+  );
+  if (!captcha.ok) {
+    console.warn("[leads] recaptcha_rejected", {
+      reason: captcha.reason,
+      score: captcha.score,
+      action: captcha.action,
+    });
+    return NextResponse.json(
+      { error: "captcha_failed" },
+      { status: 403 },
+    );
+  }
+  if (captcha.score !== null) {
+    console.log("[leads] recaptcha_ok", {
+      score: captcha.score,
+      action: captcha.action,
+    });
   }
 
   if (!body.name?.trim() || !body.email?.trim() || !body.address?.trim()) {

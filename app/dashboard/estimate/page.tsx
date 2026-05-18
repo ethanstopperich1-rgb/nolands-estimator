@@ -22,6 +22,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
 import { MATERIAL_RATES } from "@/lib/pricing";
 import {
@@ -144,6 +145,18 @@ const LOADING_MESSAGES = [
 export default function DashboardEstimatePage() {
   return (
     <Suspense fallback={<div className="p-10 text-slate-400 text-sm">Loading…</div>}>
+      {/* Mounts BotID client challenge so staff calls to /api/gemini-roof
+          + /api/places/* carry a valid verdict header. Without this, the
+          server-side checkBotId() would reject every request from this
+          page as a bot. */}
+      <BotIdClient
+        protect={[
+          { path: "/api/gemini-roof", method: "GET" },
+          { path: "/api/gemini-roof", method: "POST" },
+          { path: "/api/places/autocomplete", method: "GET" },
+          { path: "/api/places/details", method: "GET" },
+        ]}
+      />
       <EstimatePage />
     </Suspense>
   );

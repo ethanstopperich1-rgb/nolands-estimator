@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
+import { useRecaptcha } from "@/lib/useRecaptcha";
 import {
   calculateTieredPricing,
   flatCustomerWaste,
@@ -159,7 +160,15 @@ const ROOFING_FACTS: string[] = [
 export default function HomePage() {
   return (
     <main className="voxaris">
-      <BotIdClient protect={[{ path: "/api/leads", method: "POST" }]} />
+      <BotIdClient
+        protect={[
+          { path: "/api/leads", method: "POST" },
+          { path: "/api/gemini-roof", method: "GET" },
+          { path: "/api/gemini-roof", method: "POST" },
+          { path: "/api/places/autocomplete", method: "GET" },
+          { path: "/api/places/details", method: "GET" },
+        ]}
+      />
       <VoxarisFlow />
     </main>
   );
@@ -312,6 +321,11 @@ function HeroScreen({
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // reCAPTCHA v3 — invisible, score-based. Layered on top of BotID.
+  // Token gets minted at submit time with action="submit_lead" and
+  // verified server-side by /api/leads. No-op when
+  // NEXT_PUBLIC_RECAPTCHA_SITE_KEY isn't set (dev / preview).
+  const { execute: executeRecaptcha } = useRecaptcha();
 
   // Google Places autocomplete
   useEffect(() => {
@@ -366,6 +380,13 @@ function HeroScreen({
       // marketingConsent is REQUIRED and gates the SMS intro + email.
       // Voice consent is captured later on the result page as its own
       // explicit action, then POSTed to /api/leads/[publicId]/voice-consent.
+      //
+      // reCAPTCHA v3 token minted here. If Google's script never
+      // finished loading (slow connection, blocked extension), this
+      // resolves to null and the server-side verifier will reject —
+      // unless reCAPTCHA isn't configured at all, in which case both
+      // sides no-op gracefully.
+      const recaptchaToken = await executeRecaptcha("submit_lead");
       let leadPublicId: string | null = null;
       try {
         const res = await fetch("/api/leads", {
@@ -381,6 +402,7 @@ function HeroScreen({
             source: "pitch.voxaris.io",
             marketingConsent: true,
             voiceConsent: false,
+            recaptchaToken,
           }),
         });
         if (res.ok) {
@@ -609,7 +631,34 @@ function HeroScreen({
                   >
                     Terms
                   </Link>
-                  .
+                  .{" "}
+                  {/* reCAPTCHA brand-attribution disclosure. Required by
+                      Google when we hide the corner badge via the CSS
+                      rule in app/globals.css. See:
+                      https://developers.google.com/recaptcha/docs/faq */}
+                  <span style={{ color: "var(--vx-muted)" }}>
+                    This site is protected by reCAPTCHA and the Google{" "}
+                    <a
+                      href="https://policies.google.com/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                      style={{ textDecorationColor: "var(--vx-muted)", textUnderlineOffset: "2px" }}
+                    >
+                      Privacy Policy
+                    </a>{" "}
+                    and{" "}
+                    <a
+                      href="https://policies.google.com/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                      style={{ textDecorationColor: "var(--vx-muted)", textUnderlineOffset: "2px" }}
+                    >
+                      Terms of Service
+                    </a>{" "}
+                    apply.
+                  </span>
                 </span>
               </label>
             </div>
