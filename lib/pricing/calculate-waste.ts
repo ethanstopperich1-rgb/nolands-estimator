@@ -400,6 +400,51 @@ export interface TierPrice {
   effectiveSqft: number;
   /** Final price: effectiveSqft × tier.ratePerSqft, rounded to $50. */
   total: number;
+  /** Estimated monthly payment at our default financing terms. The
+   *  customer-visible headline. See `FINANCE_TERMS` for the math. */
+  monthly: number;
+}
+
+/**
+ * Default financing terms surfaced to the homeowner.
+ *
+ * Calibrated against typical roofing finance partners in FL (Service
+ * Finance, GreenSky, EnerBank, Hearth, Mosaic). 15-year @ 9.99% APR is
+ * the middle of the road — most partners have a 6.99–12.99% range
+ * with 10/15/20-year options. We surface 9.99/15 as the default so
+ * the monthly number is honest (not a teaser 0% APR that resets to
+ * 24.99% after year one) and is something a real finance partner will
+ * actually quote.
+ *
+ * If/when a real finance partner is wired up (Hearth API is the most
+ * dev-friendly), this constant gets replaced by a live partner quote.
+ */
+export const FINANCE_TERMS = {
+  aprPercent: 9.99,
+  termMonths: 180, // 15 years
+} as const;
+
+/**
+ * Standard amortizing monthly payment.
+ *
+ *   P × r(1+r)^n / ((1+r)^n − 1)
+ *
+ * where P = principal, r = monthly rate (APR/12), n = term months.
+ *
+ * Returns 0 when principal ≤ 0 or terms are invalid (callers can
+ * branch on that for the "no estimate yet" empty state).
+ */
+export function monthlyFromTotal(
+  principal: number,
+  aprPercent: number = FINANCE_TERMS.aprPercent,
+  termMonths: number = FINANCE_TERMS.termMonths,
+): number {
+  if (principal <= 0 || aprPercent < 0 || termMonths <= 0) return 0;
+  if (aprPercent === 0) return Math.round(principal / termMonths);
+  const r = aprPercent / 100 / 12;
+  const factor = Math.pow(1 + r, termMonths);
+  const monthly = (principal * r * factor) / (factor - 1);
+  return Math.round(monthly);
 }
 
 /** Compute prices for all three tiers from a sqft + waste pair.
@@ -421,7 +466,8 @@ export function calculateTieredPricing(
     const scaledRate = tier.ratePerSqft * materialMultiplier;
     const raw = effectiveSqft * scaledRate;
     const total = Math.round(raw / 50) * 50;
-    return { tier, effectiveSqft, total };
+    const monthly = monthlyFromTotal(total);
+    return { tier, effectiveSqft, total, monthly };
   });
 }
 

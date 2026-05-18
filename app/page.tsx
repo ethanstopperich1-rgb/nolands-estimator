@@ -1181,6 +1181,18 @@ function ResultScreen({
                 >
                   Priced as {pricingMaterial.label.toLowerCase()} · {FLAT_CUSTOMER_WASTE_PERCENT}% waste assumed
                 </div>
+                <div
+                  className="mt-1 text-center"
+                  style={{
+                    fontSize: "10.5px",
+                    color: "var(--vx-muted)",
+                    letterSpacing: "0.04em",
+                    fontFamily: "var(--vx-font-ui)",
+                  }}
+                >
+                  Monthly est. assumes 15-year financing at 9.99% APR.
+                  Actual terms depend on credit + your finance partner.
+                </div>
               </div>
             )}
 
@@ -1474,16 +1486,49 @@ function TierRow({ tier }: { tier: TierPrice }) {
           </span>
         </span>
         <span
-          className="font-serif tabular"
           style={{
-            fontSize: "22px",
-            fontWeight: 500,
-            color: "var(--vx-ink)",
-            letterSpacing: "-0.01em",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: "2px",
             whiteSpace: "nowrap",
           }}
         >
-          ${tier.total.toLocaleString()}
+          <span
+            className="font-serif tabular"
+            style={{
+              fontSize: "22px",
+              fontWeight: 500,
+              color: "var(--vx-ink)",
+              letterSpacing: "-0.01em",
+              lineHeight: 1,
+            }}
+          >
+            ${tier.monthly.toLocaleString()}
+            <span
+              style={{
+                fontFamily: "var(--vx-font-ui)",
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                color: "var(--vx-muted)",
+                marginLeft: "4px",
+              }}
+            >
+              /mo
+            </span>
+          </span>
+          <span
+            className="tabular"
+            style={{
+              fontSize: "10.5px",
+              letterSpacing: "0.04em",
+              color: "var(--vx-muted)",
+              fontFamily: "var(--vx-font-ui)",
+            }}
+          >
+            est. ${tier.total.toLocaleString()} total
+          </span>
         </span>
       </button>
       {open && (
