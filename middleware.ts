@@ -48,7 +48,7 @@ import { NextResponse, type NextRequest } from "next/server";
  *   /api/verify-polygon-multiview  same
  *   /api/estimates          rep estimate persistence (stub)
  *   /api/aerial             unused; gated until a call site exists
- *   /api/leads/<id>/*       rep tools (PDF report, V3 regen). The
+ *   /api/leads/<id>/*       rep tools (V3 regen, etc). The
  *                           "voice-consent" sub-route is exempt — see
  *                           PUBLIC_LEAD_SUBROUTES below.
  */

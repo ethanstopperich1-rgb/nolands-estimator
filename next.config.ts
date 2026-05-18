@@ -5,14 +5,6 @@ import { withSentryConfig } from "@sentry/nextjs";
 const config: NextConfig = {
   reactStrictMode: true,
   typedRoutes: false,
-  // Headless Chromium (`@sparticuz/chromium`) + `playwright-core` are
-  // native binaries that must NOT be bundled into the serverless
-  // function. Marking them external keeps the report function under
-  // Vercel's 250 MB unzipped limit. Without this, `next build`
-  // succeeds locally but the deployed `/api/leads/[publicId]/report`
-  // hits a 500 at runtime because the binary can't be resolved from
-  // inside the bundle.
-  serverExternalPackages: ["@sparticuz/chromium", "playwright-core"],
   // Cesium loads its workers/assets at runtime from CDN (see Roof3DViewer.tsx
   // — sets CESIUM_BASE_URL before any Cesium code runs), so the bundler
   // doesn't need to copy or alias anything. Empty `turbopack` to silence

@@ -685,25 +685,16 @@ function LeadDrawer({
                   <div className="text-[10.5px] uppercase tracking-wider text-white/45">
                     Roof V3 · Painted overlay
                   </div>
-                  <div className="flex items-center gap-2">
-                    {/* PDF report download — only meaningful when we
-                        have a V3 payload, which is exactly this branch.
-                        Opens in a new tab so the rep doesn't lose the
-                        drawer. The endpoint sets
-                        Content-Disposition: attachment so most browsers
-                        download instead of rendering inline. */}
-                    <a
-                      href={`/api/leads/${encodeURIComponent(lead.public_id)}/report`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[10.5px] uppercase tracking-[0.18em] text-[var(--vx-terra)] hover:text-[var(--vx-ink)] transition-colors"
-                    >
-                      Download report (PDF)
-                    </a>
-                    <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
-                      V3
-                    </span>
-                  </div>
+                  {/* PDF download intentionally removed — reps work the
+                   *  lead end-to-end on the platform (drawer + workbench)
+                   *  so the data stays attached to the lead row. The
+                   *  EagleView-style render template + Playwright/
+                   *  @sparticuz/chromium runtime were deleted with this
+                   *  change. The "See report" header button still routes
+                   *  to /dashboard/estimate for the full workbench view. */}
+                  <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
+                    V3
+                  </span>
                 </div>
                 {paintedUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
