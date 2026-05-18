@@ -166,12 +166,7 @@ export default async function ReportPage({
         <section className="page">
           <div className="cover-frame">
             <div className="cover-head">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/brand/voxaris-ai-wordmark.png"
-                alt="Voxaris"
-                className="wordmark-img"
-              />
+              <span className="wordmark-img" aria-label="voxaris">voxaris</span>
               <div className="cover-eyebrow">Roof Inspection Report</div>
             </div>
             <div className="cover-painted">
@@ -478,8 +473,7 @@ export default async function ReportPage({
 function PageHeader({ subtitle }: { subtitle: string }) {
   return (
     <header className="page-header">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/voxaris-ai-wordmark.png" alt="Voxaris" className="wordmark-img-sm" />
+      <span className="wordmark-img-sm" aria-label="voxaris">voxaris</span>
       <div className="page-eyebrow">{subtitle}</div>
     </header>
   );
@@ -554,18 +548,21 @@ const REPORT_CSS = `
     font-size: 8.5pt;
     border-top: 1px solid var(--rule);
   }
-  .wordmark-img {
-    height: 32pt;
-    width: auto;
-    object-fit: contain;
-    display: block;
-  }
+  /* Text wordmark — DragonEF / Cormorant fallback, brand navy.
+   * Replaces the prior /brand/voxaris-ai-wordmark.png lockup per brand
+   * owner (2026-05). Lowercase "voxaris", no period, no ascender. */
+  .wordmark-img,
   .wordmark-img-sm {
-    height: 14pt;
-    width: auto;
-    object-fit: contain;
-    display: block;
+    font-family: "DragonEF", "Cormorant Garamond", Georgia, serif;
+    font-weight: 500;
+    color: #0F1B2D;
+    letter-spacing: -0.022em;
+    line-height: 0.95;
+    display: inline-block;
+    text-transform: lowercase;
   }
+  .wordmark-img { font-size: 32pt; }
+  .wordmark-img-sm { font-size: 14pt; }
   .page-eyebrow {
     text-transform: uppercase;
     letter-spacing: 0.18em;

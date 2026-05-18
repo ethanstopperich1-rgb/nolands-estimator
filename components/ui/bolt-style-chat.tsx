@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, Loader2, MapPin, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { AuroraButton } from "@/components/ui/aurora-button";
+import { Wordmark } from "@/components/Wordmark";
 
 interface Suggestion {
   placeId: string;
@@ -167,13 +168,7 @@ export function BoltStyleHero({
         <header className="relative z-20 w-full">
           <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 h-20 sm:h-24 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <img
-                src="/brand/voxaris-ai-wordmark.png"
-                alt="Voxaris Pitch"
-                width={1672}
-                height={941}
-                className="h-12 sm:h-16 w-auto max-w-[260px] object-contain drop-shadow-[0_4px_24px_rgba(103,220,255,0.30)]"
-              />
+              <Wordmark size="md" tone="ink" />
             </div>
             {nav && <div className="hidden md:block">{nav}</div>}
             <div className="hidden sm:flex items-center gap-2 text-[12px] font-mono uppercase tracking-[0.14em] text-slate-300">

@@ -2760,19 +2760,11 @@ article p,
   color: var(--vx-ink) !important;
 }
 
-/* Sidebar logo — the wordmark needs to render at a usable size on the
- * cream sidebar, not the dashboard's default h-9 (~36px) which
- * disappears against the brand sidebar surface. Bumped to h-12 (~48px)
- * which matches the customer page's page-header wordmark scale. */
-.voxaris aside img[src="/brand/voxaris-ai-wordmark.png"] {
-  height: 48px !important;
-  width: auto !important;
-  /* Kill the leftover sky-blue drop-shadow (set by Tailwind utility
-   * `drop-shadow-[0_6px_18px_rgba(125,211,252,0.18)]` on the <img>).
-   * Cyan glow on cream paper reads as the AI-aesthetic fingerprint
-   * the brand explicitly disallows. */
-  filter: none !important;
-}
+/* The legacy `.voxaris aside img[src="/brand/voxaris-ai-wordmark.png"]`
+ * rule used to bump the sidebar wordmark to 48px and strip its
+ * sky-blue drop-shadow. The image was retired in favor of a text
+ * wordmark (`components/Wordmark.tsx`) so that selector now has no
+ * targets and is dropped. */
 
 /* Active sidebar nav — the original markup paints a cy-300 dot + glow
  * for the active state. Cyan glow on cream is the same dark-theme leak

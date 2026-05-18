@@ -29,6 +29,7 @@ import Link from "next/link";
 import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
 import { useRecaptcha } from "@/lib/useRecaptcha";
+import { Wordmark as SharedWordmark } from "@/components/Wordmark";
 import {
   calculateTieredPricing,
   customerRatesForMaterial,
@@ -1508,6 +1509,19 @@ function TierRow({ tier }: { tier: TierPrice }) {
   );
 }
 
+/**
+ * Text-only wordmark — proxies to the shared `<Wordmark>` component.
+ *
+ * Was previously an `<img>`-first lockup with a DragonEF text fallback.
+ * Brand owner (2026-05) directed the text version everywhere, in the
+ * navy `--vx-ink`, so this local function now just maps the existing
+ * `size` API onto the shared component and forwards `tone`.
+ *
+ * Customer-page sizes:
+ *   lg — hero on `/`           (~80px cap height, matches the new shared lg)
+ *   md — page header           (~32px)
+ *   sm — footer / chips        (~22px)
+ */
 function Wordmark({
   size = "lg",
   tone = "ink",
@@ -1515,53 +1529,7 @@ function Wordmark({
   size?: "lg" | "md" | "sm";
   tone?: "ink" | "cream";
 }) {
-  // Size targets:
-  //   lg (hero on /) = ~140px tall — pairs with the clamp(54px,8.2vw,
-  //       120px) display headline below. Anything smaller reads as a
-  //       footer brand mark, not a hero brand mark.
-  //   md (page header) = ~52px — used on internal pages where the
-  //       wordmark is a nav anchor, not the page identity.
-  //   sm (compact) = ~32px — footer + chips.
-  const dim = size === "lg" ? 140 : size === "md" ? 52 : 32;
-  const color = tone === "ink" ? "var(--vx-ink)" : "var(--vx-cream)";
-  const textSize = size === "lg" ? 56 : size === "md" ? 36 : 24;
-  return (
-    <span className="inline-flex items-center">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/brand/voxaris-ai-wordmark.png"
-        alt="Voxaris AI"
-        style={{
-          height: `${dim}px`,
-          width: "auto",
-          // The alpha PNG ships in the brand-spec ink color. No filter
-          // needed on cream. On the dark footer (tone="cream"), invert
-          // to white-on-dark.
-          filter:
-            tone === "cream" ? "invert(1) brightness(1.2)" : "none",
-          display: "block",
-        }}
-        onError={(e) => {
-          // Image missing — fall back to the DragonEF text wordmark.
-          (e.currentTarget as HTMLImageElement).style.display = "none";
-          const sibling = e.currentTarget.nextElementSibling as HTMLElement | null;
-          if (sibling) sibling.style.display = "inline";
-        }}
-      />
-      <span
-        className="font-serif tracking-tight"
-        style={{
-          fontSize: `${textSize}px`,
-          color,
-          letterSpacing: "-0.02em",
-          display: "none",
-          lineHeight: 1,
-        }}
-      >
-        Voxaris.
-      </span>
-    </span>
-  );
+  return <SharedWordmark size={size} tone={tone} />;
 }
 
 // ─── Shared chrome ──────────────────────────────────────────────────────

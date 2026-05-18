@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 import NavHeader from "@/components/ui/nav-header";
+import { Wordmark } from "@/components/Wordmark";
 
 /**
  * Shared public-surface header. Used by every customer-facing or
@@ -92,16 +93,9 @@ export default function PublicHeader({
         <Link
           href={logoHref}
           className="flex items-center gap-2 min-w-0 justify-self-start"
-          aria-label="Voxaris Pitch — home"
+          aria-label="voxaris — home"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/voxaris-ai-wordmark.png"
-            alt="Voxaris Pitch"
-            width={1672}
-            height={941}
-            className="h-9 sm:h-14 w-auto max-w-[180px] sm:max-w-none object-contain"
-          />
+          <Wordmark size="md" tone="ink" />
           {chip && (
             <span className={chipClassName ?? "hidden md:inline-block ml-1 chip text-[10px]"}>
               {chip}

@@ -16,6 +16,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ArrowRight, Lock, User } from "lucide-react";
+import { Wordmark } from "@/components/Wordmark";
 
 function LoginForm() {
   const router = useRouter();
@@ -75,12 +76,7 @@ function LoginForm() {
       <div className="relative z-[1] w-full max-w-[420px] flex flex-col items-center">
         {/* Brand mark — small, sharp, top of the page like the customer site */}
         <div className="mb-10 flex flex-col items-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/voxaris-ai-wordmark.png"
-            alt="Voxaris"
-            className="h-9 sm:h-11 w-auto object-contain"
-          />
+          <Wordmark size="md" tone="ink" />
           <span className="eyebrow">Operator Console</span>
         </div>
 

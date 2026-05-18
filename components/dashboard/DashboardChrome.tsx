@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Wordmark } from "@/components/Wordmark";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -131,14 +132,8 @@ export default function DashboardChrome({
     <div className="relative min-h-screen flex flex-col lg:flex-row">
       {/* Mobile top bar */}
       <div className="lg:hidden sticky top-0 z-30 px-4 py-3 flex items-center justify-between border-b border-white/[0.06] bg-[rgba(8,11,17,0.72)] backdrop-blur-xl">
-        <Link href={basePath} className="flex items-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/voxaris-ai-wordmark.png"
-            alt="Voxaris Pitch"
-            className="h-7 w-auto select-none"
-            draggable={false}
-          />
+        <Link href={basePath} className="flex items-center" aria-label="voxaris — home">
+          <Wordmark size="sm" tone="ink" />
         </Link>
         <button
           type="button"
@@ -555,14 +550,8 @@ function SidebarContent({
         onClick={onNavigate}
         className="hidden lg:flex flex-col items-start gap-1.5 px-1"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/brand/voxaris-ai-wordmark.png"
-          alt="Voxaris Pitch"
-          className="h-9 w-auto select-none drop-shadow-[0_6px_18px_rgba(125,211,252,0.18)]"
-          draggable={false}
-        />
-        <span className="text-[10px] font-mono tabular uppercase tracking-[0.18em] text-white/40 pl-0.5">
+        <Wordmark size="md" tone="ink" />
+        <span className="text-[10px] uppercase tracking-[0.14em] text-white/40 pl-0.5 font-medium">
           {isDemo ? "Demo Console" : isRepView ? "Rep Console" : "Operator Console"}
         </span>
       </Link>
