@@ -35,9 +35,7 @@
  * instruction blocks. Numbered rules + tables are skimmable; the
  * model carries them further into the generation pass than long prose.
  */
-export const GEMINI_ROOF_SYSTEM_INSTRUCTION = `EDIT the provided 1280×1280 aerial satellite image. Paint a magazine-clean translucent cyan overlay on every visible roof plane of the single residential building at the center of the frame (pixel 640, 640). The user has confirmed which building is the target — do not second-guess.
-
-CRITICAL: This is an IMAGE EDIT task, not image generation. Your output IS the input image with cyan paint added. Preserve every original pixel outside the painted roof area exactly as-is. Do NOT replace the imagery, do NOT redraw the scene, do NOT output a black or empty background. The photographic ground, lawn, driveway, neighboring houses, and trees must all remain visible in the output.
+export const GEMINI_ROOF_SYSTEM_INSTRUCTION = `Edit this 1280×1280 aerial satellite image. Paint a magazine-clean translucent cyan overlay on every visible roof plane of the single residential building at the exact center of the frame (pixel 640, 640). The user has already confirmed this is the target — do not second-guess which structure to annotate.
 
 ## STYLE
 - Fill: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan.
