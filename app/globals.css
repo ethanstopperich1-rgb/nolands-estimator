@@ -282,6 +282,29 @@ body {
   color: var(--vx-ink); padding: 4px 0;
 }
 .voxaris .slim-input::placeholder { color: var(--vx-muted); font-weight: 600; }
+/* Chrome / Edge autofill tint override — without this, fields that
+   match the user's stored autofill (email, name, tel) get a pale
+   peach/yellow inner background that overrides our `background:
+   transparent` and breaks the seamless paper feel of the form.
+   The inset box-shadow trick is the standard webkit workaround:
+   inject a giant solid-color shadow into the input's interior so
+   the autofill yellow is hidden. The 5000s transition is a famous
+   hack — Chrome animates the autofill color over a transition, so
+   we just push the transition out beyond any realistic session. */
+.voxaris .slim-input:-webkit-autofill,
+.voxaris .slim-input:-webkit-autofill:hover,
+.voxaris .slim-input:-webkit-autofill:focus,
+.voxaris .slim-input:-webkit-autofill:active,
+.voxaris .addr-input:-webkit-autofill,
+.voxaris .addr-input:-webkit-autofill:hover,
+.voxaris .addr-input:-webkit-autofill:focus,
+.voxaris .addr-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--vx-paper) inset !important;
+  box-shadow: 0 0 0 1000px var(--vx-paper) inset !important;
+  -webkit-text-fill-color: var(--vx-ink) !important;
+  caret-color: var(--vx-ink);
+  transition: background-color 5000s ease-in-out 0s;
+}
 .voxaris .foot-row {
   display: grid;
   grid-template-columns: 1fr auto;
