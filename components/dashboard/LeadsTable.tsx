@@ -203,7 +203,7 @@ export default function LeadsTable({
                       {l.roof_v3_json ? (
                         <span
                           title="Has Voxaris V3 roof analysis (painted overlay + edges + material)"
-                          className="text-[9px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[#38C5EE]/40 text-[#38C5EE]"
+                          className="text-[9px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]"
                         >
                           V3
                         </span>
@@ -339,6 +339,50 @@ function LeadDrawer({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // ─── Storm history (last 90 days, 10 miles) ───────────────────────
+  // Mirrors the storm-intelligence section on /dashboard/estimate.
+  // Fetches Iowa State Mesonet Local Storm Reports (hail / wind /
+  // tornado) keyed to the lead's lat/lng. The drawer surfaces this so
+  // the rep can size up the insurance angle BEFORE opening the full
+  // workbench. 90-day window is wider than /estimate's 14-day because
+  // a lead lookup happens days after the storm; we want history, not
+  // last weekend.
+  interface LsrEvent {
+    type: string;
+    date: string | null;
+    magnitude: number | null;
+    magnitudeType: string | null;
+    distanceMiles: number | null;
+    remark?: string;
+  }
+  const [storms, setStorms] = useState<LsrEvent[] | null>(null);
+  const [stormsLoading, setStormsLoading] = useState<boolean>(false);
+  useEffect(() => {
+    if (lead.lat == null || lead.lng == null) {
+      setStorms([]);
+      return;
+    }
+    let cancelled = false;
+    setStormsLoading(true);
+    fetch(
+      `/api/storms/recent?lat=${lead.lat}&lng=${lead.lng}&radiusMiles=10&daysBack=90`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { events?: LsrEvent[] } | null) => {
+        if (cancelled) return;
+        setStorms(data?.events ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setStorms([]);
+      })
+      .finally(() => {
+        if (!cancelled) setStormsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lead.lat, lead.lng]);
+
   // ─── Generate V3 roof analysis on demand ──────────────────────────
   // For leads that came in WITHOUT a V3 payload (legacy /quote leads,
   // Sydney-captured leads, etc.), let the rep one-click the full
@@ -377,8 +421,8 @@ function LeadDrawer({
   }
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Lead detail">
-      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
-      <aside className="w-full max-w-[560px] h-full overflow-y-auto bg-[rgba(8,11,17,0.86)] backdrop-blur-2xl border-l border-white/[0.08] p-5 lg:p-6 flex flex-col gap-5">
+      <div className="flex-1 bg-black/30" onClick={onClose} aria-hidden="true" />
+      <aside className="w-full max-w-[560px] h-full overflow-y-auto bg-[var(--vx-cream)] border-l border-[var(--vx-rule)] p-5 lg:p-6 flex flex-col gap-5">
         <header className="flex items-start justify-between gap-3">
           <div>
             <div className="glass-eyebrow inline-flex">Lead detail</div>
@@ -393,7 +437,7 @@ function LeadDrawer({
           <div className="flex items-center gap-2">
             <Link
               href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
-              className="glass-button-primary !px-3 !py-1.5 text-[12.5px] inline-flex items-center gap-1.5 whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-[12.5px] font-medium bg-[var(--vx-terra)] hover:bg-[var(--vx-terra-dark)] text-[var(--vx-cream)] transition-colors"
             >
               See report
               <ExternalLink className="w-3.5 h-3.5" />
@@ -402,7 +446,7 @@ function LeadDrawer({
               type="button"
               aria-label="Close drawer"
               onClick={onClose}
-              className="glass-button-secondary !px-2.5 !py-1.5"
+              className="inline-flex items-center justify-center px-2.5 py-1.5 border border-[var(--vx-rule)] hover:border-[var(--vx-ink)] text-[var(--vx-ink)] transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -440,7 +484,7 @@ function LeadDrawer({
               }
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[10.5px] uppercase tracking-[0.18em] text-[#38C5EE] hover:text-white transition-colors inline-flex items-center gap-1"
+              className="text-[10.5px] uppercase tracking-[0.18em] text-[var(--vx-terra)] hover:text-[var(--vx-ink)] transition-colors inline-flex items-center gap-1"
             >
               Directions
               <ExternalLink className="w-3 h-3" />
@@ -652,11 +696,11 @@ function LeadDrawer({
                       href={`/api/leads/${encodeURIComponent(lead.public_id)}/report`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[10.5px] uppercase tracking-[0.18em] text-[#38C5EE] hover:text-white transition-colors"
+                      className="text-[10.5px] uppercase tracking-[0.18em] text-[var(--vx-terra)] hover:text-[var(--vx-ink)] transition-colors"
                     >
                       Download report (PDF)
                     </a>
-                    <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[#38C5EE]/40 text-[#38C5EE]">
+                    <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
                       V3
                     </span>
                   </div>
@@ -666,11 +710,38 @@ function LeadDrawer({
                   <img
                     src={paintedUrl}
                     alt={`Painted roof for ${lead.address}`}
-                    className="w-full h-auto rounded-lg border border-white/[0.06]"
+                    className="w-full h-auto border border-[var(--vx-rule)]"
                   />
                 ) : (
-                  <div className="text-xs text-white/50">
-                    Painted overlay unavailable for this lead.
+                  // V3 ran successfully (we have headline numbers) but the
+                  // painted PNG either never uploaded OR its 7-day signed
+                  // URL has expired. Same regenerate CTA as the "no V3 at
+                  // all" case below — re-running the pipeline rebuilds the
+                  // overlay and writes a fresh signed URL.
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[12.5px] text-[var(--vx-ink-soft)] leading-relaxed">
+                      Painted overlay unavailable — the image may have
+                      expired (7-day signed URL) or this lead came in
+                      before the overlay was generated.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={generateRoofV3}
+                      disabled={genStatus === "running"}
+                      className="self-start inline-flex items-center gap-2 text-[12.5px] font-medium bg-[var(--vx-ink)] hover:bg-[var(--vx-ink-soft)] text-[var(--vx-cream)] px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {genStatus === "running" ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Regenerating…
+                        </>
+                      ) : (
+                        <>Regenerate roof analysis</>
+                      )}
+                    </button>
+                    {genStatus === "error" && genError ? (
+                      <p className="text-[11px] text-[var(--vx-terra-dark)]">{genError}</p>
+                    ) : null}
                   </div>
                 )}
               </section>
@@ -705,7 +776,7 @@ function LeadDrawer({
                   />
                 </div>
                 {correction?.applied ? (
-                  <p className="text-[11px] text-[#38C5EE]/90 mt-3 leading-relaxed">
+                  <p className="text-[11px] text-[var(--vx-terra)] mt-3 leading-relaxed">
                     Headline corrected ·{" "}
                     {correction.gisSource?.toUpperCase()} footprint{" "}
                     {correction.gisFootprintSqft?.toLocaleString()} ft² ×
@@ -933,6 +1004,71 @@ function LeadDrawer({
             </>
           );
         })()}
+
+        {/* ─── Storm history (last 90 days, 10 miles) ───────────────
+            Iowa State Mesonet Local Storm Reports (hail / wind /
+            tornado) keyed to the lead's lat/lng. Same /api/storms/recent
+            endpoint the customer-facing storm intelligence component
+            uses on /dashboard/estimate. Surfaced here so the rep can
+            judge insurance angle BEFORE opening the full workbench. */}
+        <section className="glass-panel p-4">
+          <div className="flex items-baseline justify-between mb-3 gap-2">
+            <div className="text-[10.5px] uppercase tracking-wider text-white/45">
+              Storm history · 90 days · 10 mi
+            </div>
+            {storms !== null && storms.length > 0 ? (
+              <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
+                {storms.length} {storms.length === 1 ? "event" : "events"}
+              </span>
+            ) : null}
+          </div>
+          {stormsLoading ? (
+            <div className="text-[12.5px] text-[var(--vx-ink-soft)] inline-flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Pulling LSR feed…
+            </div>
+          ) : storms === null || storms.length === 0 ? (
+            <p className="text-[12.5px] text-[var(--vx-ink-soft)] leading-relaxed">
+              No NWS Local Storm Reports within 10 miles of this address
+              in the last 90 days. Real-time feed via Iowa State Mesonet.
+            </p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-[var(--vx-rule)]">
+              {storms.slice(0, 8).map((e, i) => {
+                const dateLabel = e.date
+                  ? new Date(e.date).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                  : "—";
+                const mag =
+                  e.magnitude != null
+                    ? `${e.magnitude}${e.magnitudeType === "inches" ? '"' : e.magnitudeType ? ` ${e.magnitudeType}` : ""}`
+                    : null;
+                return (
+                  <li
+                    key={`${e.date ?? "x"}-${i}`}
+                    className="py-2 grid grid-cols-[88px_minmax(0,1fr)_auto] gap-3 items-baseline text-[12.5px]"
+                  >
+                    <span className="text-[var(--vx-ink-soft)] tabular">
+                      {dateLabel}
+                    </span>
+                    <span className="capitalize text-[var(--vx-ink)] truncate">
+                      {e.type}
+                      {mag ? (
+                        <span className="text-[var(--vx-terra)] ml-1.5 font-medium">{mag}</span>
+                      ) : null}
+                    </span>
+                    <span className="text-[11px] uppercase tracking-[0.12em] text-[var(--vx-muted)] tabular">
+                      {e.distanceMiles != null ? `${e.distanceMiles.toFixed(1)} mi` : ""}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
         {/* ─── TCPA / consent ──────────────────────────────────────── */}
         <section className="glass-panel p-4">
