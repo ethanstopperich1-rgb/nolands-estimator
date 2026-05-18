@@ -368,3 +368,186 @@ export const GEMINI_ROOF_SCHEMA = {
   // partial responses to still parse cleanly.
   required: ["objects"],
 } as const;
+
+// ─── Ground-level (Street View) Flash call ──────────────────────────────
+//
+// Companion to the aerial Pro Image paint. Aerial at zoom 21 cannot see
+// vent boot rubber, drip edge integrity, flashing rust, fascia rot, or
+// gutter sag — all of which matter to a "is this roof failing" pitch.
+// Street View gives us a ground-level photo that surfaces those signals.
+//
+// Different prompt than aerial. Different schema. Same Flash 2.5 model.
+// Runs in parallel with the aerial calls so it doesn't add wall-clock
+// latency (Flash is fast — Pro Image paint dominates the budget).
+
+export const GEMINI_GROUND_LEVEL_PROMPT = `You are analyzing a ground-level Google Street View photograph of a single residential property. The camera is on the street; the photo is pointed toward the front of the house. Some homes will be partially or fully obscured by landscaping, fences, or trees — that is a valid finding, not a failure.
+
+Your job is to report observable roof + exterior condition signals visible from this single ground angle. Be conservative — under-report rather than over-report. Florida homeowners receive these observations as part of a roofing estimate, so a false-positive ("missing tabs" on a clean roof) destroys trust instantly.
+
+Return strict JSON matching the response schema.
+
+## 1. roof_visibility
+How much of the actual roof is visible from this street angle.
+  - "good"   = front + at least one side of the roof clearly visible
+  - "partial"= roof line visible but only a narrow strip
+  - "poor"   = only fascia / soffit / gutter visible; roof material itself hidden
+  - "none"   = roof totally obscured by trees, fence, or other structures
+
+## 2. visible_roof_signals[]
+Discrete observations about the roof itself. Use only the listed kinds; empty array is correct when nothing visible.
+
+Allowed kinds:
+  - "moss_or_algae"          — dark streaking, green/black biological growth on shingles
+  - "shingle_wear"           — visible granule loss, lifted tabs, missing tabs
+  - "patches_visible"        — discolored rectangular sections suggesting partial repair
+  - "ridge_cap_damage"       — missing or lifted ridge caps along the peak
+  - "sagging_ridgeline"      — visible dip / wave in the ridge line, suggests deck damage
+  - "tarp_or_emergency"      — blue tarp, plywood patch, exposed underlayment
+  - "satellite_dish_visible" — present (informational, not damage)
+  - "vent_pipes_visible"     — visible plumbing or attic vents in good order
+  - "skylights_visible"      — present, condition observable
+
+Per signal: { kind, severity: "minor"|"moderate"|"major", confidence: 0.0–1.0, location_hint?: "north slope" | "above garage" | etc. }
+
+Use confidence ≥ 0.65 to be reported back. We filter out below 0.60.
+
+## 3. fascia_gutter_condition
+Single object describing what the fascia + gutter ASSEMBLY looks like (the horizontal band along the eave). This is the most reliable ground-level signal for roof age:
+  - intact + clean       = "good"
+  - mildly stained / weathered = "fair"
+  - rust streaks / paint peeling / visible warping = "poor"
+  - missing sections / hanging gutter / rotted fascia = "failing"
+  - not visible from this angle = "not_visible"
+
+Return: { state, confidence, observation?: "short factual sentence" }
+
+## 4. drip_edge_observation
+Is a metal drip edge visible at the eave? (Florida code-compliance signal — required on all re-roofs since 2017.)
+  - "present_clean"      = visible metal edge, no rust
+  - "present_rusted"     = visible but corroded
+  - "missing"            = no drip edge visible; shingles end flush at fascia
+  - "not_visible"        = angle / occlusion prevents observation
+
+Return: { state, confidence }
+
+## 5. exterior_signals[]
+Discrete observations about the house itself that correlate with overall property care / age. These are NOT roof claims; they're context for the rep.
+
+Allowed kinds:
+  - "fresh_paint"             — clearly recent paint job, suggests recent investment
+  - "faded_paint"             — significantly faded siding, suggests deferred maintenance
+  - "trim_rot"                — visible wood rot at window / door trim
+  - "well_maintained_landscape"
+  - "overgrown_landscape"
+  - "vehicle_present"         — car visible in driveway (informational)
+  - "construction_in_progress"— scaffolding, ladder, materials visible
+  - "for_sale_sign"           — relevant timing context
+
+Per signal: { kind, confidence }
+
+## 6. street_view_caveats[]
+Anything that limits the reliability of the above observations. Allowed values:
+  - "obscured_by_landscaping"
+  - "obscured_by_fence"
+  - "imagery_appears_old"       — visible cars / vegetation suggest >3 years old
+  - "winter_imagery"            — snow / bare trees, not FL-typical
+  - "front_facade_not_visible"
+  - "weather_artifacts"         — rain, shadow, lens flare
+
+Return as an array of strings. Empty array means no caveats apply.
+
+## CRITICAL RULES
+- Under-report > over-report. The roofer who looks bad to a homeowner is the one whose AI sees damage that isn't there.
+- "Visible" means visible IN THIS PHOTO. Don't infer based on neighborhood norms.
+- A roof with no visible damage and good fascia + drip edge should return tiny arrays. That's the correct answer for a healthy roof.
+- Never claim "needs replacement" — that's a representation we can't make. Just describe what you see.`;
+
+export const GEMINI_GROUND_LEVEL_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    roof_visibility: {
+      type: "STRING",
+      enum: ["good", "partial", "poor", "none"],
+    },
+    visible_roof_signals: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          kind: {
+            type: "STRING",
+            enum: [
+              "moss_or_algae",
+              "shingle_wear",
+              "patches_visible",
+              "ridge_cap_damage",
+              "sagging_ridgeline",
+              "tarp_or_emergency",
+              "satellite_dish_visible",
+              "vent_pipes_visible",
+              "skylights_visible",
+            ],
+          },
+          severity: {
+            type: "STRING",
+            enum: ["minor", "moderate", "major"],
+          },
+          confidence: { type: "NUMBER" },
+          location_hint: { type: "STRING" },
+        },
+        required: ["kind", "severity", "confidence"],
+      },
+    },
+    fascia_gutter_condition: {
+      type: "OBJECT",
+      properties: {
+        state: {
+          type: "STRING",
+          enum: ["good", "fair", "poor", "failing", "not_visible"],
+        },
+        confidence: { type: "NUMBER" },
+        observation: { type: "STRING" },
+      },
+      required: ["state", "confidence"],
+    },
+    drip_edge_observation: {
+      type: "OBJECT",
+      properties: {
+        state: {
+          type: "STRING",
+          enum: ["present_clean", "present_rusted", "missing", "not_visible"],
+        },
+        confidence: { type: "NUMBER" },
+      },
+      required: ["state", "confidence"],
+    },
+    exterior_signals: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          kind: {
+            type: "STRING",
+            enum: [
+              "fresh_paint",
+              "faded_paint",
+              "trim_rot",
+              "well_maintained_landscape",
+              "overgrown_landscape",
+              "vehicle_present",
+              "construction_in_progress",
+              "for_sale_sign",
+            ],
+          },
+          confidence: { type: "NUMBER" },
+        },
+        required: ["kind", "confidence"],
+      },
+    },
+    street_view_caveats: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
+  },
+  required: ["roof_visibility"],
+} as const;
