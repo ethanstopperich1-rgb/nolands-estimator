@@ -12,6 +12,12 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { GradientBackground } from "@/components/ui/gradient-background-4";
 import InternalHeader from "@/components/InternalHeader";
+import {
+  buildOrganizationJsonLd,
+  buildSoftwareApplicationJsonLd,
+  buildWebSiteJsonLd,
+  jsonLdToScriptContent,
+} from "@/lib/seo/structured-data";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -115,11 +121,43 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Site-wide JSON-LD — emitted into <head> so AI crawlers + LLM-powered
+  // search experiences (ChatGPT search, Perplexity, Google AI Overviews,
+  // Claude in Chrome) can ground their answers about Voxaris in
+  // structured data instead of guessing from rendered text. Invisible
+  // to humans. See lib/seo/structured-data.ts for what each node says.
+  // The dangerouslySetInnerHTML pattern is the standard JSON-LD
+  // injection method per Schema.org + Google's structured-data docs;
+  // each <script type="application/ld+json"> block is a complete,
+  // self-contained graph.
+  const orgJsonLd = jsonLdToScriptContent(buildOrganizationJsonLd());
+  const softwareJsonLd = jsonLdToScriptContent(buildSoftwareApplicationJsonLd());
+  const websiteJsonLd = jsonLdToScriptContent(buildWebSiteJsonLd());
+
   return (
     <html
       lang="en"
       className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable} ${dragonEF.variable} ${ambit.variable}`}
     >
+      <head>
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger -- JSON-LD is the
+          // canonical Schema.org delivery vehicle; content is built
+          // server-side from a typed builder with no user input.
+          dangerouslySetInnerHTML={{ __html: orgJsonLd }}
+        />
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: softwareJsonLd }}
+        />
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: websiteJsonLd }}
+        />
+      </head>
       <body className="min-h-[100dvh] antialiased relative">
         <GradientBackground />
         {/* Header self-hides on /quote and /p/[id] (customer-facing routes

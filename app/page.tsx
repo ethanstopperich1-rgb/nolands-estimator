@@ -35,6 +35,12 @@ import { Wordmark as SharedWordmark } from "@/components/Wordmark";
 import RoofMap from "@/components/RoofMap";
 import { ROOFING_FACTS } from "@/lib/roofing-facts";
 import {
+  buildFaqJsonLd,
+  buildServiceJsonLd,
+  buildHomeBreadcrumbJsonLd,
+  jsonLdToScriptContent,
+} from "@/lib/seo/structured-data";
+import {
   calculateTieredPricingWithPenetrations,
   customerRatesForMaterial,
   geminiMaterialToRateKey,
@@ -272,8 +278,39 @@ function humanizeObjectType(raw: string, count: number): string {
 }
 
 export default function HomePage() {
+  // Homepage-specific JSON-LD — FAQPage + Service + BreadcrumbList.
+  // Site-wide nodes (Organization, SoftwareApplication, WebSite) live
+  // in app/layout.tsx so they appear on every page; these three are
+  // home-only because the FAQ answers reference what the homepage
+  // does specifically, and BreadcrumbList here would conflict with
+  // per-subpage breadcrumbs if hoisted to the layout.
+  //
+  // Rendered as <script type="application/ld+json"> tags inside the
+  // initial SSR HTML. Browsers ignore them (no visible UI). AI
+  // crawlers + Google's rich-result tester parse them as the
+  // canonical source of truth for what this page IS.
+  const faqJsonLd = jsonLdToScriptContent(buildFaqJsonLd());
+  const serviceJsonLd = jsonLdToScriptContent(buildServiceJsonLd());
+  const breadcrumbJsonLd = jsonLdToScriptContent(buildHomeBreadcrumbJsonLd());
+
   return (
     <main className="voxaris">
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger -- JSON-LD via
+        // typed server-side builder; no user input.
+        dangerouslySetInnerHTML={{ __html: faqJsonLd }}
+      />
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: serviceJsonLd }}
+      />
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: breadcrumbJsonLd }}
+      />
       <BotIdClient
         protect={[
           { path: "/api/leads", method: "POST" },

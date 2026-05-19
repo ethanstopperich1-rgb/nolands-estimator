@@ -1,0 +1,159 @@
+# Voxaris Pitch (pitch.voxaris.io) — public crawler policy.
+#
+# Designed for LLM-powered search experiences to ground answers about
+# Voxaris in the canonical homepage + structured data instead of
+# guessing from third-party mentions.
+#
+# Updates: any time you add a new top-level route, append it here OR
+# rely on the sitemap.xml below (preferred — sitemap is auto-generated
+# by app/sitemap.ts).
+
+# ─── Search engines ──────────────────────────────────────────────────
+User-agent: Googlebot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+Disallow: /login
+Disallow: /staff-login
+
+User-agent: Bingbot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+Disallow: /login
+Disallow: /staff-login
+
+User-agent: DuckDuckBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+# ─── AI / LLM crawlers ───────────────────────────────────────────────
+# Explicitly allowed. These are the ones whose answers about Voxaris
+# we want grounded in our canonical content rather than third-party
+# secondary sources.
+
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Claude-Web
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: anthropic-ai
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Perplexity-User
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Applebot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: cohere-ai
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Bytespider
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: meta-externalagent
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Meta-ExternalFetcher
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Diffbot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: YouBot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+User-agent: Amazonbot
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+
+# ─── Catch-all ───────────────────────────────────────────────────────
+# Default policy for everything not explicitly listed above.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /internal/
+Disallow: /login
+Disallow: /staff-login
+Disallow: /demo
+
+# ─── Sitemap ─────────────────────────────────────────────────────────
+Sitemap: https://pitch.voxaris.io/sitemap.xml
