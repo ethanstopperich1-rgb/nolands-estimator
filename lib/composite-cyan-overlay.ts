@@ -56,9 +56,9 @@ import type { CyanMask } from "@/lib/cyan-mask";
 /** Brand cyan — must match `GEMINI_ROOF_SYSTEM_INSTRUCTION` so the
  *  highlight color the customer sees lines up with prompt/docs. */
 const OVERLAY_HEX = "#38C5EE";
-/** Overall tint strength. 102/255 ≈ 40% — matches the prompt
- *  ("Fill: cyan #38C5EE at ~40% opacity"). */
-const OVERLAY_ALPHA = 102;
+// OVERLAY_ALPHA constant removed in the continuous-alpha rewrite —
+// each pixel now carries its own measured alpha in cyanMask.alphaMap,
+// so a single global tint constant no longer applies.
 /** Hard ceiling on how much of the frame the mask is allowed to cover
  *  before we treat it as "Pro Image painted the whole scene cyan."
  *
@@ -135,31 +135,31 @@ export async function compositeCyanOnAerial(
       return rawAerialBase64;
     }
 
-    // Build a single RGBA buffer the size of the aerial. Two-tier alpha:
-    //   - Stroke pixels (the bright facet-boundary lines Pro Image draws
-    //     at full opacity) get FULL alpha — these are the eave / ridge /
-    //     hip / valley / rake outlines, and they need to read crisp
-    //     against the shingle background.
-    //   - Fill pixels (everything else in the cyan mask) get the
-    //     translucent 40% fill alpha so the shingle texture stays
-    //     visible through the tint.
-    // Without this two-tier render, the composite collapsed every cyan
-    // pixel to a single flat alpha and the interior plane boundaries
-    // disappeared — customer just saw a solid cyan blob with no facet
-    // structure visible.
-    const { width, height } = cyanMask;
+    // Build a single RGBA buffer the size of the aerial using the
+    // CONTINUOUS alpha map (each pixel keeps its measured "cyan-ness"
+    // as a 0-255 byte). This preserves Pro Image's anti-aliasing
+    // through the extraction: smooth taper at the eave perimeter,
+    // smooth ramp between translucent fill and full-opacity stroke,
+    // soft edges on every facet boundary.
+    //
+    // Prior versions used a binary mask + a separate stroke mask + a
+    // morphological filter. That produced jagged extracted edges
+    // ("sloppy lines") and bright cyan smudges where individual
+    // pixels happened to fall in the stroke band. Continuous alpha
+    // eliminates both — what Pro Image painted is what gets composited.
+    const { width, height, alphaMap } = cyanMask;
     const rgba = Buffer.alloc(width * height * 4);
     const r = parseInt(OVERLAY_HEX.slice(1, 3), 16);
     const g = parseInt(OVERLAY_HEX.slice(3, 5), 16);
     const b = parseInt(OVERLAY_HEX.slice(5, 7), 16);
-    for (let i = 0; i < cyanMask.mask.length; i++) {
-      if (!cyanMask.mask[i]) continue;
+    for (let i = 0; i < alphaMap.length; i++) {
+      const a = alphaMap[i];
+      if (a === 0) continue;
       const base = i * 4;
       rgba[base] = r;
       rgba[base + 1] = g;
       rgba[base + 2] = b;
-      // Stroke pixels override the fill alpha with full opacity.
-      rgba[base + 3] = cyanMask.strokeMask[i] ? 255 : OVERLAY_ALPHA;
+      rgba[base + 3] = a;
     }
 
     const overlay = await sharp(rgba, {
@@ -173,9 +173,23 @@ export async function compositeCyanOnAerial(
       .png({ compressionLevel: 8 })
       .toBuffer();
 
+    // Telemetry: tally bytes by intensity bucket so we can see the
+    // alpha distribution in production logs (a healthy paint has
+    // most pixels in the translucent-fill band 80-180, plus a tail
+    // of high-opacity stroke pixels at 200+).
+    let lowOpacity = 0;
+    let midOpacity = 0;
+    let highOpacity = 0;
+    for (let i = 0; i < alphaMap.length; i++) {
+      const a = alphaMap[i];
+      if (a === 0) continue;
+      else if (a < 80) lowOpacity++;
+      else if (a < 200) midOpacity++;
+      else highOpacity++;
+    }
     console.log(
-      `[composite] cyan_area=${cyanMask.areaPx}px stroke=${cyanMask.strokePx}px ` +
-        `(${cyanMask.areaPx > 0 ? ((cyanMask.strokePx / cyanMask.areaPx) * 100).toFixed(0) : 0}% of mask)`,
+      `[composite] cyan_area=${cyanMask.areaPx}px ` +
+        `alpha_lo=${lowOpacity} mid=${midOpacity} hi=${highOpacity}`,
     );
 
     return composited.toString("base64");
