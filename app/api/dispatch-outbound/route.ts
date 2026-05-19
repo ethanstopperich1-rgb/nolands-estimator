@@ -63,6 +63,24 @@ function configured(): boolean {
   );
 }
 
+/**
+ * Names which env vars are missing. Used in the 503 body when the
+ * route can't dispatch — turns "livekit_not_configured" into an
+ * actionable list of vars the operator needs to populate in Vercel.
+ * Never returns the VALUES, only the names of missing keys.
+ */
+function missingEnvVars(): string[] {
+  const required = {
+    LIVEKIT_URL,
+    LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET,
+    SIP_OUTBOUND_TRUNK_ID,
+  };
+  return Object.entries(required)
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+}
+
 function isE164(s: string): boolean {
   return /^\+[1-9]\d{6,14}$/.test(s.trim());
 }
@@ -92,8 +110,20 @@ export async function POST(req: Request) {
   }
 
   if (!configured()) {
+    const missing = missingEnvVars();
+    console.error(
+      "[dispatch-outbound] livekit_not_configured — missing env vars:",
+      missing.join(", "),
+    );
     return NextResponse.json(
-      { error: "livekit_not_configured" },
+      {
+        error: "livekit_not_configured",
+        // Surface the missing var NAMES (never values) so the operator
+        // can fix it without grepping the route. Same info appears in
+        // GET /api/_health for proactive checking.
+        missing,
+        docs: "AGENTS.md → Telephony (LiveKit + Twilio) → Required env vars",
+      },
       { status: 503 },
     );
   }
