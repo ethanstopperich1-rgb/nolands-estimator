@@ -1017,7 +1017,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // Bumped — global alpha scaled down to 0.70 (composite + GroundOverlay)
 // so the cyan tint reads less "too bright blue" on complex multi-facet
 // roofs. Cached composites at full 1.0 alpha re-roll under the dim.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-alpha-070";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-low-pitch-override";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1754,18 +1754,51 @@ async function handleV3Pinned(
     0,
   );
 
-  const shingleSegments = allSegments.filter(
+  const shingleOnlySegments = allSegments.filter(
     (seg) => (seg.pitchDegrees ?? 0) >= SHINGLE_MIN_PITCH_DEG,
   );
-  const excludedSegments = allSegments.length - shingleSegments.length;
-  const excludedM2 = allSegments
-    .filter((seg) => (seg.pitchDegrees ?? 0) < SHINGLE_MIN_PITCH_DEG)
-    .reduce((s, seg) => s + (seg.stats?.areaMeters2 ?? 0), 0);
-
-  const totalSlopedM2 = shingleSegments.reduce(
+  const shingleOnlyM2 = shingleOnlySegments.reduce(
     (s, seg) => s + (seg.stats?.areaMeters2 ?? 0),
     0,
   );
+  const excludedM2 = displaySlopedM2 - shingleOnlyM2;
+
+  // ─── Excluded-area sanity check (May 2026) ────────────────────────
+  // When Solar's 12° pricing gate excludes more than ~40% of the
+  // displayed (3°+) area, that's a strong signal Solar's segment
+  // pitches are wrong on this property — not that the property really
+  // has half its roof as low-slope membrane.
+  //
+  // Failure mode this catches: hipped FL homes where tree canopy or a
+  // bad photogrammetric pass biases segment pitches downward, classifying
+  // real shingle slopes as 5-11° (just below the gate). Customer sees a
+  // normal hip roof on the satellite, but the card prices only half of it,
+  // undercutting the quote ~50% and looking broken. Reported case:
+  // 2414 Weber St, Orlando — 2,271 sqft displayed, only 982 sqft priced
+  // because Solar classified 1,289 sqft as <12°. House has no visible
+  // flat sections on satellite.
+  //
+  // When triggered, trust the whole displayed (3°+) area as pricing-
+  // eligible. quotableSqft === displaySqft, so the customer-page
+  // disclaimer copy falls through to the "full X sqft of shingled roof"
+  // branch (no near-flat split).
+  const LOW_PITCH_OVERRIDE_THRESHOLD = 0.4;
+  const excludedFraction =
+    displaySlopedM2 > 0 ? excludedM2 / displaySlopedM2 : 0;
+  const pricingOverrideApplied =
+    displaySlopedM2 > 0 &&
+    excludedFraction > LOW_PITCH_OVERRIDE_THRESHOLD;
+
+  // shingleSegments / totalSlopedM2 flow into pricing, facets, azimuth
+  // clusters, segmentCount. When the override fires, all of those use
+  // the broader 3°+ set so the priced area matches the displayed area.
+  const shingleSegments = pricingOverrideApplied
+    ? displaySegments
+    : shingleOnlySegments;
+  const totalSlopedM2 = pricingOverrideApplied
+    ? displaySlopedM2
+    : shingleOnlyM2;
+  const excludedSegments = allSegments.length - shingleOnlySegments.length;
   const totalFootprintM2 =
     solar?.solarPotential?.wholeRoofStats?.groundAreaMeters2 ?? 0;
   const avgPitchDeg = (() => {
@@ -1778,7 +1811,15 @@ async function handleV3Pinned(
     );
   })();
 
-  if (excludedSegments > 0) {
+  if (pricingOverrideApplied) {
+    console.log(
+      `[gemini-roof v3] low_pitch_override ` +
+        `excluded=${Math.round(excludedM2 * 10.7639)}sqft ` +
+        `(${(excludedFraction * 100).toFixed(0)}% of 3°+ area) ` +
+        `> ${Math.round(LOW_PITCH_OVERRIDE_THRESHOLD * 100)}% threshold ` +
+        `— Solar segmentation suspect, pricing whole displayed area`,
+    );
+  } else if (excludedSegments > 0) {
     console.log(
       `[gemini-roof v3] flat_segments_excluded ` +
         `count=${excludedSegments}/${allSegments.length} ` +

@@ -94,6 +94,10 @@ The cast shadow of the eave extends 5–15 feet past the eave onto the lawn. Sto
 - Detached sheds, garages, or carports with ground between them and the main house
 - Porches with a VISIBLY SHALLOWER separate roof — the giveaway is a clean horizontal seam at the wall where the porch roof tucks UNDER the main eave, plus a slope that reads flatter than the main roof
 - Breezeways with their own separate structure
+- **Screened pool enclosures / pool cages** — large flat or low-pitch panels next to the house with a dark mesh / screen surface. They show a fine grid or diamond pattern, NOT shingle or tile texture, and read noticeably darker and flatter than the adjacent roof. Common on Florida homes; often as large as the house roof itself. NEVER paint.
+- **Paver / concrete pool decks and lanais** — uniform tan, gray, or terracotta surface AT GROUND LEVEL beside the pool. Has a repeating paver grid but no roof pitch, no eave shadow, no ridge. If you can see the pool water directly adjacent, the surrounding hard surface is deck, not roof.
+- **Detached lanai / cabana roofs separated from the main roof** — a low, dark membrane or flat-tile structure with its own perimeter and a visible gap (deck, screen wall, or open air) between it and the main roof. Treat as a separate building.
+- **Tile roof color trap** — Spanish / Mediterranean barrel-tile roofs (terracotta, brown, tan) sit next to paver decks and tile patios that share a very similar color. Discriminate by TEXTURE and ELEVATION: tile roof shows repeating curved barrel rows with sharp ridge/hip lines and casts a clear eave shadow; ground tile / pavers show a flat rectangular grid with no eave shadow. Color alone is NOT enough — require visible barrel texture AND a roof edge before painting.
 
 ## TREE CANOPY EXCEPTION — when to paint through it
 - IF the eave line aligns across the canopy gap AND visible roof on each side lines up in a clear continuation: paint THROUGH the canopy as if it were transparent.
