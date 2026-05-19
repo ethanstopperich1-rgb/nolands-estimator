@@ -1012,7 +1012,10 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // channel. Composite gets Pro Image's anti-aliasing for free, killing
 // the jagged-edge / blob-smudge artifacts that needed morphological
 // chasing in the prior render. Force a re-roll of cached composites.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-continuous-alpha";
+// Bumped — global alpha scaled down to 0.70 (composite + GroundOverlay)
+// so the cyan tint reads less "too bright blue" on complex multi-facet
+// roofs. Cached composites at full 1.0 alpha re-roll under the dim.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-alpha-070";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -2520,10 +2523,11 @@ async function handleV3Pinned(
   }
   if (cyanMask && cyanMask.areaPx > 0) {
     try {
-      // alphaScale=1.0 → use Pro Image's measured per-pixel cyan
-      // strength as-is. Bump to 1.1-1.3 if the GroundOverlay reads
-      // weaker than the static composite on customer screens.
-      const overlayPng = await maskToCyanOverlayPng(cyanMask, { alphaScale: 1.0 });
+      // alphaScale 0.70 matches the static composite's ALPHA_SCALE
+      // (see lib/composite-cyan-overlay.ts). Keeps the interactive
+      // GroundOverlay tint the same intensity as the fallback static
+      // image so the map and the static fallback look identical.
+      const overlayPng = await maskToCyanOverlayPng(cyanMask, { alphaScale: 0.70 });
       // Tile bounds: the static-maps tile is centered on `lat`/`lng`
       // and spans `widthPx × tileMPerPx` meters east-west and the same
       // north-south. Convert half-spans to lat/lng degrees using the

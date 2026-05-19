@@ -2064,43 +2064,64 @@ function RepCTACard({
         </span>
       </label>
 
-      <button
-        type="button"
-        className="btn-terra w-full"
-        style={{
-          fontSize: "15px",
-          fontWeight: 700,
-          letterSpacing: "0.02em",
-          padding: "14px 18px",
-        }}
-        disabled={
-          !voiceConsent ||
-          !leadPublicId ||
-          bookingState === "sending"
-        }
-        onClick={onBook}
-      >
-        {bookingState === "sending" ? "Booking…" : "Lock in my real number"}
-        <span className="arrow" aria-hidden="true">→</span>
-      </button>
-
-      {!leadPublicId && (
-        <p
-          className="mt-3 text-center"
+      {/* Button + trust line as a bottom-anchored group. `mt-auto`
+          pushes this whole cluster to the bottom of the flex card so
+          when the storms block on the left makes this column taller,
+          the slack distributes into the gap ABOVE the button rather
+          than awkwardly below it. */}
+      <div className="mt-auto">
+        <button
+          type="button"
+          className="btn-terra w-full"
           style={{
-            fontSize: "11px",
-            color: "var(--vx-muted)",
-            fontStyle: "italic",
+            fontSize: "15px",
+            fontWeight: 700,
+            letterSpacing: "0.02em",
+            padding: "14px 18px",
+          }}
+          disabled={
+            !voiceConsent ||
+            !leadPublicId ||
+            bookingState === "sending"
+          }
+          onClick={onBook}
+        >
+          {bookingState === "sending" ? "Booking…" : "Lock in my real number"}
+          <span className="arrow" aria-hidden="true">→</span>
+        </button>
+
+        {/* Trust line — quick reassurance scan: free, in writing,
+            customer-controlled. Sits directly under the button so it
+            reads as a continuation of "what happens when I click." */}
+        <div
+          className="mt-3 text-center font-serif italic"
+          style={{
+            fontSize: "12px",
+            lineHeight: 1.45,
+            color: "var(--vx-ink-soft)",
           }}
         >
-          Refresh and resubmit to enable booking.
-        </p>
-      )}
-      {bookingState === "error" && bookingError && (
-        <p className="mt-3 text-center" style={{ fontSize: "11px", color: "#8a2c2c" }}>
-          {bookingError}
-        </p>
-      )}
+          Free measurement · Written quote · Your decision
+        </div>
+
+        {!leadPublicId && (
+          <p
+            className="mt-2 text-center"
+            style={{
+              fontSize: "11px",
+              color: "var(--vx-muted)",
+              fontStyle: "italic",
+            }}
+          >
+            Refresh and resubmit to enable booking.
+          </p>
+        )}
+        {bookingState === "error" && bookingError && (
+          <p className="mt-2 text-center" style={{ fontSize: "11px", color: "#8a2c2c" }}>
+            {bookingError}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

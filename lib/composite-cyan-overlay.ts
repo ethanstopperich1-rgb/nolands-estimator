@@ -152,6 +152,14 @@ export async function compositeCyanOnAerial(
     const r = parseInt(OVERLAY_HEX.slice(1, 3), 16);
     const g = parseInt(OVERLAY_HEX.slice(3, 5), 16);
     const b = parseInt(OVERLAY_HEX.slice(5, 7), 16);
+    // Global alpha multiplier. The continuous extraction can push the
+    // brightest stroke pixels to 255 (full opacity) and the fill
+    // pixels to ~115 (45% opacity); customer feedback was the
+    // composite reads "too bright blue" on complex multi-facet roofs
+    // where there's just more cyan surface area. 0.70 dims the whole
+    // overlay proportionally — strokes from 255 → ~178, fill from
+    // 115 → ~80. Lines stay readable, the tint stops dominating.
+    const ALPHA_SCALE = 0.70;
     for (let i = 0; i < alphaMap.length; i++) {
       const a = alphaMap[i];
       if (a === 0) continue;
@@ -159,7 +167,7 @@ export async function compositeCyanOnAerial(
       rgba[base] = r;
       rgba[base + 1] = g;
       rgba[base + 2] = b;
-      rgba[base + 3] = a;
+      rgba[base + 3] = Math.round(a * ALPHA_SCALE);
     }
 
     const overlay = await sharp(rgba, {
