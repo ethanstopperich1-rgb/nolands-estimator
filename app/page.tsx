@@ -2172,7 +2172,8 @@ function DisclosureBand({
                 {lowSlopeSqft.toLocaleString()}
               </span>{" "}
               sqft is a near-flat section that needs a different
-              material — we add that as a separate line item on site.
+              material (TPO membrane or similar) — we&apos;ll quote
+              that on site.
             </>
           ) : (
             <>
