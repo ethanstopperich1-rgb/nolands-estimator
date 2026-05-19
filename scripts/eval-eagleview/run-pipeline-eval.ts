@@ -97,6 +97,12 @@ const CASES: TestCase[] = [
 interface V3Response {
   solar: {
     sqft: number | null;
+    /** Pricing-eligible sqft (≥ 12° pitch) — the asphalt-shingle basis
+     *  the customer's tier prices were calculated against. Differs
+     *  from `sqft` (display headline, ≥ 3°) when low-slope sections
+     *  are present. Added 2026-05 audit so eval can validate the
+     *  display-vs-quotable split per address. */
+    quotableSqft: number | null;
     footprintSqft: number | null;
     pitchDegrees: number | null;
     segmentCount: number;

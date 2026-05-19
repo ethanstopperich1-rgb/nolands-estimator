@@ -26,13 +26,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_role" }, { status: 400 });
   }
   const res = NextResponse.json({ ok: true, role });
+  // Demo cookie. Tightened from sameSite:"lax" → "strict" + secure
+  // flag in production: the value is just a role name (read by the
+  // /demo client to pick a UI variant) but stricter cookie semantics
+  // are cheap insurance against cross-site exfiltration via XSS on
+  // some other Voxaris page. httpOnly stays false because the /demo
+  // client reads the value via document.cookie to pick its variant.
   res.cookies.set({
     name: "voxaris_demo_role",
     value: role,
     path: "/",
     maxAge: COOKIE_MAX_AGE_SEC,
     httpOnly: false,
-    sameSite: "lax",
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production",
   });
   return res;
 }

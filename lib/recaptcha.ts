@@ -17,10 +17,16 @@
  *   RECAPTCHA_SECRET_KEY           — server-side secret (private)
  *   RECAPTCHA_MIN_SCORE            — override default 0.5 if needed
  *
- * Fails OPEN when `RECAPTCHA_SECRET_KEY` is unset so dev / preview
- * deployments keep working without provisioning Google credentials.
- * In production with the key set, a missing or low-score token is a
- * hard rejection.
+ * Posture by environment:
+ *   - production + missing secret = FAIL CLOSED. A prod deploy that
+ *     forgot the env var used to silently run without bot protection;
+ *     now every request gets a hard rejection with a loud error log
+ *     so ops sees the gap immediately.
+ *   - non-production + missing secret = FAIL OPEN. Local dev / preview
+ *     deploys keep working without provisioning Google credentials.
+ *     `reason: "configured_off"` is the log breadcrumb.
+ *
+ * BotID is an additional defense layer either way.
  */
 
 const SITE_VERIFY = "https://www.google.com/recaptcha/api/siteverify";
@@ -68,12 +74,30 @@ export async function verifyRecaptcha(
 ): Promise<RecaptchaResult> {
   const secret = process.env.RECAPTCHA_SECRET_KEY;
   if (!secret) {
-    // Dev / preview / partner fork without Google credentials. Fail
-    // open — BotID is still enforcing the bot gate; reCAPTCHA is
-    // additive. The audit on this would catch a prod deploy that
-    // forgot to set the secret because `score: null` makes it obvious
-    // in logs.
-    return { ok: true, reason: "configured_off", score: null, action: null };
+    // Fail-closed in production. A prod deploy that forgot to set the
+    // secret previously ran silently without reCAPTCHA protection.
+    // Now: hard rejection every request, loud reason in logs, ops sees
+    // the gap immediately.
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[recaptcha] RECAPTCHA_SECRET_KEY not configured in production — rejecting all requests",
+      );
+      return {
+        ok: false,
+        reason: "missing_secret_in_production",
+        score: null,
+        action: null,
+      };
+    }
+    // Dev / preview / partner-fork without Google credentials. Fail
+    // open so local development keeps working. Reason field is the
+    // breadcrumb in logs if a request ever lands without verification.
+    return {
+      ok: true,
+      reason: "configured_off",
+      score: null,
+      action: null,
+    };
   }
 
   if (!token || typeof token !== "string") {

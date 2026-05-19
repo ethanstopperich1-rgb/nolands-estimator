@@ -162,14 +162,16 @@ export async function lookupParcel(
     return null;
   }
 
+  // Logging philosophy: one breadcrumb per OUTCOME — not per query.
+  // On success, log a single `parcel_pick` line for the tier that hit.
+  // On total failure, log a single `parcel_lookup_null` line with all
+  // three tier counts so ops can diagnose without scrolling through
+  // 6-9 lines per failed request.
+
   // First pass: zero-tolerance point-in-polygon query at the exact
   // building centroid. Returns 1 feature on residential lots, 0 on
   // road pins, 1 (giant HOA tract) on gated common areas.
   const exact = await runQuery(lat, lng, 0);
-  console.log(
-    `[parcel] exact_query lat=${lat.toFixed(5)} lng=${lng.toFixed(5)} features=${exact.length}` +
-      (exact.length > 0 ? ` codes=[${exact.map((f) => f.attributes?.DOR_UC ?? "?").join(",")}]` : ""),
-  );
   const exactPick = pickResidential(exact, "exact");
   if (exactPick) return exactPick;
 
@@ -178,12 +180,6 @@ export async function lookupParcel(
   // gated by residential filter so an adjacent commercial parcel
   // doesn't win.
   const buffered25 = await runQuery(lat, lng, 25);
-  console.log(
-    `[parcel] buffered25_query features=${buffered25.length}` +
-      (buffered25.length > 0
-        ? ` codes=[${buffered25.map((f) => f.attributes?.DOR_UC ?? "?").join(",")}]`
-        : ""),
-  );
   const bufferedPick = pickResidential(buffered25, "buffered25");
   if (bufferedPick) return bufferedPick;
 
@@ -192,18 +188,12 @@ export async function lookupParcel(
   // up to ~30m on complex roofs). Still residentially gated so a
   // neighbor's house parcel will be picked over the road or HOA tract.
   const buffered100 = await runQuery(lat, lng, 100);
-  console.log(
-    `[parcel] buffered100_query features=${buffered100.length}` +
-      (buffered100.length > 0
-        ? ` codes=[${buffered100.map((f) => f.attributes?.DOR_UC ?? "?").join(",")}]`
-        : ""),
-  );
   const final = pickResidential(buffered100, "buffered100");
   if (!final) {
     console.warn(
-      `[parcel] no_residential_match all_three_queries_failed ` +
+      `[parcel] no_residential_match ` +
         `lat=${lat.toFixed(5)} lng=${lng.toFixed(5)} ` +
-        `exact=${exact.length} buffered25=${buffered25.length} buffered100=${buffered100.length}`,
+        `tiers=exact:${exact.length}/buffered25:${buffered25.length}/buffered100:${buffered100.length}`,
     );
   }
   return final;
