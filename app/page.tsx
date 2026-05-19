@@ -306,9 +306,20 @@ function VoxarisFlow() {
     setErrorMsg(null);
     setResult(null);
     try {
-      // skipCache=1 on every customer request — caching was producing
-      // stale numbers when we shipped pipeline fixes. The endpoint is
-      // ~25–50s; a fresh pass is the right trade for accuracy.
+      // Cache by lat/lng — the server keys CACHE_SCOPE_V3 + lat,lng,
+      // and bumps the scope whenever the pipeline changes shape (most
+      // recently → "v3-composite" in commit 767c233). That means the
+      // customer hitting the same pin a second time gets the cached
+      // ~50ms response instead of paying for a fresh 25-50s Gemini
+      // pass + Pro Image call (~$0.087). Prior behavior forced
+      // skipCache=1 on EVERY customer submit, which (a) burned that
+      // cost on every refresh and (b) didn't actually solve the stale-
+      // results worry the old comment described — that's what
+      // CACHE_SCOPE_V3 bumps are for.
+      //
+      // Reps can still force a fresh pass via the "Regenerate" button
+      // in the dashboard, which hits the same endpoint with
+      // skipCache=1.
       //
       // leadPublicId triggers server-side persistence via waitUntil()
       // so the rep workbench can render "See report" instantly from
@@ -317,7 +328,6 @@ function VoxarisFlow() {
         lat: String(pinLat),
         lng: String(pinLng),
         pinConfirmed: "1",
-        skipCache: "1",
       });
       if (leadPublicId) params.set("leadPublicId", leadPublicId);
       const res = await fetch(`/api/gemini-roof?${params.toString()}`, {
@@ -1214,8 +1224,27 @@ function ResultScreen({
     geminiMaterialToRateKey(result.geminiAnalysis.roofMaterial?.type) ?? null;
   const detectedMaterialConfidence =
     result.geminiAnalysis.roofMaterial?.confidence ?? 0;
+  // Material confidence gate. Wrong material → wildly wrong tier prices
+  // (metal is ~3× asphalt, tile is ~2.5×). Tighter threshold for the
+  // premium materials so a low-confidence "metal" guess doesn't quote
+  // the customer at 3× the right price. Architectural shingle is the
+  // safe default — falling back to it on a low-confidence guess
+  // under-prices slightly (~$0.50/sqft) instead of over-pricing wildly.
+  const MATERIAL_CONFIDENCE_FLOORS: Record<string, number> = {
+    metal: 0.85,
+    standing_seam: 0.85,
+    clay_tile: 0.85,
+    concrete_tile: 0.80,
+    slate: 0.90,
+    wood_shake: 0.85,
+    asphalt_shingle: 0.55, // baseline — fine to default to this
+  };
+  const requiredFloor =
+    detectedMaterialKey != null
+      ? MATERIAL_CONFIDENCE_FLOORS[detectedMaterialKey] ?? 0.75
+      : 0.75;
   const pricingMaterialKey =
-    detectedMaterialConfidence >= 0.65 ? detectedMaterialKey : null;
+    detectedMaterialConfidence >= requiredFloor ? detectedMaterialKey : null;
   const pricingMaterial = customerRatesForMaterial(pricingMaterialKey);
 
   // Pricing — Good / Better / Best tiers with three layers stacked:
@@ -1373,6 +1402,20 @@ function ResultScreen({
           >
             {resolved.formatted}
           </p>
+          {/* Imagery-quality badge. Solar API publishes how good the
+              satellite imagery is for this property — HIGH means we
+              measured against the freshest photogrammetric pass and
+              the customer can trust the number cold; MEDIUM/LOW means
+              the photo is older or partial and a rep should review on
+              site before we hand over a binding quote. Surfacing this
+              up-front sets expectations honestly instead of letting a
+              LOW-imagery result get treated like a HIGH-imagery one. */}
+          {result.solar.imageryQuality && (
+            <ImageryQualityBadge
+              quality={result.solar.imageryQuality}
+              date={result.solar.imageryDate}
+            />
+          )}
         </div>
 
         {/* Above-the-fold row — image LEFT, price + CTA RIGHT on lg+.
@@ -1689,6 +1732,77 @@ function ResultScreen({
       </div>
 
       <VoxarisFooter />
+    </div>
+  );
+}
+
+// ─── Imagery quality badge ─────────────────────────────────────────────
+//
+// Tiny inline pill that sits under the address line and tells the
+// homeowner how confident they should be in the headline number.
+// Solar API's `imageryQuality` (HIGH / MEDIUM / LOW / BASE) is a
+// straightforward proxy: HIGH means we measured against a recent,
+// clean photogrammetric pass; MEDIUM/LOW means the imagery is older,
+// partial, or low-resolution and a rep should ground-truth on site.
+//
+// Why expose this: a customer comparing two estimates (ours vs a
+// competitor) can't tell that one was based on a six-month-old aerial
+// of the previous owner's tear-down. We can tell them.
+
+function ImageryQualityBadge({
+  quality,
+  date,
+}: {
+  quality: string;
+  date: string | null;
+}) {
+  const upper = quality.toUpperCase();
+  const isHigh = upper === "HIGH";
+  const isLimited = upper === "LOW" || upper === "BASE";
+
+  // Pretty date — `imageryDate` ships as "YYYY-MM-DD". Render as
+  // "Mar 2024" so the homeowner immediately reads "imagery age."
+  const prettyDate = date
+    ? new Date(date + "T00:00:00Z").toLocaleDateString(undefined, {
+        month: "short",
+        year: "numeric",
+      })
+    : null;
+
+  const label = isHigh
+    ? "High-resolution satellite imagery"
+    : isLimited
+      ? "Limited imagery — rep will review on site"
+      : "Standard satellite imagery";
+
+  return (
+    <div className="mt-3 flex justify-center" aria-label={label}>
+      <span
+        className="font-serif italic"
+        style={{
+          fontSize: "11px",
+          letterSpacing: "0.04em",
+          color: isLimited ? "var(--vx-terra)" : "var(--vx-ink-soft)",
+          padding: "3px 10px",
+          border: `1px solid ${isLimited ? "var(--vx-terra)" : "var(--vx-rule)"}`,
+          borderRadius: "999px",
+          background: "transparent",
+        }}
+      >
+        {label}
+        {prettyDate && (
+          <span
+            style={{
+              marginLeft: 6,
+              color: "var(--vx-muted)",
+              fontStyle: "normal",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            · {prettyDate}
+          </span>
+        )}
+      </span>
     </div>
   );
 }
