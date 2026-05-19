@@ -57,11 +57,37 @@ const MIN_HAIL_INCHES = 0.5;
 const CANVASS_RADIUS_MILES = 2.0;
 
 function authorized(req: Request): boolean {
+  // Fail CLOSED when CRON_SECRET is not configured. The prior version
+  // returned true just from the PRESENCE of an `x-vercel-cron-signature`
+  // header value, so any external caller could spoof "from-cron" by
+  // adding the header. Vercel cron jobs always sign with a real value
+  // when the secret is configured; if it's not configured at all,
+  // there's no way to verify the call came from Vercel, so we reject
+  // every call until ops sets the secret. Production-safe default.
   const expected = process.env.CRON_SECRET;
   if (!expected) {
-    return req.headers.has("x-vercel-cron-signature");
+    console.warn(
+      "[cron] rejected — CRON_SECRET not configured; cron jobs disabled until ops sets it",
+    );
+    return false;
   }
-  return req.headers.get("authorization") === `Bearer ${expected}`;
+  // Two equally valid auth paths once the secret is configured:
+  //   1. Vercel's own cron infra signs the request with this header.
+  //      The signature is opaque to us but its presence + matching the
+  //      configured secret means the request originated from our
+  //      Vercel project.
+  //   2. Manual / out-of-band trigger (debug, replay) via Bearer auth.
+  // Both require the secret to be set in the environment.
+  if (req.headers.get("authorization") === `Bearer ${expected}`) {
+    return true;
+  }
+  // For the Vercel-cron-signature path we still require the signature
+  // header to match the configured secret to fail closed — header
+  // presence alone is not enough.
+  if (req.headers.get("x-vercel-cron-signature") === expected) {
+    return true;
+  }
+  return false;
 }
 
 interface MrmsEvent {

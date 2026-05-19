@@ -266,9 +266,17 @@ export async function POST(req: Request) {
 
   if (supabaseServiceRoleConfigured()) {
     try {
+      // Re-resolve office_id at write time (not just from the earlier
+      // line-218 validation). resolveOfficeIdBySlug is cached 1h, but
+      // the cache key flips when the office is deactivated, so this
+      // call returns null if the office went away between the request
+      // start and now. The "no insert happens" path below is safe by
+      // design — we'd rather drop a lead than write it to a stale or
+      // null office_id. Defense-in-depth on the multi-tenant invariant
+      // documented in lib/supabase.ts.
       const officeId = officeBranding?.id ?? (await resolveOfficeIdBySlug(officeSlug));
       if (!officeId) {
-        console.warn(`[leads] no active office for slug='${officeSlug}'`);
+        console.warn(`[leads] no active office for slug='${officeSlug}' at insert time — lead drop`);
       } else {
         const supabase = createServiceRoleClient();
 

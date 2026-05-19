@@ -101,6 +101,8 @@ import {
 import {
   calculateGeometricWaste,
   calculatePenetrationAdders,
+  calculateTieredPricingWithPenetrations,
+  geminiMaterialToRateKey,
 } from "@/lib/pricing/calculate-waste";
 import { lookupParcel, type ParcelLookupResult } from "@/lib/parcel-lookup";
 
@@ -1686,9 +1688,70 @@ async function persistEstimateToLead(
     return;
   }
 
+  // Compute customer-facing tier prices here so the lead row carries
+  // the same `estimate_low` / `estimate_high` numbers the customer saw
+  // on the result page. Prior version wrote only `roof_v3_json` and
+  // left the headline price columns null — the rep dashboard showed
+  // "No estimate" for customers who had clearly seen a price.
+  //
+  // Source of truth for sqft / waste / objects / material: this V3
+  // result. Same math the customer page (calculateTieredPricingWithPenetrations)
+  // runs against.
+  let estimateLow: number | null = null;
+  let estimateHigh: number | null = null;
+  const pricingSqft = result.solar.quotableSqft ?? result.solar.sqft ?? null;
+  if (pricingSqft && result.pricing) {
+    const wastePct = result.pricing.recommendedWastePercent;
+    const objects = result.objects ?? [];
+    const detectedMaterialKey = geminiMaterialToRateKey(
+      result.geminiAnalysis.roofMaterial?.type ?? null,
+    );
+    const matConf = result.geminiAnalysis.roofMaterial?.confidence ?? 0;
+    const pricingMaterialKey =
+      matConf >= 0.65 ? detectedMaterialKey : null;
+    try {
+      const { tiers } = calculateTieredPricingWithPenetrations(
+        pricingSqft,
+        {
+          suggestedPercent: wastePct,
+          complexityScore: 0,
+          breakdown: {
+            fromFacets: 0,
+            fromValleys: 0,
+            fromRidgesHips: 0,
+            fromSteepPitch: 0,
+          },
+          table: [],
+        },
+        objects,
+        pricingMaterialKey,
+      );
+      // Customer sees three tiers; the lead row carries the low/high
+      // band across the full tier ladder (Essentials → Fortified).
+      const totals = tiers.map((t) => t.total);
+      estimateLow = Math.min(...totals);
+      estimateHigh = Math.max(...totals);
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] tier_price_calc_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const updatePayload: {
+    roof_v3_json: Json;
+    estimate_low?: number;
+    estimate_high?: number;
+    estimated_sqft?: number;
+  } = { roof_v3_json: roofV3Json };
+  if (estimateLow != null) updatePayload.estimate_low = estimateLow;
+  if (estimateHigh != null) updatePayload.estimate_high = estimateHigh;
+  if (result.solar.sqft != null) updatePayload.estimated_sqft = result.solar.sqft;
+
   const { error } = await supabase
     .from("leads")
-    .update({ roof_v3_json: roofV3Json })
+    .update(updatePayload)
     .eq("public_id", leadPublicId)
     .eq("office_id", priorLead.office_id);
   if (error) {

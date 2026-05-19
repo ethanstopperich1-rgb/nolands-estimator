@@ -18,13 +18,30 @@ import { Redis } from "@upstash/redis";
  * Daily cap defaults to $200/day, override with AI_DAILY_USD_CAP. Set to
  * 0 to disable (not recommended in prod).
  *
- * FAIL MODE: if Redis is unavailable, the cap is bypassed (request
- * proceeds). The rate limiter already fail-closes in prod when Redis is
- * gone, so this isn't an additional risk surface — both defenses share
- * the same Redis-required posture.
+ * FAIL MODE: if Redis is unavailable, the daily $-cap can't be enforced
+ * (no shared counter across instances). To prevent unlimited Gemini
+ * spend during a Redis outage, we ALSO maintain a per-instance,
+ * in-process request counter as a secondary ceiling. Each Node process
+ * (Vercel function instance) gets its own count; cold starts reset it.
+ * Concurrent instances each apply their own ceiling independently, so
+ * the effective fleet-wide cap is `MAX_INSTANCE_REQUESTS × instances`.
+ * That's a soft floor (a determined attacker can still spend a few
+ * hundred dollars during a real outage) but far better than the prior
+ * silent fail-open.
  */
 
 const DEFAULT_DAILY_USD_CAP = 200;
+
+/** Per-instance request ceiling when Redis is unreachable. Tuned so a
+ *  single instance can't burn more than ~$50 of Gemini before its
+ *  in-process counter trips and rejects further requests. Pro Image
+ *  paint ≈ $0.18 each, so 250 calls ≈ $45 worst case. Resets on cold
+ *  start (each Vercel instance gets its own counter), so the effective
+ *  fleet-wide ceiling scales with concurrent instances. Configurable
+ *  via AI_INSTANCE_CALL_CAP_NO_REDIS for ops tuning. */
+const DEFAULT_INSTANCE_CALL_CAP_NO_REDIS = 250;
+let instanceCallCount = 0;
+let instanceCallCountResetAt = Date.now();
 
 let cachedRedis: Redis | null = null;
 let probedRedis = false;
@@ -71,25 +88,62 @@ export async function assertAiSpendUnderCap(): Promise<NextResponse | null> {
   const cap = dailyCapUsd();
   if (cap === 0) return null;
   const redis = getRedis();
-  if (!redis) return null;
 
-  try {
-    const raw = await redis.get<number | string>(dailyKey());
-    const spent = typeof raw === "number" ? raw : Number(raw ?? 0);
-    if (Number.isFinite(spent) && spent >= cap) {
-      console.error(
-        `[cost-cap] daily AI spend cap reached: $${spent.toFixed(2)} >= $${cap.toFixed(2)}`,
-      );
-      return NextResponse.json(
-        { error: "ai_daily_cap_reached" },
-        { status: 503, headers: { "Cache-Control": "no-store" } },
-      );
+  // Redis-backed daily $-cap. This is the primary defense: shared
+  // across all Vercel instances, tracks actual $ spent.
+  if (redis) {
+    try {
+      const raw = await redis.get<number | string>(dailyKey());
+      const spent = typeof raw === "number" ? raw : Number(raw ?? 0);
+      if (Number.isFinite(spent) && spent >= cap) {
+        console.error(
+          `[cost-cap] daily AI spend cap reached: $${spent.toFixed(2)} >= $${cap.toFixed(2)}`,
+        );
+        return NextResponse.json(
+          { error: "ai_daily_cap_reached" },
+          { status: 503, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      return null;
+    } catch (err) {
+      console.warn("[cost-cap] cap check threw:", err);
+      // Fall through to in-process secondary ceiling.
     }
-    return null;
-  } catch (err) {
-    console.warn("[cost-cap] cap check threw:", err);
-    return null;
   }
+
+  // Secondary defense: per-instance in-process request ceiling. Only
+  // engages when Redis is unreachable OR threw. Cold-start resets the
+  // counter, so a determined attacker mid-outage can spend ~$X per
+  // instance × N instances. Soft floor — not a real budget — but far
+  // better than the prior silent fail-open.
+  //
+  // Hourly reset prevents a stuck-instance from rejecting forever
+  // after the counter trips; if Redis comes back during that window
+  // the primary defense takes over again.
+  const HOUR_MS = 60 * 60 * 1000;
+  if (Date.now() - instanceCallCountResetAt > HOUR_MS) {
+    instanceCallCount = 0;
+    instanceCallCountResetAt = Date.now();
+  }
+  const instanceCap = (() => {
+    const raw = process.env.AI_INSTANCE_CALL_CAP_NO_REDIS;
+    if (!raw) return DEFAULT_INSTANCE_CALL_CAP_NO_REDIS;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_INSTANCE_CALL_CAP_NO_REDIS;
+  })();
+  if (instanceCallCount >= instanceCap) {
+    console.error(
+      `[cost-cap] in-process instance call ceiling reached: ` +
+        `${instanceCallCount} >= ${instanceCap} (Redis unavailable, ` +
+        `secondary defense engaged)`,
+    );
+    return NextResponse.json(
+      { error: "ai_instance_cap_reached" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  instanceCallCount++;
+  return null;
 }
 
 /**
