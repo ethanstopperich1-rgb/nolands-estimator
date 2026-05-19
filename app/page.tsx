@@ -1302,6 +1302,36 @@ function ResultScreen({
                   depends on what we find on site (decking condition,
                   layers, code work). Confirmed by a licensed roofer.
                 </div>
+                {/* Display-vs-quotable clarification — only renders when the
+                    headline sqft (3°+ filter, the homeowner's "whole roof")
+                    differs from the asphalt-shingle pricing area (12°+
+                    filter). Quietly explains why the tier prices map to a
+                    smaller number, instead of leaving the customer to wonder
+                    if our math is broken. */}
+                {result.solar.quotableSqft != null &&
+                  sqft != null &&
+                  result.solar.quotableSqft < sqft && (
+                    <div
+                      className="mt-2 mx-auto text-center font-serif italic"
+                      style={{
+                        fontSize: "11px",
+                        lineHeight: 1.5,
+                        color: "var(--vx-muted)",
+                        maxWidth: "44ch",
+                      }}
+                    >
+                      Tier prices cover the{" "}
+                      <span className="tabular" style={{ fontStyle: "normal" }}>
+                        {result.solar.quotableSqft.toLocaleString()}
+                      </span>{" "}
+                      sqft of asphalt-shingle roof. The remaining{" "}
+                      <span className="tabular" style={{ fontStyle: "normal" }}>
+                        {(sqft - result.solar.quotableSqft).toLocaleString()}
+                      </span>{" "}
+                      sqft is low-slope and quotes separately on site (different
+                      material, different price).
+                    </div>
+                  )}
                 <div
                   className="mt-2 text-center"
                   style={{
