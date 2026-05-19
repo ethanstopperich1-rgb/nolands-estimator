@@ -172,6 +172,9 @@ export async function POST(req: Request) {
     outcome,
     name: lead.name,
     officeDisplayName: office?.displayName ?? "Voxaris",
+    // FROM the contractor's own Twilio number — same brand the
+    // homeowner already saw on the confirmation + ack SMSes.
+    fromNumber: office?.twilioNumber ?? undefined,
     appointmentAt: body.appointmentAt,
   });
 
@@ -209,6 +212,7 @@ async function sendHomeownerSms(opts: {
   outcome: string;
   name: string;
   officeDisplayName: string;
+  fromNumber?: string;
   appointmentAt?: string;
 }): Promise<boolean> {
   if (!opts.phoneE164 || !twilioConfigured()) return false;
@@ -233,7 +237,7 @@ async function sendHomeownerSms(opts: {
       body = `Hi ${firstName}, thanks for chatting with ${opts.officeDisplayName}. A team member will follow up. Reply STOP to opt out.`;
   }
   try {
-    await sendSms({ to: opts.phoneE164, body });
+    await sendSms({ to: opts.phoneE164, body, from: opts.fromNumber });
     return true;
   } catch (err) {
     console.error("[sms-postcall] homeowner SMS failed:", err);
@@ -293,7 +297,13 @@ async function sendRepUpdate(opts: {
   lines.push(`${opts.dashboardOrigin}/dashboard/leads/${opts.lead.public_id}`);
 
   try {
-    await sendSms({ to: dest, body: lines.join("\n") });
+    await sendSms({
+      to: dest,
+      body: lines.join("\n"),
+      // Send the rep alert FROM their own number too — keeps it from
+      // looking like an unknown sender on the rep's phone.
+      from: opts.office?.twilioNumber ?? undefined,
+    });
     return true;
   } catch (err) {
     console.error("[sms-postcall] rep SMS failed:", err);

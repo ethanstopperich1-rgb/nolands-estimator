@@ -182,3 +182,52 @@ export async function resolveOfficeIdBySlug(slug: string): Promise<string | null
   const o = await resolveOfficeBySlug(slug);
   return o?.id ?? null;
 }
+
+/** Resolve an office by its customer-facing Twilio number. Used by the
+ *  inbound SMS webhook to route based on the `To` field — each
+ *  contractor brings their own Twilio number, and the +1 888 786 9134
+ *  Voxaris toll-free is for Voxaris→contractor sales / internal
+ *  testing only. Cache keyed by E.164 number. */
+const OFFICE_BY_TWILIO_CACHE = new Map<
+  string,
+  { branding: OfficeBranding | null; fetchedAt: number }
+>();
+
+export async function resolveOfficeByTwilioNumber(
+  twilioNumberE164: string,
+): Promise<OfficeBranding | null> {
+  const cached = OFFICE_BY_TWILIO_CACHE.get(twilioNumberE164);
+  if (cached && Date.now() - cached.fetchedAt < OFFICE_TTL_MS) {
+    return cached.branding;
+  }
+  if (!supabaseServiceRoleConfigured()) return null;
+  const supabase = createServiceRoleClient();
+  const { data, error } = await supabase
+    .from("offices")
+    .select("id, slug, name, inbound_number, twilio_number, brand_color, logo_url, livekit_agent_name")
+    .eq("twilio_number", twilioNumberE164)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error || !data) {
+    OFFICE_BY_TWILIO_CACHE.set(twilioNumberE164, {
+      branding: null,
+      fetchedAt: Date.now(),
+    });
+    return null;
+  }
+  const branding: OfficeBranding = {
+    id: data.id,
+    slug: data.slug,
+    displayName: data.name,
+    inboundNumber: data.inbound_number,
+    twilioNumber: data.twilio_number,
+    brandColor: data.brand_color,
+    logoUrl: data.logo_url,
+    livekitAgentName: data.livekit_agent_name,
+  };
+  OFFICE_BY_TWILIO_CACHE.set(twilioNumberE164, {
+    branding,
+    fetchedAt: Date.now(),
+  });
+  return branding;
+}

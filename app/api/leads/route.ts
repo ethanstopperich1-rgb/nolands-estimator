@@ -607,7 +607,14 @@ export async function POST(req: Request) {
     // Run both writes in parallel and don't await — keep the API
     // response fast.
     void Promise.all([
-      sendSms({ to: phoneE164, body: smsBody })
+      // FROM the office's own Twilio number — homeowner sees the
+      // contractor's brand, not Voxaris. The +1 888 786 9134 stays
+      // reserved for Voxaris→contractor sales / internal testing.
+      sendSms({
+        to: phoneE164,
+        body: smsBody,
+        from: officeBranding?.twilioNumber ?? undefined,
+      })
         .then((r) =>
           console.log("[leads] sent confirmation SMS", {
             leadId,

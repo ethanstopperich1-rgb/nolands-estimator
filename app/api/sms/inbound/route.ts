@@ -13,7 +13,9 @@ import {
 } from "@/lib/sms-conversation";
 import {
   createServiceRoleClient,
+  resolveOfficeByTwilioNumber,
   supabaseServiceRoleConfigured,
+  type OfficeBranding,
 } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -69,6 +71,7 @@ export async function POST(req: Request) {
   }
 
   const from = toE164(params.From);
+  const to = toE164(params.To);
   const body = (params.Body ?? "").trim();
   if (!from || !body) {
     // Twilio expects a 200 even on no-op so it doesn't retry.
@@ -77,6 +80,17 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "text/xml" },
     });
   }
+
+  // ─── Tenancy: route by destination number ─────────────────────────
+  // Each contractor brings their own Twilio number for customer
+  // messaging. The `To` field tells us which contractor received this
+  // SMS, which scopes the lead lookup AND determines the `From`
+  // number on every outbound reply. If we can't resolve an office
+  // (e.g. the Voxaris toll-free receiving a homeowner message during
+  // pre-launch internal testing), we fall back to no-office mode and
+  // send replies from TWILIO_PHONE_NUMBER (the global default).
+  const inboundOffice = to ? await resolveOfficeByTwilioNumber(to) : null;
+  const replyFrom = inboundOffice?.twilioNumber ?? undefined;
 
   // STOP / UNSUBSCRIBE / END / QUIT / CANCEL — Twilio handles the
   // account-level suppression automatically, but we ALSO persist the
@@ -138,7 +152,12 @@ export async function POST(req: Request) {
   // log a consent row alongside the dispatch for the audit trail.
   const yesMatch = body.match(/^(yes|y|yeah|yep|yup|sure|ok|okay|call me|call)\b/i);
   if (yesMatch) {
-    const handled = await handleYesCallback({ from, body });
+    const handled = await handleYesCallback({
+      from,
+      body,
+      inboundOffice,
+      replyFrom,
+    });
     if (handled) {
       return new Response("<Response/>", {
         status: 200,
@@ -167,7 +186,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await sendSms({ to: from, body: reply });
+    await sendSms({ to: from, body: reply, from: replyFrom });
     await appendTurn({ phone: from, role: "assistant", body: reply });
   } catch (err) {
     console.error("[sms-inbound] outbound send failed:", err);
@@ -254,6 +273,12 @@ You have full conversation history below. Read it before replying so you don't r
 async function handleYesCallback(opts: {
   from: string;
   body: string;
+  /** Office resolved from the destination Twilio number. When null,
+   *  we're in pre-launch testing on the Voxaris toll-free; fall back
+   *  to phone-only lookup across all offices. */
+  inboundOffice: OfficeBranding | null;
+  /** Twilio number to send the ack reply from. */
+  replyFrom: string | undefined;
 }): Promise<boolean> {
   if (!supabaseServiceRoleConfigured()) {
     console.warn("[sms-inbound:yes] supabase service role not configured");
@@ -273,7 +298,11 @@ async function handleYesCallback(opts: {
     console.warn("[sms-inbound:yes] non-10-digit from", opts.from);
     return false;
   }
-  const { data: leads, error } = await sb
+  // Scope to the office that received the SMS when we resolved one.
+  // This is the right multi-tenant boundary: a homeowner who has
+  // leads with two different contractors should be answered by the
+  // contractor whose number they texted.
+  let leadsQuery = sb
     .from("leads")
     .select(
       "public_id, office_id, name, address, phone, estimate_low, estimate_high, estimated_sqft, material, tcpa_consent",
@@ -281,6 +310,10 @@ async function handleYesCallback(opts: {
     .ilike("phone", `%${last10}%`)
     .order("created_at", { ascending: false })
     .limit(1);
+  if (opts.inboundOffice) {
+    leadsQuery = leadsQuery.eq("office_id", opts.inboundOffice.id);
+  }
+  const { data: leads, error } = await leadsQuery;
   const lead = leads?.[0] ?? null;
 
   if (error) {
@@ -343,6 +376,7 @@ async function handleYesCallback(opts: {
     await sendSms({
       to: opts.from,
       body: "Thanks — a team member will call you shortly.",
+      from: opts.replyFrom,
     });
     await appendTurn({ phone: opts.from, role: "user", body: opts.body });
     await appendTurn({
@@ -400,7 +434,7 @@ async function handleYesCallback(opts: {
   // (Sydney's logs are the source of truth for the call itself).
   const ackBody = `Got it — ${office.livekit_agent_name ? office.livekit_agent_name.charAt(0).toUpperCase() + office.livekit_agent_name.slice(1) : "Sydney"} will call you in a few seconds from ${office.name}.`;
   try {
-    await sendSms({ to: opts.from, body: ackBody });
+    await sendSms({ to: opts.from, body: ackBody, from: opts.replyFrom });
   } catch (err) {
     console.error("[sms-inbound:yes] ack SMS failed:", err);
   }

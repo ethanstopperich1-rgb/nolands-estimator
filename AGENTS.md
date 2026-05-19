@@ -262,6 +262,44 @@ Optional toggles:
    with SHAKEN/STIR attestation. Without it, outbound calls get
    marked `Spam Likely` on Verizon / AT&T / T-Mobile networks.
 
+### Phone-number tenancy
+
+There are TWO distinct classes of phone number in the system, and
+they must NEVER be confused:
+
+1. **`+1 888 786 9134` — the Voxaris toll-free.** Reserved for
+   Voxaris-to-CONTRACTOR communication: sales demos, pre-launch
+   internal testing, the public `pitch.voxaris.io` demo. Homeowners
+   never see this number in a production deployment. It's the
+   `TWILIO_PHONE_NUMBER` env var (the global default `from` on
+   `sendSms` when no per-office number is passed).
+
+2. **Each contractor's own Twilio number.** Stored on
+   `offices.twilio_number`. This is what homeowners see on the
+   confirmation SMS, the YES ack, the post-call homeowner SMS, and
+   the rep "new appt scheduled" alert. Routing on the inbound webhook
+   uses the `To` field (the contractor's number that received the
+   message) to look up the office via
+   `lib/supabase.ts:resolveOfficeByTwilioNumber`, scope the lead
+   lookup to that office's leads, and set the `from` on every reply.
+
+**Send path rule**: every `sendSms` call from a tenant-scoped path
+must pass `from: office.twilioNumber` — never default to the global
+env var when an office is known. The current threading:
+
+- `/api/leads` confirmation SMS → `from: officeBranding.twilioNumber`
+- `/api/sms/inbound` reply (both YES handler + AI bot) →
+  `from: replyFrom` where `replyFrom = inboundOffice.twilioNumber`
+- `/api/sms/post-call` homeowner + rep messages →
+  `from: office.twilioNumber`
+- `lib/lead-notifications.ts:notifyOfficeOfNewLead` rep alert →
+  `from: opts.office?.twilioNumber`
+
+The Voxaris toll-free fallback only kicks in when an office row
+hasn't been provisioned a Twilio number yet — useful for
+Voxaris-internal smoke tests, but every paying contractor should
+have their own number configured before going live.
+
 ### SMS-first lead flow (testing pre-Voice-Trust)
 
 For pre-launch testing — before SHAKEN/STIR attestation is approved

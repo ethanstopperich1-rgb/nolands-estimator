@@ -145,6 +145,14 @@ export async function notifyOfficeOfNewLead(opts: {
     const result = await sendSms({
       to: destination,
       body,
+      // Send FROM the contractor's own Twilio number when one is
+      // configured. Keeps brand consistency on the rep's phone (the
+      // alert appears to come from the same number their customers
+      // reach them at) AND keeps the Voxaris toll-free reserved for
+      // Voxaris→contractor sales / internal testing. Falls back to
+      // TWILIO_PHONE_NUMBER (the global default) when the office row
+      // hasn't configured one yet.
+      from: opts.office?.twilioNumber ?? undefined,
       // Rep notifications are operator messages, not consumer
       // marketing. Still gated by opt-out — if a rep texted STOP, the
       // gate respects it (and we log + move on; the rep will need to
