@@ -1062,14 +1062,32 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // to the full headline `sqft`. Oak Park was under-quoted because the
 // low-slope split carved out 1,130 sqft incorrectly. Cached pre-bump
 // estimates would tier-price wrong on the customer page.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-full-sqft-pricing";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-flash-lite-3-1";
 
-/** Cheap text-only model used solely for object detection alongside
- *  the painted-image call. Pro Image is expensive ($0.075/call) and
- *  returns no text in multimodal mode — so we fan out a second call
- *  to gemini-2.5-flash (~$0.005) with structured JSON output for the
- *  vents/chimneys/skylights chips. */
-const GEMINI_OBJECTS_MODEL = process.env.GEMINI_OBJECTS_MODEL ?? "gemini-2.5-flash";
+/** Cheap text-only model used solely for structured-output object
+ *  detection alongside the painted-image call. Pro Image is expensive
+ *  ($0.075/call) and returns no text in multimodal mode — so we fan
+ *  out a second call to a Flash model with structured JSON output for
+ *  the vents/chimneys/skylights chips, material classification,
+ *  condition hints, etc. See `GEMINI_ROOF_SCHEMA` in
+ *  `lib/gemini-roof-prompt.ts` for the full output shape.
+ *
+ *  Model swap history:
+ *  - 2026-05-17 → `gemini-2.5-flash`: stable baseline, validated
+ *    against Newcomb / Jupiter eval set.
+ *  - 2026-05-19 → `gemini-3.1-flash-lite`: cheaper (~35% on Flash
+ *    spend), newer architecture, same generation as 3-flash-preview
+ *    / 3.5-flash without the frontier-pricing tax. Pricing:
+ *      $0.25 / $1.50 per 1M tokens (vs $0.30 / $2.50 on 2.5 flash).
+ *    DO NOT swap to `gemini-3.5-flash` ($1.50 / $9.00) without
+ *    eval — that model is priced for frontier-reasoning use cases
+ *    we don't have. ~80% of our Flash schema is enum classification
+ *    that's already saturated on 2.5; the one hard task (small-object
+ *    bounding boxes on satellite tiles) has no published benchmark
+ *    favoring 3.5 over 3.1. Default below kept on 3.1-flash-lite for
+ *    new deployments. */
+const GEMINI_OBJECTS_MODEL =
+  process.env.GEMINI_OBJECTS_MODEL ?? "gemini-3.1-flash-lite";
 
 const GEMINI_OBJECTS_PROMPT = `Analyze this 1280×1280 aerial satellite image of a residential property. The target building is centered at pixel (640, 640). Only consider the central building — ignore neighbors, yards, and ground objects (except for site_obstacles below).
 
