@@ -910,9 +910,16 @@ export interface GeminiRoofResponseV3 {
   /** Gemini Pro Image's RAW generative paint output, pre-composite.
    *  Useful for the rep workbench (debug: did Gemini paint correctly?
    *  did the mask extractor catch every cyan pixel?). NOT shown to
-   *  customers — Pro Image is generative and can re-render geometry
-   *  that doesn't match the actual aerial. Null when paint failed. */
+   *  customers when the dual publisher routes to "composite" or
+   *  "raw_aerial". Null when paint failed. */
   paintedImageRawBase64: string | null;
+  /** Which path the dual publisher took to produce the customer's
+   *  visible image. "pro_edit" = Pro Image's output direct (real edit
+   *  on the input tile); "composite" = cyan mask drawn on the raw
+   *  Google aerial (Pro Image regenerated background); "raw_aerial" =
+   *  no cyan at all (paint or mask failed). The rep workbench shows
+   *  this so we can audit edit-vs-composite rates per property. */
+  customerImageSource: "pro_edit" | "composite" | "raw_aerial";
   /** Rooftop objects detected by Gemini (vents, chimneys, skylights,
    *  HVAC, solar panels, etc). Empty array when Gemini failed. */
   objects: Array<{
@@ -1124,7 +1131,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // discards Pro Image's facade) and adds a cyan-centroid sanity check.
 // Old cached entries from before this fix may include legitimate
 // paints that the prior strict MAE check rejected; force a re-roll.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-cyan-centric-verify";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-dual-publisher";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1930,20 +1937,30 @@ async function handleV3Pinned(
   // returns ~5 distinct shingle segments. Without this hint Pro Image
   // visually merged adjacent same-pitch hips into one big polygon.
   //
-  // 2026-05-18 fix (8450 Oak Park regression): we previously passed the
-  // FULL `roofSegmentStats.length` here — 17 on Oak Park — which forced
-  // Pro Image to fabricate facet boundaries to hit a count that
-  // included low-slope wings (6.6° / 11.6°) and other segments we'd
-  // already filtered out of the displayed measurement. The model went
-  // into generative-fill mode and painted a fictional symmetric estate.
-  // Use the SAME 3°+ filter we apply to the customer headline sqft so
-  // the hint matches reality everywhere else in the pipeline.
-  const DISPLAY_MIN_PITCH_DEG_FOR_HINT = 3;
-  const solarSegmentsForHint = solar?.solarPotential?.roofSegmentStats
-    ? solar.solarPotential.roofSegmentStats.filter(
-        (s) => (s.pitchDegrees ?? 0) >= DISPLAY_MIN_PITCH_DEG_FOR_HINT,
-      ).length
-    : null;
+  // SEGMENTATION HINT — DISABLED (May 2026 post-Oak-Park audit).
+  //
+  // The hint was added in `a32a487` to push Pro Image to subdivide
+  // adjacent same-pitch hips on simple 4-facet roofs ("paint at least
+  // N planes"). It worked on Newcomb. It broke spectacularly on Oak
+  // Park's 17-segment estate — the model satisfied the count by
+  // fabricating facet boundaries, which flipped it from "real photo
+  // edit" mode into "generative fill" mode, producing the symmetric
+  // CGI-looking building the customer immediately recognized as wrong.
+  //
+  // The 3°-filter variant (prior iteration of this slot) was a partial
+  // mitigation — still left the hint at 17 on Oak Park because every
+  // segment cleared 3°. After two passes of audit (Cursor + external
+  // review) the call is to remove the hint entirely. Pro Image's
+  // natural behavior on a clean satellite tile is a faithful
+  // translucent cyan edit; the dual publisher below picks Pro Image's
+  // PNG directly when verify confirms a real edit, so we no longer
+  // need a count nudge to get the "magazine-clean" look back on
+  // simple roofs.
+  //
+  // If we ever bring it back, gate strictly: cap at 6 and only inject
+  // when Solar's roofSegmentStats.length is in [2, 6]. Never on
+  // complex multi-wing estates.
+  const solarSegmentsForHint: number | null = null;
   const [paintedResult, richResult, rawLinesResult] = await Promise.allSettled([
     callGeminiMultimodalWithVerify(tile.base64, geminiKey, solarSegmentsForHint),
     callGeminiRichData(tile.base64, geminiKey),
@@ -2732,32 +2749,97 @@ async function handleV3Pinned(
   //   3. line-classification + downstream consumers already ran above
   //      on the unwatermarked raw paint; no impact on measurement math
   const paintedImageRawBase64 = paintedImageBase64;
-  // CRITICAL FALLBACK CONTRACT: the customer NEVER sees Gemini's raw
-  // generative PNG. Compositing is the only path that's allowed to
-  // overwrite `paintedImageBase64` for customer consumption; every
-  // other branch falls through to the raw Google aerial. Prior version
-  // (commit 767c233) had an `if / else if` that left a hole: when
-  // Gemini paint succeeded but extractCyanMask returned null or a
-  // zero-area mask, neither branch fired and the customer received
-  // the raw Gemini hallucination. Cursor caught it on review.
-  if (paintedImageBase64 && cyanMask && cyanMask.areaPx > 0) {
+  // ─── DUAL PUBLISHER for the customer image ─────────────────────────
+  //
+  // Three possible outcomes, picked by signal:
+  //
+  //   1. PRO_EDIT  — Pro Image actually edited the input tile. Cyan
+  //                  sits on real shingles, ridge/hip strokes are
+  //                  crisp, background pixels remain close to the
+  //                  original aerial. This is the "magazine-clean"
+  //                  paint that built the product's visual rep on
+  //                  Winter Garden / Orlando 2026-05-17. We send Pro
+  //                  Image's PNG straight to the customer here; no
+  //                  composite needed because the background IS the
+  //                  real photo.
+  //
+  //   2. COMPOSITE — Pro Image returned cyan in the right place but
+  //                  generated a new background (the Oak Park failure
+  //                  mode from a32a487). We keep only the cyan polygon
+  //                  via extractCyanMask, then composite it onto the
+  //                  REAL Google aerial. Customer sees their actual
+  //                  photo with cyan only where we measured.
+  //
+  //   3. RAW_AERIAL — Pro Image failed entirely, the mask is empty,
+  //                  or the mask is so large it's clearly garbage
+  //                  (lawn-bleed, flood-fill). Show the raw aerial
+  //                  with no cyan. Customer still sees a real photo
+  //                  of their house — just without the highlighted
+  //                  polygon. Better than a fake-looking composite.
+  //
+  // Gate values calibrated from existing telemetry on edit-vs-
+  // regenerate runs. PRO_EDIT gates are intentionally tight — false
+  // positives ship a Gemini-regenerated building straight to the
+  // customer, which is the failure we're protecting against. Better
+  // to fall to COMPOSITE on a borderline case than to leak a bad
+  // PRO_EDIT through.
+  const PRO_EDIT_MAE_CEILING = 12;        // 0-255 per-channel; lower = real edit
+  const PRO_EDIT_COVERAGE_MIN = 0.08;     // 8% of frame minimum (small roofs)
+  const PRO_EDIT_COVERAGE_MAX = 0.30;     // 30% ceiling — beyond this is overpaint
+  const COMPOSITE_FILL_CEILING = 0.35;    // matches lib/composite-cyan-overlay.ts
+
+  type CustomerImageSource = "pro_edit" | "composite" | "raw_aerial";
+  let customerImageSource: CustomerImageSource;
+  let customerImageReason: string;
+
+  const haveProPaint = paintedImageBase64 != null;
+  const haveMask = cyanMask != null && cyanMask.areaPx > 0;
+  const maskFillFraction =
+    cyanMask != null && cyanMask.width > 0
+      ? cyanMask.areaPx / (cyanMask.width * cyanMask.height)
+      : 0;
+
+  if (
+    haveProPaint &&
+    haveMask &&
+    paintVerifyVerdict === "edited" &&
+    paintVerifyMae != null &&
+    paintVerifyMae < PRO_EDIT_MAE_CEILING &&
+    paintVerifyCyanCoverage != null &&
+    paintVerifyCyanCoverage >= PRO_EDIT_COVERAGE_MIN &&
+    paintVerifyCyanCoverage <= PRO_EDIT_COVERAGE_MAX
+  ) {
+    // Path 1: PRO_EDIT. Send Pro Image's output directly.
+    customerImageSource = "pro_edit";
+    customerImageReason = `mae=${paintVerifyMae.toFixed(1)} coverage=${(paintVerifyCyanCoverage * 100).toFixed(0)}%`;
+    // paintedImageBase64 already holds Pro Image's PNG — no change needed.
+  } else if (haveMask && maskFillFraction <= COMPOSITE_FILL_CEILING) {
+    // Path 2: COMPOSITE. Mask looks usable; background was likely regenerated.
+    customerImageSource = "composite";
+    customerImageReason =
+      `verdict=${paintVerifyVerdict ?? "n/a"} ` +
+      `mae=${paintVerifyMae?.toFixed(1) ?? "n/a"} ` +
+      `coverage=${paintVerifyCyanCoverage != null ? (paintVerifyCyanCoverage * 100).toFixed(0) + "%" : "n/a"} ` +
+      `fill=${(maskFillFraction * 100).toFixed(0)}%`;
     paintedImageBase64 = await compositeCyanOnAerial(
       tile.rawBase64,
-      cyanMask,
+      cyanMask!,
     );
   } else {
-    const reason =
-      paintedImageBase64 == null
-        ? "paint_failed"
-        : !cyanMask
-          ? "mask_extract_failed"
-          : "mask_empty";
-    console.warn(
-      `[gemini-roof v3] composite_skipped reason=${reason} ` +
-        `→ falling back to raw aerial (customer never sees Gemini PNG directly)`,
-    );
+    // Path 3: RAW_AERIAL.
+    customerImageSource = "raw_aerial";
+    customerImageReason = !haveProPaint
+      ? "paint_failed"
+      : !haveMask
+        ? "mask_empty_or_extract_failed"
+        : `mask_too_large fill=${(maskFillFraction * 100).toFixed(0)}%`;
     paintedImageBase64 = tile.rawBase64;
   }
+
+  console.log(
+    `[gemini-roof v3] customer_image source=${customerImageSource} ` +
+      `(${customerImageReason})`,
+  );
   // Stamp the brand watermark on whatever we ended up with. Soft-fails
   // to the unwatermarked image — never breaks the response.
   if (paintedImageBase64) {
@@ -2879,6 +2961,7 @@ async function handleV3Pinned(
     paintedImageBase64,
     paintedImageRawBase64,
     cyanOverlay,
+    customerImageSource,
     objects,
     penetrationTotals,
     edges,
