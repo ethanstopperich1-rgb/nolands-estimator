@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimit } from "@/lib/ratelimit";
+import { guardPublicBillableRequest } from "@/lib/api-public-guard";
 import { getCached, setCached } from "@/lib/cache";
 import { scanHailEvents, type HailEvent } from "@/lib/hail-mrms";
 
@@ -28,8 +28,8 @@ export const maxDuration = 30;
  */
 
 export async function GET(req: Request) {
-  const __rl = await rateLimit(req, "standard");
-  if (__rl) return __rl;
+  const gated = await guardPublicBillableRequest(req, "standard");
+  if (gated) return gated;
 
   const { searchParams } = new URL(req.url);
   const lat = Number(searchParams.get("lat"));

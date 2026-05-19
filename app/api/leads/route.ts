@@ -14,6 +14,14 @@ import {
 } from "@/lib/supabase";
 import { validatePaintedPngBase64 } from "@/lib/validate-image";
 import { sanitizeRoofV3Payload } from "@/lib/validate-roof-v3";
+import { BRAND_CONFIG } from "@/lib/branding";
+import { buildMarketingConsentText } from "@/lib/tcpa-consent";
+import {
+  hasMarketingConsent,
+  isValidLeadPublicId,
+  isValidOfficeSlug,
+  normalizeOfficeSlug,
+} from "@/lib/leads/validation";
 
 export const runtime = "nodejs";
 // Function needs to live long enough to (a) finish the synchronous lead
@@ -92,25 +100,8 @@ interface LeadPayload {
   };
 }
 
-/** TCPA disclosure text — the exact wording the customer agrees to.
- *  Pin this constant so any change to the consent text is tracked in
- *  git and survives consent audits. If the wording is updated, this
- *  string AND the rendered checkbox copy in
- *  `components/ui/bolt-style-chat.tsx` MUST change together — they're
- *  the same legal disclosure and must remain byte-equivalent for the
- *  audit trail to be defensible. Last updated 2026-05-12 to match the
- *  /privacy + /terms links rolled out in commit d0a0293. */
-export const TCPA_CONSENT_TEXT =
-  "By submitting this form, you consent to receive automated marketing " +
-  "calls, texts, and emails from Voxaris and its partner contractors at " +
-  "the phone number and email provided. Consent is not required to make " +
-  "a purchase. Message frequency varies; message and data rates may apply. " +
-  "Reply STOP to opt out, HELP for help. See our Privacy Policy at " +
-  "/privacy and Terms of Service at /terms.";
-
-function isValidExistingLeadPublicId(id: unknown): id is string {
-  return typeof id === "string" && /^lead_[0-9a-f]{32}$/i.test(id.trim());
-}
+/** @deprecated Import buildMarketingConsentText from lib/tcpa-consent */
+export { buildMarketingConsentText as getMarketingConsentTextForOffice } from "@/lib/tcpa-consent";
 
 /**
  * POST /api/leads
@@ -194,8 +185,7 @@ export async function POST(req: Request) {
   // email outreach fires. Voice consent is granular and OPTIONAL: it
   // only authorizes the outbound automated voice call, which is gated
   // separately below.
-  const marketingConsent =
-    body.marketingConsent === true || body.tcpaConsent === true;
+  const marketingConsent = hasMarketingConsent(body);
   const voiceConsent = body.voiceConsent === true;
   if (!marketingConsent) {
     return NextResponse.json(
@@ -217,11 +207,8 @@ export async function POST(req: Request) {
   // status against the offices table before we accept it. Unknown /
   // inactive slugs get rejected so a misconfigured embed snippet
   // doesn't silently drop leads into the wrong office.
-  const rawOfficeSlug =
-    typeof body.office === "string" && body.office.trim()
-      ? body.office.trim().toLowerCase()
-      : "nolands";
-  if (!/^[a-z0-9][a-z0-9-]{1,40}$/i.test(rawOfficeSlug)) {
+  const rawOfficeSlug = normalizeOfficeSlug(body.office);
+  if (!isValidOfficeSlug(rawOfficeSlug)) {
     return NextResponse.json(
       { error: "invalid_office", message: "office must be a slug like 'nolands'." },
       { status: 400 },
@@ -244,7 +231,7 @@ export async function POST(req: Request) {
   let leadId = `lead_${crypto.randomUUID().replace(/-/g, "")}`;
   let isLeadUpdate = false;
 
-  if (supabaseServiceRoleConfigured() && isValidExistingLeadPublicId(body.existingLeadPublicId)) {
+  if (supabaseServiceRoleConfigured() && isValidLeadPublicId(body.existingLeadPublicId)) {
     const oid = await resolveOfficeIdBySlug(officeSlug);
     if (oid) {
       const sb = createServiceRoleClient();
@@ -273,6 +260,9 @@ export async function POST(req: Request) {
   const officeBranding = supabaseServiceRoleConfigured()
     ? await resolveOfficeBySlug(officeSlug)
     : null;
+  const marketingConsentText = buildMarketingConsentText(
+    officeBranding?.displayName ?? BRAND_CONFIG.companyName,
+  );
 
   if (supabaseServiceRoleConfigured()) {
     try {
@@ -355,7 +345,7 @@ export async function POST(req: Request) {
           notes: body.notes ?? null,
           tcpa_consent: true,
           tcpa_consent_at: submittedAt,
-          tcpa_consent_text: TCPA_CONSENT_TEXT,
+          tcpa_consent_text: marketingConsentText,
           ...(roofV3Json ? { roof_v3_json: roofV3Json } : {}),
         };
 
@@ -389,7 +379,7 @@ export async function POST(req: Request) {
               // Matches the documented enum in migrations/0001:
               // 'tcpa_marketing' | 'call_recording' | 'sms' | 'email_marketing'.
               consent_type: "tcpa_marketing",
-              disclosure_text: TCPA_CONSENT_TEXT,
+              disclosure_text: marketingConsentText,
               email: emailNorm,
               phone: body.phone?.trim() || null,
               ip_address: consentIp,
@@ -544,7 +534,7 @@ export async function POST(req: Request) {
           // tcpaConsentText is client-supplied and could be spoofed;
           // ours is the canonical receipt.
           tcpaConsent: true,
-          tcpaConsentText: TCPA_CONSENT_TEXT,
+          tcpaConsentText: marketingConsentText,
           tcpaConsentAt: submittedAt,
         }),
         signal: AbortSignal.timeout(8_000),
@@ -577,7 +567,7 @@ export async function POST(req: Request) {
       submittedAt,
       emailHash: hashFragment(emailNorm),
       phoneHash: body.phone ? hashFragment(body.phone.replace(/\D/g, "")) : null,
-      consentText: TCPA_CONSENT_TEXT,
+      consentText: marketingConsentText,
     }),
   );
 

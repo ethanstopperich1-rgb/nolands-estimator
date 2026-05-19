@@ -5,6 +5,7 @@ import {
   createServiceRoleClient,
   supabaseServiceRoleConfigured,
 } from "@/lib/supabase";
+import { buildVoiceConsentDisclosureText } from "@/lib/tcpa-consent";
 
 export const runtime = "nodejs";
 // Same dispatch window as /api/leads — call dispatch is fire-and-forget
@@ -54,15 +55,6 @@ export const maxDuration = 30;
 interface RequestBody {
   consent?: unknown;
 }
-
-/** Canonical disclosure template. `{{office_name}}` is substituted
- *  server-side from the resolved offices.name for the lead's office.
- *  Naming the specific seller satisfies the FCC one-to-one consent
- *  rule (effective Jan 2025). */
-const VOICE_CONSENT_DISCLOSURE_TEMPLATE =
-  "Customer authorized an automated outbound voice intro call from " +
-  "{{office_name}} after viewing their estimate. Recording may apply " +
-  "where permitted by law. Reply STOP to opt out.";
 
 export async function POST(
   req: Request,
@@ -178,10 +170,7 @@ export async function POST(
     .eq("id", lead.office_id)
     .maybeSingle();
   const officeDisplayName = officeRow?.name ?? "the assigned business";
-  const disclosureText = VOICE_CONSENT_DISCLOSURE_TEMPLATE.replace(
-    "{{office_name}}",
-    officeDisplayName,
-  );
+  const disclosureText = buildVoiceConsentDisclosureText(officeDisplayName);
 
   // Persist the audit row — append-only, regulator-grade.
   const { error: consentErr } = await supabase.from("consents").insert({

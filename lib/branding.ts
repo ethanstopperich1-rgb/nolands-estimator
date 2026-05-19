@@ -5,7 +5,11 @@
  * Env overrides (optional):
  *   PITCH_COMPANY_NAME, PITCH_PHONE, PITCH_EMAIL, PITCH_WEBSITE
  *   NEXT_PUBLIC_PITCH_COMPANY_NAME (for client-side display)
+ *
+ * ROOFAI_* env names are deprecated aliases (see lib/env-branding.ts).
  */
+
+import { envBrand, envBrandFlag } from "@/lib/env-branding";
 
 export type BrandConfig = {
   companyName: string;
@@ -44,25 +48,19 @@ export type MaterialPriceKey =
   | "RFG_RDGV"
   | "RFG_PIPEFL";
 
-const env = (k: string, fallback: string) =>
-  (typeof process !== "undefined" && process.env[k]) || fallback;
-
 export const BRAND_CONFIG: BrandConfig = {
   // Customer-facing org name (what appears on the proposal PDF). For internal Voxaris use,
   // this defaults to the product brand. White-label per workspace via PITCH_COMPANY_NAME.
-  companyName: env("PITCH_COMPANY_NAME", "Voxaris Pitch"),
+  companyName: envBrand("COMPANY_NAME", "Voxaris Pitch"),
   productName: "Pitch",
   vendorName: "Voxaris",
-  tagline: env(
-    "PITCH_TAGLINE",
-    "Estimate to deal in five minutes."
-  ),
-  primaryColor: env("PITCH_PRIMARY_COLOR", "#07090d"),
-  accentColor: env("PITCH_ACCENT_COLOR", "#67dcff"),
-  phone: env("PITCH_PHONE", ""),
-  email: env("PITCH_EMAIL", ""),
-  websiteUrl: env("PITCH_WEBSITE", ""),
-  showXactimateCodes: env("PITCH_SHOW_XACTIMATE", "false") === "true",
+  tagline: envBrand("TAGLINE", "Estimate to deal in five minutes."),
+  primaryColor: envBrand("PRIMARY_COLOR", "#07090d"),
+  accentColor: envBrand("ACCENT_COLOR", "#67dcff"),
+  phone: envBrand("PHONE", ""),
+  email: envBrand("EMAIL", ""),
+  websiteUrl: envBrand("WEBSITE", ""),
+  showXactimateCodes: envBrandFlag("SHOW_XACTIMATE", false),
   defaultMarkup: { overheadPercent: 10, profitPercent: 10 },
 };
 

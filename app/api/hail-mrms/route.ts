@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimit } from "@/lib/ratelimit";
+import { guardPublicBillableRequest } from "@/lib/api-public-guard";
 import { list } from "@vercel/blob";
 import { getCached, setCached } from "@/lib/cache";
 
@@ -149,8 +149,8 @@ function dateInRangeYYYYMMDD(d: string, start: Date, end: Date): boolean {
 }
 
 export async function GET(req: Request) {
-  const limited = await rateLimit(req, "standard");
-  if (limited) return limited;
+  const gated = await guardPublicBillableRequest(req, "standard");
+  if (gated) return gated;
 
   const { searchParams } = new URL(req.url);
   const lat = Number(searchParams.get("lat"));

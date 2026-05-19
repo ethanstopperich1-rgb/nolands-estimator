@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight, Loader2, MapPin, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { AuroraButton } from "@/components/ui/aurora-button";
 import { Wordmark } from "@/components/Wordmark";
+import { BRAND_CONFIG } from "@/lib/branding";
+import { buildMarketingConsentText } from "@/lib/tcpa-consent";
 
 interface Suggestion {
   placeId: string;
@@ -56,6 +58,8 @@ interface Props {
    *  match the host roofer's brand color on the CTA + ring + outline.
    *  Defaults to undefined (uses the global cy-300 / cy-400 tokens). */
   accentHex?: string;
+  /** Server-authoritative TCPA marketing disclosure (office-specific). */
+  marketingConsentText?: string;
 }
 
 /**
@@ -76,6 +80,7 @@ export function BoltStyleHero({
   embedMode = false,
   titleAccent = "roof your house",
   accentHex,
+  marketingConsentText = buildMarketingConsentText(BRAND_CONFIG.companyName),
 }: Props) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -321,12 +326,10 @@ export function BoltStyleHero({
                   aria-label="Consent to receive marketing communications"
                 />
                 <span className="text-[11px] leading-[1.55] text-slate-400 group-hover:text-slate-300 transition-colors">
-                  By submitting this form, you consent to receive automated
-                  marketing calls, texts, and emails from Voxaris and its
-                  partner contractors at the phone number and email provided.
-                  Consent is not required to make a purchase. Message
-                  frequency varies; message and data rates may apply. Reply
-                  STOP to opt out, HELP for help. See our{" "}
+                  {marketingConsentText.replace(
+                    "See our Privacy Policy at /privacy and Terms of Service at /terms.",
+                    "",
+                  ).trim()}{" "}
                   <a
                     href="/privacy"
                     target="_blank"

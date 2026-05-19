@@ -25,6 +25,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BRAND_CONFIG } from "@/lib/branding";
+import { buildMarketingConsentText } from "@/lib/tcpa-consent";
 import Link from "next/link";
 import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
@@ -383,8 +385,33 @@ function HeroScreen({
   // customer sees their estimate, before any automated voice call is
   // placed (TCPA "prior express written consent" requirement met).
   const [marketingConsent, setMarketingConsent] = useState(false);
+  const [officeSlug, setOfficeSlug] = useState("nolands");
+  const [sellerName, setSellerName] = useState(BRAND_CONFIG.companyName);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const marketingDisclosure = useMemo(
+    () => buildMarketingConsentText(sellerName),
+    [sellerName],
+  );
+
+  useEffect(() => {
+    const slug =
+      new URLSearchParams(window.location.search).get("office")?.trim().toLowerCase() ||
+      "nolands";
+    setOfficeSlug(slug);
+    let cancelled = false;
+    fetch(`/api/office/branding?office=${encodeURIComponent(slug)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { displayName?: string } | null) => {
+        if (!cancelled && data?.displayName) setSellerName(data.displayName);
+      })
+      .catch(() => {
+        /* Branding API optional in dev — fall back to env company name. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // reCAPTCHA v3 — invisible, score-based. Layered on top of BotID.
   // Token gets minted at submit time with action="submit_lead" and
   // verified server-side by /api/leads. No-op when
@@ -464,6 +491,7 @@ function HeroScreen({
             lat: resolvedAddr.lat,
             lng: resolvedAddr.lng,
             source: "pitch.voxaris.io",
+            office: officeSlug,
             marketingConsent: true,
             voiceConsent: false,
             recaptchaToken,
@@ -692,16 +720,16 @@ function HeroScreen({
                   required
                 />
                 <span style={{ fontSize: "12px", color: "var(--vx-ink-soft)", lineHeight: 1.6 }}>
-                  <span style={{ color: "var(--vx-ink)", fontWeight: 500 }}>Send me my estimate.</span>{" "}
-                  I agree to receive my roof estimate by email and a brief text-message intro from
-                  your team. Reply{" "}
-                  <span style={{ fontWeight: 500, color: "var(--vx-ink)" }}>STOP</span> to opt out anytime.{" "}
+                  {marketingDisclosure.replace(
+                    "See our Privacy Policy at /privacy and Terms of Service at /terms.",
+                    "",
+                  ).trim()}{" "}
                   <Link
                     href="/privacy"
                     className="underline"
                     style={{ textDecorationColor: "var(--vx-muted)", textUnderlineOffset: "2px" }}
                   >
-                    Privacy
+                    Privacy Policy
                   </Link>{" "}
                   ·{" "}
                   <Link
@@ -709,7 +737,7 @@ function HeroScreen({
                     className="underline"
                     style={{ textDecorationColor: "var(--vx-muted)", textUnderlineOffset: "2px" }}
                   >
-                    Terms
+                    Terms of Service
                   </Link>
                   .{" "}
                   {/* reCAPTCHA brand-attribution disclosure. Required by

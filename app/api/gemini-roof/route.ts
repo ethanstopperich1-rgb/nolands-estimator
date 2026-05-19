@@ -53,17 +53,17 @@
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import sharp from "sharp";
-import { checkBotId } from "botid/server";
-import { rateLimit } from "@/lib/ratelimit";
-import { checkOrigin } from "@/lib/origin-guard";
 import {
-  AI_CALL_COST_USD,
-  assertAiSpendUnderCap,
-  trackAiSpend,
-} from "@/lib/cost-cap";
+  guardGeminiRoofRequest,
+  sanitizeGeminiRoofDebug,
+} from "@/lib/gemini-roof/request-guards";
+import {
+  parseGeminiRoofInputs,
+  type ParsedGeminiRoofInputs,
+} from "@/lib/gemini-roof/parse-inputs";
+import { AI_CALL_COST_USD, trackAiSpend } from "@/lib/cost-cap";
 import { validatePaintedPngBase64 } from "@/lib/validate-image";
 import { watermarkPaintedPng } from "@/lib/watermark";
-import { isStaffRequest } from "@/lib/staff-auth";
 import { fetchWithTimeout } from "@/lib/safe-fetch";
 import { getCached, setCached } from "@/lib/cache";
 import { fetchGisFootprint } from "@/lib/reconcile-roof-polygon";
@@ -188,65 +188,7 @@ interface SolarResponse {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-interface ParsedInputs {
-  lat: number;
-  lng: number;
-  address: string | null;
-  skipCache: boolean;
-  /** When true, the lat/lng is the customer's confirmed pin position.
-   *  The route uses this as the EXACT tile center — no Solar-bbox
-   *  recentering, no zoom auto-pick from building dimensions. */
-  pinConfirmed: boolean;
-  /** When true, echo raw Gemini-text into the response for diagnostics. */
-  debug: boolean;
-  /** When set, the route persists the V3 result to leads.roof_v3_json
-   *  via waitUntil() so the rep workbench can "See report" instantly. */
-  leadPublicId: string | null;
-}
-
-function parseInputs(req: Request, body: unknown): ParsedInputs | NextResponse {
-  if (req.method === "GET") {
-    const u = new URL(req.url);
-    const lat = Number(u.searchParams.get("lat"));
-    const lng = Number(u.searchParams.get("lng"));
-    const address = u.searchParams.get("address");
-    const skipCache = u.searchParams.get("skipCache") === "1";
-    const pinConfirmed = u.searchParams.get("pinConfirmed") === "1";
-    const debug = u.searchParams.get("debug") === "1";
-    const leadPublicId = u.searchParams.get("leadPublicId");
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return NextResponse.json({ error: "lat & lng required" }, { status: 400 });
-    }
-    return {
-      lat, lng, address, skipCache, pinConfirmed, debug,
-      leadPublicId: leadPublicId && /^lead_[0-9a-f]{32}$/i.test(leadPublicId) ? leadPublicId : null,
-    };
-  }
-  const b = body as {
-    lat?: number;
-    lng?: number;
-    address?: string;
-    skipCache?: boolean;
-    pinConfirmed?: boolean;
-    debug?: boolean;
-    leadPublicId?: string;
-  };
-  if (!b || !Number.isFinite(b.lat) || !Number.isFinite(b.lng)) {
-    return NextResponse.json({ error: "lat & lng required" }, { status: 400 });
-  }
-  return {
-    lat: Number(b.lat),
-    lng: Number(b.lng),
-    address: b.address ?? null,
-    skipCache: !!b.skipCache,
-    pinConfirmed: !!b.pinConfirmed,
-    debug: !!b.debug,
-    leadPublicId:
-      typeof b.leadPublicId === "string" && /^lead_[0-9a-f]{32}$/i.test(b.leadPublicId)
-        ? b.leadPublicId
-        : null,
-  };
-}
+type ParsedInputs = ParsedGeminiRoofInputs;
 
 async function fetchGoogleStaticTile(
   lat: number,
@@ -3128,30 +3070,11 @@ async function handle(
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
-  const origin = checkOrigin(req);
-  if (origin) return origin;
-  // Bucket dropped from "standard" (60/min) → "expensive" (10/min):
-  // each invocation costs ~$0.05–$0.15 in Gemini credits, so the cap
-  // needs to match the cost class. BotID + origin allowlist already
-  // filter the obvious abusers; the rate limit catches a logged-in
-  // staff member accidentally hammering refresh.
-  const rl = await rateLimit(req, "expensive");
-  if (rl) return rl;
-  // Daily $-spend circuit breaker. Rate limits are per-IP; the cap
-  // catches a distributed attacker or a buggy retry loop that stays
-  // under the per-IP cap and still drains the daily AI budget.
-  const capGate = await assertAiSpendUnderCap();
-  if (capGate) return capGate;
-  const verdict = await checkBotId();
-  if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
-    return NextResponse.json({ error: "Bot detected" }, { status: 403 });
-  }
-  const parsed = parseInputs(req, null);
+  const blocked = await guardGeminiRoofRequest(req);
+  if (blocked) return blocked;
+  const parsed = parseGeminiRoofInputs(req, null);
   if (parsed instanceof NextResponse) return parsed;
-  // ?debug=1 returns raw Gemini text + caught errors — useful for ops,
-  // but a prompt-leak vector for the public. Strip it unless the caller
-  // is staff (cookie / Basic / Supabase session).
-  if (parsed.debug && !isStaffRequest(req)) parsed.debug = false;
+  parsed.debug = sanitizeGeminiRoofDebug(req, parsed.debug);
   try {
     return await (parsed.pinConfirmed
       ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
@@ -3166,27 +3089,17 @@ export async function GET(req: Request): Promise<NextResponse> {
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const origin = checkOrigin(req);
-  if (origin) return origin;
-  // See GET above — same expensive bucket + BotID gate.
-  const rl = await rateLimit(req, "expensive");
-  if (rl) return rl;
-  const capGate = await assertAiSpendUnderCap();
-  if (capGate) return capGate;
-  const verdict = await checkBotId();
-  if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
-    return NextResponse.json({ error: "Bot detected" }, { status: 403 });
-  }
+  const blocked = await guardGeminiRoofRequest(req);
+  if (blocked) return blocked;
   let body: unknown;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "invalid_json_body" }, { status: 400 });
   }
-  const parsed = parseInputs(req, body);
+  const parsed = parseGeminiRoofInputs(req, body);
   if (parsed instanceof NextResponse) return parsed;
-  // See GET above — staff-only debug flag.
-  if (parsed.debug && !isStaffRequest(req)) parsed.debug = false;
+  parsed.debug = sanitizeGeminiRoofDebug(req, parsed.debug);
   try {
     return await (parsed.pinConfirmed
       ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)

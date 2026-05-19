@@ -47,6 +47,22 @@ jobs:
       - name: Lint
         run: npm run lint
 
+  test:
+    name: Unit tests + RLS migration check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund --legacy-peer-deps
+      - name: RLS migration verification
+        run: npm run test:rls
+      - name: Unit tests
+        run: npm run test
+
   build:
     name: Next build
     runs-on: ubuntu-latest

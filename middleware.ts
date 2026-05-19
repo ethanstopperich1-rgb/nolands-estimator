@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isApiPath, isProtected } from "@/lib/protected-routes";
 
 /**
  * Staff auth middleware — HTTP Basic gate on rep-facing routes.
@@ -53,21 +54,8 @@ import { NextResponse, type NextRequest } from "next/server";
  *                           PUBLIC_LEAD_SUBROUTES below.
  */
 
-const PROTECTED_API_PREFIXES = [
-  "/api/photos",
-  "/api/voice-note",
-  "/api/supplement",
-  "/api/insights",
-  "/api/vision",
-  "/api/verify-polygon",
-  "/api/estimates",
-  // /api/aerial — no current call site; gated to avoid abuse on the
-  // Google Aerial View render quota.
-  "/api/aerial",
-];
-
 /**
- * INTENTIONALLY PUBLIC (do NOT add these to PROTECTED_*):
+ * INTENTIONALLY PUBLIC (do NOT add these to PROTECTED_* in lib/protected-routes.ts):
  *
  *   /, /embed                  customer-facing surfaces
  *   /login, /auth/*            sign-in flow
@@ -76,57 +64,10 @@ const PROTECTED_API_PREFIXES = [
  *   /api/places/*              address autocomplete
  *   /api/gemini-roof           V3 truth pipeline
  *   /api/solar, /api/building, /api/storms, /api/hail-mrms, /api/weather
+ *   /api/office/branding       office display + TCPA copy for customer UI
  *
- * Anything new and rep-only goes in PROTECTED_API_PREFIXES above.
+ * Anything new and rep-only goes in PROTECTED_API_PREFIXES (lib/protected-routes.ts).
  */
-// `/` is the customer-facing root (V3 holy-grail flow). Everything
-// internal lives under /dashboard/* and is gated below by Supabase auth.
-const PROTECTED_PAGE_PATHS = new Set<string>();
-// /internal/* hosts rep-only printable views (notably the EagleView-
-// style roof report template that the Playwright PDF generator scrapes).
-// Same Basic Auth + staff-cookie surface as /dashboard.
-const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/internal"];
-
-// Sub-routes under /api/leads/<publicId>/ that MUST remain customer-
-// facing. Everything else under that prefix is a rep tool (PDF report,
-// V3 regeneration) and gets the staff gate.
-//
-// `voice-consent` is exempt because the customer hits it from the
-// post-estimate share page to opt into the outbound voice intro call.
-// The route enforces its own idempotency + per-lead cooldown so a
-// knowledge-of-publicId leak can't be weaponized for harassment.
-const PUBLIC_LEAD_SUBROUTES = new Set<string>(["voice-consent"]);
-
-function isProtected(pathname: string, method: string): boolean {
-  // POST /api/proposals — staff-only (prevents unauthenticated proposal spam).
-  // GET /api/proposals/[publicId] must stay public for customer share links.
-  if (pathname === "/api/proposals" && method === "POST") return true;
-
-  // /api/leads/<publicId>/<subroute> — rep tools by default. POST
-  // /api/leads (lead capture root) stays public; the sub-routes are
-  // gated unless explicitly listed in PUBLIC_LEAD_SUBROUTES.
-  //
-  // This used to live as inline comments inside each route file claiming
-  // "auth: rep-protected by middleware" — but the prefix wasn't actually
-  // listed in PROTECTED_API_PREFIXES, so every sub-route was wide open.
-  // The 2026-05 security audit caught it; this regex closes the gap.
-  const leadSubMatch = pathname.match(/^\/api\/leads\/[^/]+\/([^/?#]+)/);
-  if (leadSubMatch && !PUBLIC_LEAD_SUBROUTES.has(leadSubMatch[1])) {
-    return true;
-  }
-
-  // Exact match on protected pages
-  if (PROTECTED_PAGE_PATHS.has(pathname)) return true;
-  // Prefix match on rep-only sections
-  for (const prefix of PROTECTED_PAGE_PREFIXES) {
-    if (pathname === prefix || pathname.startsWith(prefix + "/")) return true;
-  }
-  // Prefix match on rep-only API routes
-  for (const prefix of PROTECTED_API_PREFIXES) {
-    if (pathname === prefix || pathname.startsWith(prefix + "/")) return true;
-  }
-  return false;
-}
 
 function unauthorizedResponse(): NextResponse {
   return new NextResponse("Authentication required", {
@@ -156,10 +97,6 @@ function redirectToLogin(req: NextRequest): NextResponse {
     dest.searchParams.set("next", fullPath);
   }
   return NextResponse.redirect(dest, 307);
-}
-
-function isApiPath(pathname: string): boolean {
-  return pathname.startsWith("/api/");
 }
 
 /**

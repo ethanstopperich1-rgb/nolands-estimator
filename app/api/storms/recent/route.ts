@@ -17,7 +17,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { rateLimit } from "@/lib/ratelimit";
+import { guardPublicBillableRequest } from "@/lib/api-public-guard";
 
 export const runtime = "nodejs";
 
@@ -116,8 +116,8 @@ interface IEMResponse {
 }
 
 export async function GET(req: Request) {
-  const __rl = await rateLimit(req, "standard");
-  if (__rl) return __rl;
+  const gated = await guardPublicBillableRequest(req, "standard");
+  if (gated) return gated;
 
   const { searchParams } = new URL(req.url);
   const lat = Number(searchParams.get("lat"));

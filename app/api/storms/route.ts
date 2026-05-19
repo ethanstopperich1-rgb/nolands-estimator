@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimit } from "@/lib/ratelimit";
+import { guardPublicBillableRequest } from "@/lib/api-public-guard";
 import { getBigQuery } from "@/lib/bigquery";
 
 export const runtime = "nodejs";
@@ -26,8 +26,8 @@ interface StormRow {
  * recent ones), so distance is informational. We use Haversine for accuracy.
  */
 export async function GET(req: Request) {
-  const __rl = await rateLimit(req, "standard");
-  if (__rl) return __rl;
+  const gated = await guardPublicBillableRequest(req, "standard");
+  if (gated) return gated;
   const bq = getBigQuery();
   if (!bq) {
     return NextResponse.json(
