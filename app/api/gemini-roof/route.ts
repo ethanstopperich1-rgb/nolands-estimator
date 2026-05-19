@@ -2598,15 +2598,30 @@ async function handleV3Pinned(
   //   3. line-classification + downstream consumers already ran above
   //      on the unwatermarked raw paint; no impact on measurement math
   const paintedImageRawBase64 = paintedImageBase64;
+  // CRITICAL FALLBACK CONTRACT: the customer NEVER sees Gemini's raw
+  // generative PNG. Compositing is the only path that's allowed to
+  // overwrite `paintedImageBase64` for customer consumption; every
+  // other branch falls through to the raw Google aerial. Prior version
+  // (commit 767c233) had an `if / else if` that left a hole: when
+  // Gemini paint succeeded but extractCyanMask returned null or a
+  // zero-area mask, neither branch fired and the customer received
+  // the raw Gemini hallucination. Cursor caught it on review.
   if (paintedImageBase64 && cyanMask && cyanMask.areaPx > 0) {
     paintedImageBase64 = await compositeCyanOnAerial(
       tile.rawBase64,
       cyanMask,
     );
-  } else if (paintedImageBase64 == null) {
-    // Pro Image failed entirely — fall back to the raw aerial so the
-    // customer still sees a picture of their house, just without the
-    // cyan tint. Better than a blank slot.
+  } else {
+    const reason =
+      paintedImageBase64 == null
+        ? "paint_failed"
+        : !cyanMask
+          ? "mask_extract_failed"
+          : "mask_empty";
+    console.warn(
+      `[gemini-roof v3] composite_skipped reason=${reason} ` +
+        `→ falling back to raw aerial (customer never sees Gemini PNG directly)`,
+    );
     paintedImageBase64 = tile.rawBase64;
   }
   // Stamp the brand watermark on whatever we ended up with. Soft-fails

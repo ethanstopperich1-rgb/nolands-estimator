@@ -59,6 +59,22 @@ const OVERLAY_HEX = "#38C5EE";
 /** Overall tint strength. 102/255 ≈ 40% — matches the prompt
  *  ("Fill: cyan #38C5EE at ~40% opacity"). */
 const OVERLAY_ALPHA = 102;
+/** Hard ceiling on how much of the frame the mask is allowed to cover
+ *  before we treat it as "Pro Image painted the whole scene cyan."
+ *
+ *  At zoom 21 + scale 2 a typical FL residential roof occupies 8-25%
+ *  of the 1280×1280 tile (we frame the property to dominate but the
+ *  building footprint at that zoom is rarely more than a quarter of
+ *  the image). Anything past 35% means Gemini's "cyan" bled into lawn,
+ *  pool cage, driveway, neighbor structure, or the model gave up and
+ *  flood-filled the whole frame. We can't trust that mask to mark
+ *  "only the roof" — compositing it would tint everything and produce
+ *  the same uncanny image we're trying to escape.
+ *
+ *  When this guard fires we skip the composite and return the raw
+ *  aerial unchanged. Customer sees their actual photo, no cyan, no
+ *  fake overlay. Better than a credibility-burning composite. */
+const MAX_MASK_FILL_FRACTION = 0.35;
 
 /**
  * Composite the cyan mask onto the raw satellite aerial.
@@ -80,6 +96,24 @@ export async function compositeCyanOnAerial(
   if (cyanMask.areaPx === 0) {
     // Gemini paint returned no cyan — no overlay to apply, just send
     // the raw aerial through.
+    return rawAerialBase64;
+  }
+
+  // Fill-fraction guard: when Gemini paints the WHOLE frame cyan
+  // (failure mode seen on 8450 Oak Park — 17-segment hint forced the
+  // model into generative-fill mode), the extracted mask covers lawn,
+  // pool, driveway, neighbor structures. Compositing that mask tints
+  // the entire photo and the customer still sees a fake-looking image.
+  // Reject and return raw aerial unchanged.
+  const framePx = cyanMask.width * cyanMask.height;
+  const fillFraction = framePx > 0 ? cyanMask.areaPx / framePx : 0;
+  if (fillFraction > MAX_MASK_FILL_FRACTION) {
+    console.warn(
+      `[composite] mask fill_fraction=${(fillFraction * 100).toFixed(1)}% ` +
+        `> ${(MAX_MASK_FILL_FRACTION * 100).toFixed(0)}% ceiling — ` +
+        `skipping composite (Gemini likely flood-painted the frame), ` +
+        `returning raw aerial`,
+    );
     return rawAerialBase64;
   }
 
