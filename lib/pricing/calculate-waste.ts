@@ -473,55 +473,70 @@ export interface RoofingTier {
   accent: "neutral" | "primary" | "premium";
 }
 
+// Tier feature lists align with the CertainTeed product ladder.
+// Noland's Roofing is a CertainTeed Triple Crown Champion installer
+// (one of CertainTeed's top installer designations, which grants
+// access to their 5-Star Warranty program). Aligning our published
+// tiers with CertainTeed product names keeps the on-site visit
+// continuous with what the homeowner already saw on the estimate —
+// "Standard means Landmark Pro" reads the same on the satellite
+// estimate, the rep workbench, and the in-person quote.
+//
+// Source: CertainTeed shingle product line + Noland's public
+// installer credentials (nolandsroofing.com — Triple Crown
+// Champion award reference).
 export const ROOFING_TIERS: RoofingTier[] = [
   {
     id: "good",
     name: "Essentials",
-    tagline: "Code-compliant reroof. Solid 30-year shingle, basic kit.",
+    tagline:
+      "Code-compliant reroof. CertainTeed Landmark — the industry-standard architectural shingle.",
     features: [
-      "30-year architectural shingle (GAF Royal Sovereign or comparable)",
+      "CertainTeed Landmark architectural shingle (30-year)",
       "Synthetic underlayment",
       "Aluminum drip edge + pipe boots",
-      "Standard ridge cap",
+      "Standard hip & ridge cap",
       "Permit + tear-off + haul-away",
       "10-year workmanship warranty",
     ],
-    warranty: "30-year manufacturer · 10-year workmanship",
+    warranty: "30-year limited manufacturer · 10-year workmanship",
     ratePerSqft: 5.25,
     accent: "neutral",
   },
   {
     id: "better",
     name: "Standard",
-    tagline: "What most Florida homeowners pick. Premium architectural + ice & water.",
+    tagline:
+      "What most Florida homeowners pick. CertainTeed Landmark Pro + ice & water shield.",
     features: [
-      "Premium architectural shingle (GAF Timberline HDZ or Owens Corning Duration)",
+      "CertainTeed Landmark Pro premium dimensional shingle",
       "Synthetic underlayment + starter strip",
-      "Ice & water shield in valleys + penetrations",
+      "Ice & water shield in valleys + at penetrations",
       "Pre-finished aluminum drip edge",
       "Hip & ridge cap shingles",
       "130 mph wind warranty",
       "Lifetime limited manufacturer warranty",
     ],
-    warranty: "Lifetime manufacturer · 15-year workmanship",
+    warranty: "Lifetime limited manufacturer · 15-year workmanship",
     ratePerSqft: 7.0,
     accent: "primary",
   },
   {
     id: "best",
     name: "Fortified",
-    tagline: "Impact-rated. Qualifies for FL insurance discounts.",
+    tagline:
+      "Class 4 impact-rated. CertainTeed NorthGate — qualifies for FL insurance discounts.",
     features: [
-      "Class 4 impact-resistant shingle (GAF Armor Shield II or Atlas StormMaster)",
+      "CertainTeed NorthGate Class 4 impact-resistant shingle",
       "Synthetic underlayment + ice & water across entire roof deck",
       "Pre-finished aluminum drip edge + premium ridge vent",
       "Hurricane-grade ring-shank nailing pattern",
-      "Designer hip & ridge cap (Timbertex or equivalent)",
+      "Designer hip & ridge cap (Presidential or equivalent)",
       "Wind warranty rated 130+ mph",
-      "50-year transferable warranty",
+      "CertainTeed 5-Star transferable warranty (Triple Crown Champion installer)",
       "Insurance hail / wind discount eligibility",
     ],
-    warranty: "50-year transferable · 25-year workmanship",
+    warranty: "Lifetime transferable · 25-year workmanship",
     ratePerSqft: 9.5,
     accent: "premium",
   },

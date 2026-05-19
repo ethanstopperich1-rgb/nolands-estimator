@@ -2648,36 +2648,63 @@ function TierRow({
           </span>
         </span>
       </button>
-      {open && (
+      {/* Smoothly animated expandable region. The grid-template-rows
+          1fr/0fr trick gives content-aware height animation without
+          needing to guess a max-height upper bound. Modern browsers
+          (Chrome 117+, Safari 17.4+, Firefox 124+) handle the
+          interpolation between 0fr and 1fr cleanly; older browsers
+          fall back to an instant swap which is the same as the prior
+          no-animation behavior. The inner div uses overflow: hidden +
+          a delayed opacity ramp so the text fades in/out in sync with
+          the height transition.
+          aria-hidden flips with `open` so screen readers don't see
+          collapsed content. */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateRows: open ? "1fr" : "0fr",
+          transition: "grid-template-rows 280ms cubic-bezier(0.4, 0, 0.2, 1)",
+        }}
+        aria-hidden={!open}
+      >
         <div
           style={{
-            marginTop: "10px",
-            paddingTop: "10px",
-            borderTop: "1px dashed var(--vx-rule)",
-            fontSize: "12px",
-            color: "var(--vx-ink-soft)",
-            lineHeight: 1.55,
+            overflow: "hidden",
+            opacity: open ? 1 : 0,
+            transition: "opacity 200ms ease",
+            transitionDelay: open ? "60ms" : "0ms",
           }}
         >
-          <ul style={{ paddingLeft: "16px", margin: 0 }}>
-            {tier.tier.features.map((f, i) => (
-              <li key={i} style={{ marginBottom: "3px" }}>{f}</li>
-            ))}
-          </ul>
           <div
             style={{
-              marginTop: "8px",
-              fontSize: "10.5px",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: accentColor,
-              fontWeight: 700,
+              marginTop: "10px",
+              paddingTop: "10px",
+              borderTop: "1px dashed var(--vx-rule)",
+              fontSize: "12px",
+              color: "var(--vx-ink-soft)",
+              lineHeight: 1.55,
             }}
           >
-            {tier.tier.warranty}
+            <ul style={{ paddingLeft: "16px", margin: 0 }}>
+              {tier.tier.features.map((f, i) => (
+                <li key={i} style={{ marginBottom: "3px" }}>{f}</li>
+              ))}
+            </ul>
+            <div
+              style={{
+                marginTop: "8px",
+                fontSize: "10.5px",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: accentColor,
+                fontWeight: 700,
+              }}
+            >
+              {tier.tier.warranty}
+            </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
