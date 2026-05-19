@@ -83,8 +83,8 @@ The cast shadow of the eave extends 5–15 feet past the eave onto the lawn. Sto
 
 ## DO PAINT
 - The main roof of the central building
-- Attached porches, sunrooms, lanais, and garages whose roof plane is visibly CONTINUOUS with the main house (same pitch, same shingle pattern, no horizontal seam at the wall)
-- Additions whose roof reads as part of the main structure (same height, same shingle direction)
+- Attached porches, sunrooms, lanais, and garages whose roof plane is visibly CONTINUOUS with the main house — **same pitch AND same surface material AND same color** as the main roof, plus no horizontal seam at the wall. If the appendage's surface texture/color is visibly different from the main roof (smooth bright metal where the main roof is shingle; white where the main roof is gray; corrugated where the main roof is flat), it is NOT the same roof system — do not paint it.
+- Additions whose roof reads as part of the main structure (same height, same shingle direction, same material)
 
 ## DO NOT PAINT
 - Lawn, driveway, sidewalk, patio, pool deck, pool, fence
@@ -98,6 +98,7 @@ The cast shadow of the eave extends 5–15 feet past the eave onto the lawn. Sto
 - **Paver / concrete pool decks and lanais** — uniform tan, gray, or terracotta surface AT GROUND LEVEL beside the pool. Has a repeating paver grid but no roof pitch, no eave shadow, no ridge. If you can see the pool water directly adjacent, the surrounding hard surface is deck, not roof.
 - **Detached lanai / cabana roofs separated from the main roof** — a low, dark membrane or flat-tile structure with its own perimeter and a visible gap (deck, screen wall, or open air) between it and the main roof. Treat as a separate building.
 - **Tile roof color trap** — Spanish / Mediterranean barrel-tile roofs (terracotta, brown, tan) sit next to paver decks and tile patios that share a very similar color. Discriminate by TEXTURE and ELEVATION: tile roof shows repeating curved barrel rows with sharp ridge/hip lines and casts a clear eave shadow; ground tile / pavers show a flat rectangular grid with no eave shadow. Color alone is NOT enough — require visible barrel texture AND a roof edge before painting.
+- **Attached metal awnings, aluminum patio covers, and metal carport canopies** — narrow rectangular panels attached to one side or the rear of the house, often shading a side door, walkway, or patio. Almost always WHITE, SILVER, or LIGHT GRAY smooth metal with NO shingle / tile / barrel texture. The giveaway is a clear MATERIAL CONTRAST with the adjacent main roof (bright reflective metal vs. textured shingle or tile; pure white vs. gray / brown / terracotta). These are aftermarket hardware, NOT part of the main roof system being re-roofed. NEVER paint, even when the metal canopy directly abuts the main roof's eave. If the appendage shares an edge with the main roof but its surface looks like a different material, stop the cyan at the main roof's eave — do not extend cyan onto the metal awning.
 
 ## TREE CANOPY EXCEPTION — when to paint through it
 - IF the eave line aligns across the canopy gap AND visible roof on each side lines up in a clear continuation: paint THROUGH the canopy as if it were transparent.
