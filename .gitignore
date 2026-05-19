@@ -47,8 +47,13 @@ scripts/debug-*
 # Local backups of secret files (created by scripts/fix-env-quotes.py).
 .env.local.backup-*
 
-# Per-developer Claude Code launch configs
-.claude/
+# Claude Code config — track shared project settings + skills,
+# ignore per-session state and per-user local overrides.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+!.claude/hooks/
+.claude/settings.local.json
 
 # Playwright MCP debug artifacts — local walk-through traces / screenshots
 .playwright-mcp/

@@ -1,0 +1,60 @@
+# Files Claude Code should ignore when navigating this repo.
+# Mirrors the spirit of .gitignore but is broader — anything that would
+# bloat session context with content you'd never want Claude to read
+# belongs here.
+#
+# WHY THIS FILE EXISTS:
+#   On 2026-05-18 a CI ESLint run failed with 11,866 errors, ALL of them
+#   from `vendor/playwright/` — a clone of microsoft/playwright that was
+#   dropped into the tree months ago for reference and never excluded.
+#   Without this file every Claude session was paying the context cost
+#   of ~35MB of irrelevant third-party JavaScript. Same goes for the
+#   400+ screenshots and the .next/ build cache.
+
+# Build artifacts
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Dependencies (npm / pnpm)
+node_modules/
+.pnpm-store/
+
+# Third-party source we cloned for reference but don't maintain
+vendor/
+
+# Generated / captured assets
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+# (exception: app/opengraph-image.png, app/twitter-image.png, app/icon.png
+#  are referenced as Next.js metadata images. .claudeignore is glob-style
+#  with no negation; ignoring everything above is OK because Claude can
+#  still open these explicitly by path when needed.)
+
+# Local environment
+.env
+.env.local
+.env.*.local
+.env.streetview-test
+
+# IDE / editor noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Cached / logged output we don't review by reading
+*.log
+.turbo/
+coverage/
+
+# Lockfiles — useful for `npm install` but Claude rarely needs to read them
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

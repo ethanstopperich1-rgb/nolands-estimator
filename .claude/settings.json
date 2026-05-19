@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "//": "Project-wide Claude Code settings. Version-controlled. Local overrides go in .claude/settings.local.json (gitignored).",
+  "permissions": {
+    "//": "Allowlist for tool invocations that we trust without per-call confirmation. Everything else still prompts.",
+    "allow": [
+      "Bash(npm run lint:*)",
+      "Bash(npm run build)",
+      "Bash(npm run dev:*)",
+      "Bash(npm test)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx tsc --noEmit:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx vitest:*)",
+      "Bash(git status)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch)",
+      "Bash(git branch:*)",
+      "Bash(git fetch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push origin main)",
+      "Bash(git pull --rebase:*)",
+      "Bash(git rebase --continue)",
+      "Bash(git stash:*)",
+      "Bash(vercel:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh api:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(rm /tmp/*)",
+      "Bash(rm /tmp/**)"
+    ],
+    "denyComment": "Destructive operations that should always prompt regardless of allowlist patterns above.",
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git checkout --:*)",
+      "Bash(git restore --:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git branch -D:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)"
+    ]
+  },
+  "env": {
+    "//": "Project env hints. Real secrets live in .env.local (pulled via `vercel env pull`).",
+    "VERCEL_PROJECT_PRODUCTION_URL": "pitch.voxaris.io"
+  }
+}
