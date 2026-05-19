@@ -492,12 +492,13 @@ interface VerifiedMultimodalResult extends GeminiMultimodalResult {
   verifyMae: number | null;
 }
 
-/** Maximum number of Pro Image rolls before giving up and returning the
- *  hallucinated result with a flag. 3 attempts means worst-case
- *  3 × ~$0.075 = $0.225 in Gemini spend per hallucinating address.
- *  In practice the first attempt succeeds ~93-95% of the time, so the
- *  average cost is ~$0.085 — roughly 13% higher than today. */
-const PAINT_MAX_ATTEMPTS = 3;
+/** Maximum number of Pro Image rolls before giving up and falling back
+ *  to the bare-aerial composite path. Lowered from 3 → 2 because
+ *  Ethan's composite fix (767c233) means even a bad paint isn't fatal —
+ *  the customer gets the real aerial either way. One retry is enough to
+ *  recover from the most common "Pro Image returned no cyan" failure
+ *  without burning $0.075 on a third attempt that rarely helps. */
+const PAINT_MAX_ATTEMPTS = 2;
 
 /**
  * Wraps callGeminiMultimodal with post-flight pixel verification. When
@@ -547,6 +548,7 @@ async function callGeminiMultimodalWithVerify(
         verdict: "hallucinated",
         reason: "paint_returned_null",
         cyanCoverageFraction: 0,
+        cyanCentroidOffset: null,
         nonCyanMae: null,
         sampleCount: 0,
       };
@@ -565,8 +567,8 @@ async function callGeminiMultimodalWithVerify(
       `[gemini-roof v3] paint_verify attempt=${attempt} ` +
         `verdict=${verify.verdict} reason="${verify.reason}" ` +
         `cyan=${(verify.cyanCoverageFraction * 100).toFixed(1)}% ` +
-        `mae=${verify.nonCyanMae?.toFixed(1) ?? "n/a"} ` +
-        `n=${verify.sampleCount}`,
+        `centroid_off=${verify.cyanCentroidOffset?.toFixed(2) ?? "n/a"} ` +
+        `mae=${verify.nonCyanMae?.toFixed(1) ?? "n/a"} (diagnostic)`,
     );
     // "edited" → ship it. "ambiguous" → also ship (better to display a
     // slightly-off edit than to burn a $0.075 retry on every borderline
@@ -1100,7 +1102,12 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // carry hallucinated PNGs that we now (a) detect and retry via verify,
 // (b) overlay onto the real Google aerial via composite. Cache miss on
 // next read forces a fresh paint+verify+composite pass.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-composite-verify";
+// Bumped — verify rewritten for the composite world: drops the
+// MAE-on-non-cyan check (no longer relevant since the composite
+// discards Pro Image's facade) and adds a cyan-centroid sanity check.
+// Old cached entries from before this fix may include legitimate
+// paints that the prior strict MAE check rejected; force a re-roll.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-cyan-centric-verify";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and

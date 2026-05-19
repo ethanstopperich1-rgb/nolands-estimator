@@ -2,28 +2,34 @@
  * Post-flight verification for Gemini Pro Image paint results.
  *
  * Pro Image (responseModalities ["IMAGE","TEXT"]) is non-deterministic
- * and occasionally regenerates a NEW image from scratch instead of
- * editing the supplied satellite tile. The route comment header
- * documents this; customers have seen "fully AI-generated houses" come
- * back in production. Prompt tightening reduces the rate but does not
- * eliminate it — the only way to GUARANTEE we never show a hallucinated
- * image is to look at the pixels after the fact.
+ * and occasionally fails to produce a useful cyan polygon — either it
+ * returns no cyan at all, or paints the wrong area.
  *
- * This module compares the painted output to the input tile on the
- * non-cyan pixels only (the cyan is the model's only legal change).
- * A clean edit preserves the underlying photo within ~10 MAE; a
- * hallucinated scene diverges to 40-100+.
+ * Important context: we no longer display Pro Image's full image to the
+ * customer. As of commit 767c233 the customer-facing image is a
+ * composite of (a) the real Google Static Maps aerial + (b) the cyan
+ * polygon Gemini drew, masked out via lib/cyan-mask.ts. So the only
+ * thing we need from Pro Image is a USEFUL CYAN MASK — the facade it
+ * "regenerates" gets thrown away by the composite step.
  *
- * Edge cases handled:
- *   - Large houses where cyan covers > 50% of the tile (few non-cyan
- *     samples remain): adaptive threshold relaxes by sample size so
- *     we don't falsely flag legitimate paints on McMansion roofs.
- *   - Pro Image returning no cyan at all (the model "forgot" the
- *     overlay task and just drew a house): cyan-coverage floor of 4%
- *     catches this independently of MAE.
- *   - Different output resolutions (Pro Image sometimes returns
- *     1024×1024 when given 1280×1280): both images are downsampled
- *     to 128×128 before comparison so resolution drift doesn't matter.
+ * That means verify only cares about the cyan polygon, not the
+ * underlying facade. We check three things:
+ *
+ *   1. Cyan exists at all (>= ~5% of the tile). Below this floor, the
+ *      composite would just show bare aerial with no annotation — the
+ *      customer report that triggered this rewrite.
+ *   2. Cyan isn't pathological (<= ~80% of the tile). The model
+ *      painting "everything" is usually a sign it gave up trying to
+ *      identify the roof and tinted the whole frame.
+ *   3. Cyan centroid sits near the pin (the central building). If the
+ *      centroid is wildly off-center, Pro Image painted a neighbor or
+ *      drifted onto a structure away from the pin.
+ *
+ * The old MAE-on-non-cyan-pixels check has been removed. It was
+ * calibrated for the pre-composite world where Pro Image's facade was
+ * shown directly to the customer. With the composite approach the
+ * facade is discarded, and the MAE check was incorrectly rejecting
+ * paints whose cyan polygon was actually fine.
  */
 
 import sharp from "sharp";
@@ -36,16 +42,19 @@ export interface PaintVerifyResult {
   reason: string;
   /** Fraction of the painted image that's cyan-shifted [0..1]. */
   cyanCoverageFraction: number;
-  /** Mean absolute error per channel on non-cyan pixels [0..255]. Null
-   *  when the verdict comes from the cyan-coverage floor (no MAE
-   *  pass ran). */
+  /** Distance (in normalized tile units, 0=center 1=corner) from the
+   *  cyan centroid to the tile center. Null when no cyan was found. */
+  cyanCentroidOffset: number | null;
+  /** Mean absolute error per channel on non-cyan pixels [0..255]. Kept
+   *  as a diagnostic-only telemetry field — does NOT drive the verdict
+   *  in the composite world. Null when no MAE pass ran. */
   nonCyanMae: number | null;
-  /** Number of non-cyan pixels we averaged over. */
+  /** Number of non-cyan pixels sampled for nonCyanMae. */
   sampleCount: number;
 }
 
-/** Same pixel-level cyan test as lib/cyan-mask.ts — kept inline so
- *  this module is dependency-free besides sharp. */
+/** Same pixel-level cyan test as lib/cyan-mask.ts — kept inline so this
+ *  module is dependency-free besides sharp. */
 function isCyanPixel(r: number, g: number, b: number): boolean {
   if (b <= r || g <= r) return false;
   if (Math.max(g, b) < 110) return false;
@@ -53,39 +62,30 @@ function isCyanPixel(r: number, g: number, b: number): boolean {
   return true;
 }
 
-interface Thresholds {
-  /** mae ≤ this → edited */
-  edited: number;
-  /** mae ≥ this → hallucinated */
-  hallucinated: number;
-}
-
-/** Adaptive thresholds based on non-cyan sample size. Fewer non-cyan
- *  pixels means each pixel carries more statistical weight, so the
- *  band relaxes — a McMansion that fills 80% of the frame would only
- *  leave ~3,200 non-cyan pixels at 128×128 and we shouldn't flag it
- *  for hallucination off of small color drift. */
-function thresholdsForSample(nonCyanFrac: number): Thresholds {
-  if (nonCyanFrac >= 0.5) return { edited: 14, hallucinated: 32 };
-  if (nonCyanFrac >= 0.25) return { edited: 18, hallucinated: 38 };
-  if (nonCyanFrac >= 0.1) return { edited: 24, hallucinated: 45 };
-  // < 10% non-cyan — house fills nearly the entire frame. Trust the
-  // cyan-coverage floor for hallucination detection; only flag MAE in
-  // the extreme range.
-  return { edited: 30, hallucinated: 60 };
-}
-
 const COMPARE_SIZE = 128;
-/** Tiles with cyan covering less than this fraction are treated as
- *  hallucinations regardless of MAE. Real residential roofs at zoom 21
- *  reliably cover 8-60% of the tile. A "fake house" hallucination
- *  often returns 0-3% cyan because the model interpreted the task as
- *  "render a satellite image" and forgot the overlay step entirely. */
-const CYAN_COVERAGE_FLOOR = 0.04;
+
+/** Tiles with cyan covering less than this fraction get retried — Pro
+ *  Image effectively gave up on the overlay task. Real residential
+ *  roofs at zoom 21 reliably cover 5-60% of the tile. */
+const CYAN_COVERAGE_FLOOR = 0.05;
+
+/** Tiles with cyan covering MORE than this fraction also fail. The
+ *  model painted "everything" rather than identifying a discrete roof
+ *  polygon — usually means it gave up. */
+const CYAN_COVERAGE_CEILING = 0.80;
+
+/** Normalized centroid-to-center distance threshold. The tile is
+ *  COMPARE_SIZE × COMPARE_SIZE; tile-center is (64, 64). At the corner
+ *  the distance is √2/2 ≈ 0.71. A threshold of 0.35 means "centroid
+ *  more than ~35% of the way from center to corner" → wrong building.
+ *  Generous — the pin is supposed to be on the building, so a real
+ *  roof's centroid lands well inside this radius. */
+const MAX_CENTROID_OFFSET = 0.35;
 
 /**
- * Verify that the painted image is a real edit of the supplied tile,
- * not a from-scratch hallucination.
+ * Verify that Pro Image returned a usable cyan polygon. The input tile
+ * parameter is retained for API compat / telemetry MAE; it is NOT used
+ * to drive the verdict.
  */
 export async function verifyPaintedAgainstInput(
   inputTileBase64: string,
@@ -108,35 +108,42 @@ export async function verifyPaintedAgainstInput(
     src = srcOut.data;
     dst = dstOut.data;
   } catch (err) {
-    // Decode failure is its own diagnostic — return ambiguous so the
-    // caller decides (typically: keep the painted image, log a warning).
     return {
       verdict: "ambiguous",
       reason: `decode_failed: ${err instanceof Error ? err.message : String(err)}`,
       cyanCoverageFraction: 0,
+      cyanCentroidOffset: null,
       nonCyanMae: null,
       sampleCount: 0,
     };
   }
 
   const total = COMPARE_SIZE * COMPARE_SIZE;
+  const center = (COMPARE_SIZE - 1) / 2;
+  const halfDiag = Math.SQRT2 * center;
 
-  // ─── Pass 1: build cyan mask on the painted image ────────────────────
-  const isCyan = new Uint8Array(total);
+  // ─── Cyan mask + centroid ────────────────────────────────────────────
   let cyanCount = 0;
-  for (let i = 0; i < total; i++) {
-    const r = dst[i * 3];
-    const g = dst[i * 3 + 1];
-    const b = dst[i * 3 + 2];
-    if (isCyanPixel(r, g, b)) {
-      isCyan[i] = 1;
-      cyanCount++;
+  let sumX = 0;
+  let sumY = 0;
+  const isCyan = new Uint8Array(total);
+  for (let y = 0; y < COMPARE_SIZE; y++) {
+    for (let x = 0; x < COMPARE_SIZE; x++) {
+      const i = y * COMPARE_SIZE + x;
+      const r = dst[i * 3];
+      const g = dst[i * 3 + 1];
+      const b = dst[i * 3 + 2];
+      if (isCyanPixel(r, g, b)) {
+        isCyan[i] = 1;
+        cyanCount++;
+        sumX += x;
+        sumY += y;
+      }
     }
   }
   const cyanFrac = cyanCount / total;
 
-  // Hard signal: no cyan = the model didn't paint, regardless of what
-  // else it produced.
+  // Cyan-coverage floor.
   if (cyanFrac < CYAN_COVERAGE_FLOOR) {
     return {
       verdict: "hallucinated",
@@ -144,12 +151,50 @@ export async function verifyPaintedAgainstInput(
         `cyan_coverage ${(cyanFrac * 100).toFixed(1)}% < floor ` +
         `${(CYAN_COVERAGE_FLOOR * 100).toFixed(0)}%`,
       cyanCoverageFraction: cyanFrac,
+      cyanCentroidOffset: null,
       nonCyanMae: null,
       sampleCount: 0,
     };
   }
 
-  // ─── Pass 2: MAE on non-cyan pixels ──────────────────────────────────
+  // Cyan-coverage ceiling.
+  if (cyanFrac > CYAN_COVERAGE_CEILING) {
+    return {
+      verdict: "hallucinated",
+      reason:
+        `cyan_coverage ${(cyanFrac * 100).toFixed(1)}% > ceiling ` +
+        `${(CYAN_COVERAGE_CEILING * 100).toFixed(0)}% (model painted everything)`,
+      cyanCoverageFraction: cyanFrac,
+      cyanCentroidOffset: null,
+      nonCyanMae: null,
+      sampleCount: 0,
+    };
+  }
+
+  // Cyan centroid sanity. The pin is centered at (640, 640) in the
+  // source tile; at COMPARE_SIZE that's the geometric center.
+  const cx = sumX / cyanCount;
+  const cy = sumY / cyanCount;
+  const offsetPx = Math.hypot(cx - center, cy - center);
+  const offsetNormalized = offsetPx / halfDiag;
+  if (offsetNormalized > MAX_CENTROID_OFFSET) {
+    return {
+      verdict: "hallucinated",
+      reason:
+        `cyan centroid offset ${(offsetNormalized * 100).toFixed(0)}% ` +
+        `> ${(MAX_CENTROID_OFFSET * 100).toFixed(0)}% (painted wrong building)`,
+      cyanCoverageFraction: cyanFrac,
+      cyanCentroidOffset: offsetNormalized,
+      nonCyanMae: null,
+      sampleCount: 0,
+    };
+  }
+
+  // Telemetry: compute non-cyan MAE for the structured log line, but
+  // do NOT use it to drive the verdict. With the composite display
+  // approach, non-cyan pixels are discarded, so MAE on them doesn't
+  // matter for what the customer sees. We log it so dashboards can
+  // still track Pro Image's "edit vs regenerate" rate over time.
   let maeSum = 0;
   let n = 0;
   for (let i = 0; i < total; i++) {
@@ -164,37 +209,15 @@ export async function verifyPaintedAgainstInput(
     n++;
   }
   const mae = n > 0 ? maeSum / (n * 3) : 0;
-  const nonCyanFrac = n / total;
-  const t = thresholdsForSample(nonCyanFrac);
 
-  if (mae <= t.edited) {
-    return {
-      verdict: "edited",
-      reason:
-        `mae ${mae.toFixed(1)} ≤ ${t.edited} ` +
-        `(non_cyan=${(nonCyanFrac * 100).toFixed(0)}%)`,
-      cyanCoverageFraction: cyanFrac,
-      nonCyanMae: mae,
-      sampleCount: n,
-    };
-  }
-  if (mae >= t.hallucinated) {
-    return {
-      verdict: "hallucinated",
-      reason:
-        `mae ${mae.toFixed(1)} ≥ ${t.hallucinated} ` +
-        `(non_cyan=${(nonCyanFrac * 100).toFixed(0)}%)`,
-      cyanCoverageFraction: cyanFrac,
-      nonCyanMae: mae,
-      sampleCount: n,
-    };
-  }
   return {
-    verdict: "ambiguous",
+    verdict: "edited",
     reason:
-      `mae ${mae.toFixed(1)} in dead zone [${t.edited}, ${t.hallucinated}] ` +
-      `(non_cyan=${(nonCyanFrac * 100).toFixed(0)}%)`,
+      `cyan_coverage=${(cyanFrac * 100).toFixed(0)}% ` +
+      `centroid_offset=${(offsetNormalized * 100).toFixed(0)}% ` +
+      `(diagnostic mae=${mae.toFixed(1)})`,
     cyanCoverageFraction: cyanFrac,
+    cyanCentroidOffset: offsetNormalized,
     nonCyanMae: mae,
     sampleCount: n,
   };
