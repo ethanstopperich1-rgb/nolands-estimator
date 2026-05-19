@@ -999,7 +999,11 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // Bumped — dual publisher reverted; pipeline condensed (verify removed,
 // both Flash line calls removed, second-pass painted rich-data removed).
 // Older cached responses are shaped differently; force a re-roll.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-condensed";
+// Bumped — composite now does a two-tier cyan render (full-opacity
+// stroke pixels on top of translucent fill) so the facet boundary
+// lines stay visible. Previously cached images were the flat-alpha
+// render where interior outlines disappeared; force a re-roll.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-stroke-aware";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -2553,6 +2557,32 @@ async function handleV3Pinned(
     );
     return null;
   });
+  // Diagnostic: log what the lookup actually returned. Without this, a
+  // null result on a real residential parcel (FDOR record exists but
+  // ACT_YR_BLT came back 0, or the polygon didn't intersect the point)
+  // looks identical to "no FL parcel here at all" in production logs.
+  if (parcel) {
+    console.log(
+      `[gemini-roof v3] parcel_lookup_ok ` +
+        `query=(${parcelQueryPoint.lat.toFixed(5)},${parcelQueryPoint.lng.toFixed(5)}) ` +
+        `parcel_id=${parcel.parcelId || "n/a"} ` +
+        `county=${parcel.countyNumber || "n/a"} ` +
+        `dor_uc=${parcel.dorUseCode || "n/a"} ` +
+        `yr_built=${parcel.yearBuilt ?? "null"} ` +
+        `eff_yr=${parcel.effectiveYearBuilt ?? "null"} ` +
+        `living_sqft=${parcel.livingSqft ?? "null"} ` +
+        `lot_sqft=${parcel.lotSqft ?? "null"} ` +
+        `just_value=${parcel.justValue ?? "null"} ` +
+        `buildings=${parcel.buildingCount ?? "null"} ` +
+        `last_sale=${parcel.lastSale ? `$${Math.round(parcel.lastSale.priceUsd / 1000)}k@${parcel.lastSale.year}` : "null"}`,
+    );
+  } else {
+    console.log(
+      `[gemini-roof v3] parcel_lookup_null ` +
+        `query=(${parcelQueryPoint.lat.toFixed(5)},${parcelQueryPoint.lng.toFixed(5)}) ` +
+        `(no residential FL parcel intersects; non-FL property, gated tract, or FDOR returned 0 features)`,
+    );
+  }
 
   // Customer-facing display sqft (wider, 3° filter) vs pricing-eligible
   // shingle sqft (narrower, 12° filter). See the two-threshold comment

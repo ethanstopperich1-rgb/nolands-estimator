@@ -1857,14 +1857,24 @@ function WhyNowCard({
    *  their own block elsewhere on the page. */
   storms: RecentStormsResponse | null;
 }) {
-  // Storms now render in a separate block under the satellite map, so
-  // this card only materializes for parcel data. The narrative closer
-  // below can still pull from storm context for prose.
-  const hasParcel = parcel != null && parcel.yearBuilt != null;
-  if (!hasParcel) return null;
+  // Render the card when ANY useful parcel field came back, not just
+  // year-built. FL DOR sometimes returns ACT_YR_BLT = 0 (county didn't
+  // populate) on a parcel that still has solid livingSqft / lot size /
+  // last-sale data — prior version hid the whole card in that case,
+  // which is why Oak Park looked blank on the result page even though
+  // the parcel lookup succeeded.
+  const hasUsefulParcel =
+    parcel != null &&
+    (parcel.yearBuilt != null ||
+      parcel.effectiveYearBuilt != null ||
+      parcel.livingSqft != null ||
+      parcel.lotSqft != null ||
+      parcel.justValue != null ||
+      parcel.lastSale != null);
+  if (!hasUsefulParcel) return null;
 
   const currentYear = new Date().getFullYear();
-  const age = currentYear - (parcel.yearBuilt as number);
+  const age = parcel.yearBuilt ? currentYear - parcel.yearBuilt : null;
   const effAge =
     parcel.effectiveYearBuilt && parcel.effectiveYearBuilt > 0
       ? currentYear - parcel.effectiveYearBuilt
@@ -1872,6 +1882,13 @@ function WhyNowCard({
   const yearsOwned = parcel.lastSale
     ? currentYear - parcel.lastSale.year
     : null;
+  // Lot size in acres looks better to homeowners than raw sqft
+  // (43,560 sqft = 1 acre). Below ~6,000 sqft we display the original
+  // number — that band reads as a "small lot" not "0.13 acres".
+  const lotAcres =
+    parcel.lotSqft && parcel.lotSqft >= 6_000
+      ? parcel.lotSqft / 43_560
+      : null;
 
   // The italic-serif closer. Builds dynamically off whatever data we
   // have so the card never looks like a fill-in-the-blank template.
@@ -1897,87 +1914,128 @@ function WhyNowCard({
 
         <div className="mx-auto" style={{ maxWidth: "440px" }}>
           {/* ── Property facts ── */}
-          {hasParcel ? (
-            <section>
-              <div
-                className="font-serif italic mb-3"
-                style={{ fontSize: "13px", color: "var(--vx-terra)" }}
-              >
-                Property record
-              </div>
-              <dl className="space-y-2">
-                {age != null && (
-                  <WhyRow
-                    label="Year built"
-                    value={
-                      <>
-                        <span className="tabular">{parcel!.yearBuilt}</span>
-                        <span
-                          className="font-serif italic ml-2"
-                          style={{ color: "var(--vx-ink-soft)" }}
-                        >
-                          {age} yr old
-                        </span>
-                      </>
-                    }
-                  />
-                )}
-                {effAge != null && effAge !== age && (
-                  <WhyRow
-                    label="Last renovated"
-                    value={
-                      <>
-                        <span className="tabular">{parcel!.effectiveYearBuilt}</span>
-                        <span
-                          className="font-serif italic ml-2"
-                          style={{ color: "var(--vx-ink-soft)" }}
-                        >
-                          {effAge} yr ago
-                        </span>
-                      </>
-                    }
-                  />
-                )}
-                {parcel?.livingSqft != null && (
-                  <WhyRow
-                    label="Living area"
-                    value={
-                      <span className="tabular">
-                        {parcel.livingSqft.toLocaleString()} sqft
+          <section>
+            <div
+              className="font-serif italic mb-3"
+              style={{ fontSize: "13px", color: "var(--vx-terra)" }}
+            >
+              Property record
+            </div>
+            <dl className="space-y-2">
+              {age != null && (
+                <WhyRow
+                  label="Year built"
+                  value={
+                    <>
+                      <span className="tabular">{parcel!.yearBuilt}</span>
+                      <span
+                        className="font-serif italic ml-2"
+                        style={{ color: "var(--vx-ink-soft)" }}
+                      >
+                        {age} yr old
                       </span>
-                    }
-                  />
-                )}
-                {parcel?.lastSale && yearsOwned != null && (
-                  <WhyRow
-                    label="Last sale"
-                    value={
-                      <>
-                        <span className="tabular">
-                          ${(parcel.lastSale.priceUsd / 1000).toFixed(0)}k
-                        </span>
-                        <span
-                          className="font-serif italic ml-2"
-                          style={{ color: "var(--vx-ink-soft)" }}
-                        >
-                          {parcel.lastSale.year} · {yearsOwned} yr owned
-                        </span>
-                      </>
-                    }
-                  />
-                )}
-              </dl>
-              <div
-                className="mt-3 font-serif italic"
-                style={{ fontSize: "11px", color: "var(--vx-muted)" }}
-              >
-                Source: Florida Dept. of Revenue cadastral
-                {parcel?.assessmentYear ? `, ${parcel.assessmentYear} roll` : ""}.
-              </div>
-            </section>
-          ) : (
-            <section aria-hidden />
-          )}
+                    </>
+                  }
+                />
+              )}
+              {effAge != null && effAge !== age && (
+                <WhyRow
+                  label="Last renovated"
+                  value={
+                    <>
+                      <span className="tabular">{parcel!.effectiveYearBuilt}</span>
+                      <span
+                        className="font-serif italic ml-2"
+                        style={{ color: "var(--vx-ink-soft)" }}
+                      >
+                        {effAge} yr ago
+                      </span>
+                    </>
+                  }
+                />
+              )}
+              {parcel?.livingSqft != null && (
+                <WhyRow
+                  label="Living area"
+                  value={
+                    <span className="tabular">
+                      {parcel.livingSqft.toLocaleString()} sqft
+                    </span>
+                  }
+                />
+              )}
+              {lotAcres != null && (
+                <WhyRow
+                  label="Lot size"
+                  value={
+                    <>
+                      <span className="tabular">{lotAcres.toFixed(2)}</span>
+                      <span
+                        className="font-serif italic ml-1"
+                        style={{ color: "var(--vx-ink-soft)" }}
+                      >
+                        acres
+                      </span>
+                    </>
+                  }
+                />
+              )}
+              {parcel?.justValue != null && parcel.justValue >= 50_000 && (
+                <WhyRow
+                  label="County assessed"
+                  value={
+                    <span className="tabular">
+                      ${(parcel.justValue / 1000).toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })}
+                      k
+                    </span>
+                  }
+                />
+              )}
+              {parcel?.buildingCount != null && parcel.buildingCount > 1 && (
+                <WhyRow
+                  label="Buildings on lot"
+                  value={
+                    <>
+                      <span className="tabular">{parcel.buildingCount}</span>
+                      <span
+                        className="font-serif italic ml-2"
+                        style={{ color: "var(--vx-ink-soft)" }}
+                      >
+                        main + accessory
+                      </span>
+                    </>
+                  }
+                />
+              )}
+              {parcel?.lastSale && yearsOwned != null && (
+                <WhyRow
+                  label="Last sale"
+                  value={
+                    <>
+                      <span className="tabular">
+                        ${(parcel.lastSale.priceUsd / 1000).toFixed(0)}k
+                      </span>
+                      <span
+                        className="font-serif italic ml-2"
+                        style={{ color: "var(--vx-ink-soft)" }}
+                      >
+                        {parcel.lastSale.year} · {yearsOwned} yr owned
+                      </span>
+                    </>
+                  }
+                />
+              )}
+            </dl>
+            <div
+              className="mt-3 font-serif italic"
+              style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+            >
+              Source: Florida Dept. of Revenue cadastral
+              {parcel?.assessmentYear ? `, ${parcel.assessmentYear} roll` : ""}.
+            </div>
+          </section>
 
           {/* Storms column moved out of this card (now renders under the
               satellite map at the top of the page so the left+right

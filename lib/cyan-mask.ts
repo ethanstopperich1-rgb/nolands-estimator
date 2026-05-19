@@ -24,12 +24,21 @@ import sharp from "sharp";
 
 export interface CyanMask {
   /** Flat row-major mask. `mask[y * width + x] === 1` when the pixel is
-   *  cyan-painted, else 0. */
+   *  cyan-painted (either translucent fill OR full-opacity stroke). */
   mask: Uint8Array;
+  /** Stroke-only mask. `strokeMask[i] === 1` when the pixel is
+   *  near-pure cyan (the 2-3px boundary stroke Pro Image draws on
+   *  every legal edge). A subset of `mask`. Used by the composite
+   *  step to render the bright facet outlines at full opacity over
+   *  the translucent fill, so interior ridge/hip/valley/eave lines
+   *  stay visually distinct after compositing. */
+  strokeMask: Uint8Array;
   width: number;
   height: number;
-  /** Count of mask=1 pixels. */
+  /** Count of mask=1 pixels (fill + stroke). */
   areaPx: number;
+  /** Count of strokeMask=1 pixels. */
+  strokePx: number;
   /** Count of mask=1 pixels that have at least one non-mask 4-neighbor
    *  (or sit on the image border). */
   perimeterPx: number;
@@ -54,6 +63,28 @@ function isCyanPixel(r: number, g: number, b: number): boolean {
   return true;
 }
 
+/** Stricter cyan test that ONLY matches the near-pure cyan pixels Pro
+ *  Image uses for the full-opacity boundary stroke.
+ *
+ *  Reference: brand cyan #38C5EE = (56, 197, 238). A pure-stroke pixel
+ *  is close to that. A 40% translucent fill over a typical mid-gray
+ *  shingle (~128,128,128) blends to roughly (99, 156, 172) — much
+ *  redder and much less blue than the stroke. Detecting the stroke
+ *  separately lets the composite restore the bright facet outlines
+ *  that disappear when we render every cyan pixel at a single flat
+ *  fill alpha. */
+function isCyanStrokePixel(r: number, g: number, b: number): boolean {
+  // Tight bounds around #38C5EE. Red must be low (the fill bleeds red
+  // toward gray; the stroke does not). Blue must be high. Green is
+  // intermediate and stays in a tight band.
+  if (r > 110) return false;
+  if (b < 200) return false;
+  if (g < 170 || g > 230) return false;
+  // Sanity: cyan saturation strongly negative on red, positive on blue.
+  if (b - r < 100) return false;
+  return true;
+}
+
 /**
  * Extract the cyan-painted mask from a base64 PNG. Returns null when the
  * input fails to decode (caller falls back to mask-less filtering).
@@ -70,7 +101,9 @@ export async function extractCyanMask(
     const { width, height, channels } = info;
     if (channels < 3) return null;
     const mask = new Uint8Array(width * height);
+    const strokeMask = new Uint8Array(width * height);
     let areaPx = 0;
+    let strokePx = 0;
     for (let i = 0; i < width * height; i++) {
       const base = i * channels;
       const r = data[base];
@@ -79,10 +112,23 @@ export async function extractCyanMask(
       if (isCyanPixel(r, g, b)) {
         mask[i] = 1;
         areaPx++;
+        if (isCyanStrokePixel(r, g, b)) {
+          strokeMask[i] = 1;
+          strokePx++;
+        }
       }
     }
     if (areaPx === 0) {
-      return { mask, width, height, areaPx, perimeterPx: 0, compactness: null };
+      return {
+        mask,
+        strokeMask,
+        width,
+        height,
+        areaPx,
+        strokePx,
+        perimeterPx: 0,
+        compactness: null,
+      };
     }
     // Perimeter = mask pixels with at least one 4-neighbor that is NOT
     // mask (image-border counts as "not mask"). Cheap O(width × height).
@@ -100,7 +146,16 @@ export async function extractCyanMask(
     }
     const compactness =
       (perimeterPx * perimeterPx) / (4 * Math.PI * areaPx);
-    return { mask, width, height, areaPx, perimeterPx, compactness };
+    return {
+      mask,
+      strokeMask,
+      width,
+      height,
+      areaPx,
+      strokePx,
+      perimeterPx,
+      compactness,
+    };
   } catch {
     return null;
   }
@@ -133,7 +188,7 @@ export async function maskToCyanOverlayPng(
   const r = opts.r ?? 0x38;
   const g = opts.g ?? 0xc5;
   const b = opts.b ?? 0xee;
-  const a = Math.round((opts.alpha ?? 0.55) * 255);
+  const fillAlpha = Math.round((opts.alpha ?? 0.55) * 255);
   const { width, height } = mask;
   const rgba = new Uint8Array(width * height * 4);
   for (let i = 0; i < mask.mask.length; i++) {
@@ -142,7 +197,12 @@ export async function maskToCyanOverlayPng(
       rgba[base] = r;
       rgba[base + 1] = g;
       rgba[base + 2] = b;
-      rgba[base + 3] = a;
+      // Stroke pixels render at full opacity so the facet-boundary
+      // lines stay crisp through the GroundOverlay. Fill pixels render
+      // at the configured translucent alpha. Same two-tier render the
+      // static composite uses (lib/composite-cyan-overlay.ts), so the
+      // interactive map and the static fallback look consistent.
+      rgba[base + 3] = mask.strokeMask[i] === 1 ? 255 : fillAlpha;
     } else {
       // Fully transparent. RGBA bytes default to 0; alpha at base+3
       // already 0 means transparent. No-op explicitly for clarity.
