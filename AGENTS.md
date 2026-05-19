@@ -196,6 +196,58 @@ norms are stable and statistically meaningful at the zip-code level).
   pitch the bundle in cold outreach. Estimator → demo → close → then
   upsell voice AI and website+AEO.
 
+## AI-agent discoverability (WebMCP roadmap)
+
+Two-track strategy for being a callable tool by AI agents
+(ChatGPT, Claude, Perplexity, Gemini-in-Chrome), not just a page
+they screen-scrape:
+
+### Today — published, no in-page API
+
+- **`/.well-known/tools.json`** (`app/.well-known/tools.json/route.ts`)
+  publishes a per-tenant manifest of the tools we'd expose. Tenant-
+  aware: same code serves `pitch.voxaris.io/.well-known/tools.json`
+  and `noland-roofing.com/.well-known/tools.json` with the right
+  contractor brand + phone resolved from the host header.
+- Agents that scrape `/.well-known/*` (Perplexity, file-search agents,
+  the upcoming WebMCP discovery flow) find us by convention.
+- Today the manifest lists `get_roof_estimate`, `get_shared_report`,
+  `book_inspection`, `get_office_contact`. All marked `surface:
+  "planned"` (or `"http"` where a REST endpoint already works).
+
+### Later — WebMCP in-page registration
+
+- **Chrome WebMCP** (`navigator.modelContext`) goes to origin trial
+  in Chrome 149. Spec at https://developer.chrome.com/docs/ai/webmcp.
+- When that lands, the customer-facing surfaces register the same
+  tools the manifest already lists, using the imperative WebMCP API
+  on the client. Same tool names — `get_roof_estimate(address)`,
+  `book_inspection(publicId, timeWindow)` — so manifests and in-page
+  registrations stay aligned.
+- DO NOT ship the in-page registration prematurely. Until Chrome
+  WebMCP is stable + has real browser share, the manifest alone is
+  the right surface. The user (Ethan) explicitly scoped this to
+  Phase 2 (12-18 mo). See `POSITIONING.md` for the phase arc.
+
+### Where it does NOT belong
+
+- `/dashboard/*` — rep workbench. No AI agent invokes this. Don't
+  register WebMCP tools here.
+- `/r/[publicId]` — homeowner share URL. Read-only artifact. The
+  Open Graph meta tags + the URL itself ARE the agent-readable
+  surface for a static report. No WebMCP tools needed.
+- Auth-gated APIs — WebMCP defaults to same-origin and user-approved
+  calls; gating with `INTERNAL_DISPATCH_SECRET` or BotID still
+  applies to the HTTP endpoint, but the tool surface is public.
+
+### The pitch this enables (AEO + Website upsell)
+
+When the WebMCP era lands: "Your competitors show up as text in
+ChatGPT. Voxaris-powered sites show up as a tool ChatGPT can
+actually use." This is part of the Website + AEO SKU value prop —
+the manifest publishes today so we can show contractors a real
+artifact, not a future promise.
+
 ## Architectural principles (don't violate these)
 
 ### 1. Pro Image is decorative. Solar + Flash JSON are truth.
