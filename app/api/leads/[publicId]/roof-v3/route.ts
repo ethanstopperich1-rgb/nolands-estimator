@@ -4,6 +4,7 @@ import {
   supabaseServiceRoleConfigured,
 } from "@/lib/supabase";
 import { validatePaintedPngBase64 } from "@/lib/validate-image";
+import { getDashboardOfficeId } from "@/lib/dashboard";
 
 export const runtime = "nodejs";
 // V3 pipeline can take 25-40s on a cold Gemini call + Solar fallback.
@@ -22,7 +23,13 @@ export const maxDuration = 60;
  * and one-clicks "Generate roof analysis" to fill the drawer with the
  * full painted breakdown.
  *
- * Auth: rep-protected by middleware (`/api/leads` prefix is gated).
+ * Auth: rep-protected by middleware (`/api/leads` prefix is gated)
+ * AND tenancy-checked here. Middleware confirms the caller has a valid
+ * staff session; this handler additionally confirms the caller's
+ * office_id matches the lead's office_id, so a rep at Office A cannot
+ * write to a lead at Office B. (Prior version: middleware alone was the
+ * only gate — any logged-in staff member could POST to any leadPublicId
+ * regardless of which tenant owned it.)
  */
 export async function POST(
   req: Request,
@@ -42,6 +49,15 @@ export async function POST(
     );
   }
 
+  // Resolve the caller's office_id from the staff session BEFORE
+  // touching the lead row, so we can fail fast on unauthenticated /
+  // misconfigured callers and never expose a lead's metadata in the
+  // 4xx response body even when the office check itself wouldn't pass.
+  const callerOfficeId = await getDashboardOfficeId();
+  if (!callerOfficeId) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const supabase = createServiceRoleClient();
   const { data: lead, error: leadErr } = await supabase
     .from("leads")
@@ -49,6 +65,20 @@ export async function POST(
     .eq("public_id", publicId)
     .maybeSingle();
   if (leadErr || !lead) {
+    return NextResponse.json({ error: "lead_not_found" }, { status: 404 });
+  }
+  // Tenancy guard. Returns the same 404 the "not found" branch returns
+  // so a cross-tenant probe can't distinguish "doesn't exist" from
+  // "exists but I don't own it" — same surface, no leak.
+  if (lead.office_id !== callerOfficeId) {
+    console.warn(
+      "[roof-v3] cross_office_block",
+      JSON.stringify({
+        publicId,
+        leadOffice: lead.office_id,
+        callerOffice: callerOfficeId,
+      }),
+    );
     return NextResponse.json({ error: "lead_not_found" }, { status: 404 });
   }
   if (lead.lat == null || lead.lng == null) {

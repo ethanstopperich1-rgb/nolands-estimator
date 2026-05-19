@@ -661,15 +661,18 @@ export async function POST(req: Request) {
   // update of an earlier step-1 capture.
   const hasEstimate =
     typeof body.estimateLow === "number" && typeof body.estimateHigh === "number";
-  // VOICE-CONSENT GATE — even with INTERNAL_DISPATCH_SECRET configured
-  // and an estimate present, the dispatch only fires when the customer
-  // explicitly checked the second consent box (or, for back-compat,
-  // when an older client sent just `tcpaConsent` and no granular
-  // voiceConsent flag at all — old behavior: single consent covered
-  // everything). New clients MUST opt in.
-  const dispatchAllowed =
-    voiceConsent ||
-    (body.voiceConsent === undefined && body.marketingConsent === undefined);
+  // VOICE-CONSENT GATE — strict. The dispatch only fires when the
+  // customer explicitly set `voiceConsent: true`. The prior back-compat
+  // fallback (allow dispatch when BOTH voiceConsent and
+  // marketingConsent were undefined) was unsafe: any client that
+  // simply omitted both fields — bots included — could trigger an
+  // autodialed voice call. TCPA's "prior express written consent"
+  // standard requires an affirmative opt-in; omission cannot satisfy
+  // it. All current customer flows (`/` post-estimate consent
+  // sub-route, /quote, rep-initiated dispatch) explicitly set
+  // voiceConsent, so removing the omission path doesn't regress
+  // legitimate traffic — it only closes the bot loophole.
+  const dispatchAllowed = voiceConsent === true;
   if (
     phoneE164 &&
     process.env.INTERNAL_DISPATCH_SECRET &&
