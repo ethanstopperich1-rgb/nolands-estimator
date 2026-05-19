@@ -2373,8 +2373,13 @@ function RepCTACard({
             disabled={!leadPublicId || bookingState === "sending"}
           />
           <span>
-            Yes, call me with an automated voice intro to schedule. I can
-            hang up or reply STOP anytime.
+            {/* FCC Feb 2024 ruling: AI/synthetic voice = "artificial
+                voice" under the TCPA. Disclosure has to be at consent
+                time, not buried in the call. "AI voice assistant" is
+                the visible label that matches the server-side audit-row
+                text in `lib/tcpa-consent.ts`. */}
+            Yes, call me with an AI voice assistant to schedule. I can
+            hang up, say &ldquo;remove me,&rdquo; or reply STOP anytime.
           </span>
         </label>
 
