@@ -92,6 +92,14 @@ export async function GET(req: Request): Promise<NextResponse> {
     ),
     internal_dispatch: envCheck(["INTERNAL_DISPATCH_SECRET"]),
 
+    // Provider-agnostic lead webhook — POST'd to a receiver each
+    // office configures (Podium, HighLevel, Birdeye, Zapier, etc.).
+    // All optional; if neither is set we just skip publish.
+    lead_webhook: envCheck(
+      [],
+      ["LEAD_WEBHOOK_URL", "LEAD_WEBHOOK_SECRET", "CUSTOMER_SMS_DISABLED"],
+    ),
+
     // AI providers — Gemini for V3 pipeline, Anthropic optional for
     // ancillary features.
     gemini: envCheck(["GEMINI_API_KEY"], ["GEMINI_MODEL", "GEMINI_OBJECTS_MODEL"]),

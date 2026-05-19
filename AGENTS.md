@@ -262,6 +262,87 @@ Optional toggles:
    with SHAKEN/STIR attestation. Without it, outbound calls get
    marked `Spam Likely` on Verizon / AT&T / T-Mobile networks.
 
+### Provider-agnostic customer messaging
+
+Not every contractor wants Voxaris to be their two-way SMS sender —
+many already run **Podium**, **HighLevel**, **Birdeye**, **BoomTown**,
+**JobNimbus**, or a custom Zapier funnel for homeowner messaging.
+The lead-capture flow is built so the data is **portable**: the same
+`new_lead` / `appt_scheduled` / `call_completed` event payload can be
+consumed by any of these platforms, without locking the office into
+our Twilio sender.
+
+How it works:
+
+- `lib/lead-webhook.ts:publishLeadEvent` fires a versioned JSON event
+  to the receiver URL configured for the office. Default destination
+  is `LEAD_WEBHOOK_URL` env (global fallback); future migration will
+  add `offices.lead_webhook_url` per-office.
+- Payload is HMAC-SHA256 signed with `LEAD_WEBHOOK_SECRET` (or the
+  per-office secret column when that lands). Header:
+  `X-Voxaris-Signature: <base64>`. Receivers verify against the raw
+  body using `verifyLeadWebhookSignature`.
+- Schema is versioned via `LEAD_WEBHOOK_SCHEMA_VERSION`. Bump on any
+  required-field change; add nullable fields freely.
+- Events today: `new_lead` (on final estimate submit),
+  `appt_scheduled` (post-call webhook), `call_completed` (any other
+  post-call outcome).
+
+**Kill-switch for Voxaris-side Twilio**: set
+`CUSTOMER_SMS_DISABLED=true` (env, or future `offices.customer_sms_disabled`
+column) to suppress the Voxaris-sent confirmation SMS to the
+homeowner. The contractor's Podium / HighLevel / etc. platform then
+owns that surface, driven by the same lead webhook event. Rep alerts
+and the SMS-first YES flow are independent and stay on Twilio for
+testing.
+
+**Payload shape** (locked at v1.0.0):
+
+```jsonc
+{
+  "schema_version": "1.0.0",
+  "event": "new_lead",                    // or "appt_scheduled" | "call_completed"
+  "occurred_at": "2026-05-19T18:42:00.000Z",
+  "office": { "id": "uuid", "slug": "nolands", "display_name": "Noland's Roofing" },
+  "lead": {
+    "public_id": "lead_<32-hex>",
+    "name": "Jane Homeowner",
+    "email": "jane@example.com",
+    "phone_raw": "(407) 555-1234",
+    "phone_e164": "+14075551234",
+    "address": "8450 Oak Park Ave, Orlando FL 32827",
+    "estimate_low": 28000,
+    "estimate_high": 52000,
+    "material": "asphalt-architectural",
+    "estimated_sqft": 4357,
+    "source": "pitch.voxaris.io",
+    "report_url": "https://pitch.voxaris.io/dashboard/leads/lead_<...>"
+  },
+  "extras": {                              // present on appt_scheduled / call_completed
+    "outcome": "appt_scheduled",
+    "appointment_at": "2026-05-22T14:00:00-04:00",
+    "summary": "Booked walkthrough Tue 2pm"
+  }
+}
+```
+
+**Wiring Podium specifically**:
+1. In Podium, create a webhook automation that accepts an inbound
+   POST.
+2. Set `LEAD_WEBHOOK_URL` (or per-office column) to Podium's webhook
+   URL.
+3. Set `LEAD_WEBHOOK_SECRET` to a shared secret; configure Podium to
+   verify `X-Voxaris-Signature` (HMAC-SHA256, base64) against the
+   raw body.
+4. Map Podium's contact-create + message-send to fields in our
+   `lead` payload.
+5. Set `CUSTOMER_SMS_DISABLED=true` so Voxaris doesn't also send a
+   confirmation SMS — Podium handles the customer-facing thread end
+   to end.
+
+The same recipe works for HighLevel (Inbound Webhook trigger),
+Birdeye, BoomTown, JobNimbus, or a generic Zapier "Catch Hook" step.
+
 ### Phone-number tenancy
 
 There are TWO distinct classes of phone number in the system, and

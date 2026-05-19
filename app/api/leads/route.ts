@@ -8,6 +8,10 @@ import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
 import { attachLeadContext } from "@/lib/sms-conversation";
 import { notifyOfficeOfNewLead } from "@/lib/lead-notifications";
 import {
+  LEAD_WEBHOOK_SCHEMA_VERSION,
+  publishLeadEvent,
+} from "@/lib/lead-webhook";
+import {
   createServiceRoleClient,
   resolveOfficeBySlug,
   resolveOfficeIdBySlug,
@@ -585,7 +589,17 @@ export async function POST(req: Request) {
   // confirmation). We also seed conversation memory so when the
   // customer texts back, the SMS bot already knows their estimate.
   const phoneE164 = toE164(body.phone);
-  if (phoneE164 && twilioConfigured() && !isLeadUpdate) {
+  // Customer-SMS provider gate. Default: Voxaris sends via Twilio.
+  // Opt-out: an office that uses Podium / HighLevel / Birdeye / etc.
+  // for two-way customer messaging sets CUSTOMER_SMS_DISABLED=true
+  // (or, in a future migration, `offices.customer_sms_disabled=true`).
+  // When disabled, the customer confirmation is delivered through the
+  // contractor's existing platform via the lead webhook below; we
+  // still seed sms-conversation memory so if the customer texts our
+  // number directly we have context.
+  const customerSmsDisabled =
+    (process.env.CUSTOMER_SMS_DISABLED ?? "").toLowerCase() === "true";
+  if (phoneE164 && twilioConfigured() && !isLeadUpdate && !customerSmsDisabled) {
     const estimateLine =
       body.estimateLow && body.estimateHigh
         ? `Your estimate range: $${body.estimateLow.toLocaleString()}-$${body.estimateHigh.toLocaleString()}. `
@@ -689,6 +703,41 @@ export async function POST(req: Request) {
         source: body.source,
       },
       dashboardOrigin,
+    });
+
+    // ─── Provider-agnostic lead webhook ──────────────────────────────
+    // Fires alongside (NOT instead of) the rep SMS. Lets each office
+    // pipe leads into Podium / HighLevel / Birdeye / Zapier / whatever
+    // platform they already use for two-way customer messaging. The
+    // payload schema is versioned (LEAD_WEBHOOK_SCHEMA_VERSION) and
+    // HMAC-signed so the receiver can trust it. Soft-fails on every
+    // path — webhook outage never blocks lead capture.
+    void publishLeadEvent({
+      office: officeBranding,
+      event: {
+        schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+        event: "new_lead",
+        occurred_at: new Date().toISOString(),
+        office: {
+          id: officeBranding?.id ?? "",
+          slug: officeBranding?.slug ?? "",
+          display_name: officeBranding?.displayName ?? "Voxaris",
+        },
+        lead: {
+          public_id: leadId,
+          name: body.name,
+          email: body.email ?? null,
+          phone_raw: body.phone ?? null,
+          phone_e164: phoneE164,
+          address: body.address,
+          estimate_low: body.estimateLow ?? null,
+          estimate_high: body.estimateHigh ?? null,
+          material: body.material ?? null,
+          estimated_sqft: body.estimatedSqft ?? null,
+          source: body.source ?? null,
+          report_url: `${dashboardOrigin}/dashboard/leads/${leadId}`,
+        },
+      },
     });
   }
 

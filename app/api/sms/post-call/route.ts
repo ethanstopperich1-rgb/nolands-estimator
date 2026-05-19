@@ -7,6 +7,10 @@ import {
   type OfficeBranding,
 } from "@/lib/supabase";
 import { resolveNotifyPhone } from "@/lib/lead-notifications";
+import {
+  LEAD_WEBHOOK_SCHEMA_VERSION,
+  publishLeadEvent,
+} from "@/lib/lead-webhook";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -194,6 +198,42 @@ export async function POST(req: Request) {
     appointmentAt: body.appointmentAt,
     summary: body.summary,
     dashboardOrigin: origin,
+  });
+
+  // Provider-agnostic post-call event — same payload model as the
+  // new_lead event so a Podium / HighLevel / Zapier receiver can
+  // pivot off `event` and update its own pipeline stage.
+  void publishLeadEvent({
+    office,
+    event: {
+      schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+      event: outcome === "appt_scheduled" ? "appt_scheduled" : "call_completed",
+      occurred_at: new Date().toISOString(),
+      office: {
+        id: office?.id ?? lead.office_id,
+        slug: office?.slug ?? "",
+        display_name: office?.displayName ?? "Voxaris",
+      },
+      lead: {
+        public_id: lead.public_id,
+        name: lead.name,
+        email: null,
+        phone_raw: lead.phone,
+        phone_e164: homeownerPhoneE164,
+        address: lead.address,
+        estimate_low: lead.estimate_low,
+        estimate_high: lead.estimate_high,
+        material: lead.material,
+        estimated_sqft: lead.estimated_sqft,
+        source: lead.source,
+        report_url: `${origin}/dashboard/leads/${lead.public_id}`,
+      },
+      extras: {
+        outcome,
+        appointment_at: body.appointmentAt ?? null,
+        summary: body.summary ?? null,
+      },
+    },
   });
 
   return NextResponse.json({
