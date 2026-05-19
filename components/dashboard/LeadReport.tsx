@@ -21,6 +21,12 @@ interface PaintedV3 {
   painted_url?: string | null;
   solar?: {
     sqft: number | null;
+    /** Pricing-eligible sqft (≥ 12° pitch only — the asphalt-shingle
+     *  basis the customer's tier prices were calculated against).
+     *  When this differs from `sqft` (display headline, ≥ 3°), the
+     *  customer saw a low-slope addition disclosure. Rep should see
+     *  both numbers so a re-quote on-site stays consistent. */
+    quotableSqft?: number | null;
     footprintSqft?: number | null;
     pitchDegrees: number | null;
     segmentCount?: number;
@@ -28,6 +34,10 @@ interface PaintedV3 {
     imageryDate?: string | null;
   };
   derived?: {
+    /** Stories chip removed from customer view 2026-05-18 (single-angle
+     *  satellite can't reliably tell single from multi-story). Field
+     *  still present here for backward compat with cached rows; rep
+     *  view hides it. */
     stories?: number;
     estimatedAtticSqft?: number | null;
     predominantCompass?: string | null;
@@ -46,7 +56,33 @@ interface PaintedV3 {
     eavesLf?: number;
     linesCount?: number;
   } | null;
+  geminiAnalysis?: {
+    roofMaterial?: { type: string; confidence: number } | null;
+    facetCountEstimate?: {
+      count: number;
+      complexity: string;
+      confidence: number;
+    } | null;
+  };
+  /** Per-tier penetration adders that fed into the customer's tier
+   *  prices. Rep needs visibility so a re-quote on-site matches what
+   *  the customer was shown. */
+  pricing?: {
+    recommendedWastePercent: number;
+    penetrationAddersTotal: number;
+    penetrationAdderLines?: Array<{
+      type: string;
+      count: number;
+      unit: number;
+      subtotal: number;
+    }>;
+  };
 }
+
+/** Same confidence threshold the customer page applies before using a
+ *  Gemini-detected material to drive tier pricing. Below this, pricing
+ *  falls back to architectural shingle regardless of what was detected. */
+const MATERIAL_PRICING_CONFIDENCE_FLOOR = 0.65;
 
 interface StormEvent {
   type: string;
@@ -315,15 +351,35 @@ export default function LeadReport({ lead }: { lead: Lead }) {
         </Section>
       </div>
 
-      {/* ── Headline measurements (if V3 ran) ─────────────────────── */}
+      {/* ── Headline measurements (if V3 ran) ───────────────────────
+          Two sqft numbers when they differ: "Display sqft" is the
+          customer-facing headline (3°+ filter, whole roof); "Pricing
+          sqft" is the ≥12° asphalt-shingle subset the tier prices were
+          calculated against. When they match (typical roof, no low-
+          slope addition), we only show one. */}
       {v3?.solar ? (
         <Section title="Headline measurements">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <Stat
-              label="Sloped sqft"
+              label={
+                v3.solar.quotableSqft != null &&
+                v3.solar.sqft != null &&
+                v3.solar.quotableSqft < v3.solar.sqft
+                  ? "Display sqft"
+                  : "Sloped sqft"
+              }
               value={v3.solar.sqft?.toLocaleString() ?? "—"}
               unit="ft²"
             />
+            {v3.solar.quotableSqft != null &&
+              v3.solar.sqft != null &&
+              v3.solar.quotableSqft < v3.solar.sqft && (
+                <Stat
+                  label="Pricing sqft"
+                  value={v3.solar.quotableSqft.toLocaleString()}
+                  unit="ft² (asphalt-eligible)"
+                />
+              )}
             <Stat
               label="Pitch"
               value={
@@ -348,11 +404,11 @@ export default function LeadReport({ lead }: { lead: Lead }) {
       {/* ── Anatomy ───────────────────────────────────────────────── */}
       {v3?.derived ? (
         <Section title="Roof anatomy">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Stat
-              label="Stories"
-              value={String(v3.derived.stories ?? "—")}
-            />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            {/* Stories chip removed from customer page 2026-05-18
+                (single-angle satellite can't reliably detect stories).
+                Hidden from rep view too — surfacing the wrong number
+                to the rep is worse than not showing it. */}
             <Stat
               label="Est. attic"
               value={
@@ -367,6 +423,72 @@ export default function LeadReport({ lead }: { lead: Lead }) {
               label="Faces"
               value={v3.derived.predominantCompass ?? "—"}
             />
+          </div>
+        </Section>
+      ) : null}
+
+      {/* ── Detected material + customer-side pricing basis ───────── */}
+      {/* The customer page applies a 0.65 confidence floor before
+          using a Gemini-detected material to drive tier pricing.
+          Below that, pricing silently falls back to architectural
+          shingle regardless of what was detected. Mirror that logic
+          here so the rep KNOWS which material the customer's tier
+          prices were actually calibrated against — not just what
+          Gemini guessed. */}
+      {v3?.geminiAnalysis?.roofMaterial ? (() => {
+        const detected = v3.geminiAnalysis.roofMaterial;
+        const usedForPricing =
+          detected.confidence >= MATERIAL_PRICING_CONFIDENCE_FLOOR;
+        return (
+          <Section title="Detected material">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <Stat
+                label="Detected"
+                value={detected.type.replace(/_/g, " ")}
+              />
+              <Stat
+                label="Confidence"
+                value={`${Math.round(detected.confidence * 100)}%`}
+              />
+              <Stat
+                label="Used for pricing?"
+                value={
+                  usedForPricing
+                    ? "Yes — tier rates scaled"
+                    : "No — fell back to asphalt"
+                }
+              />
+            </div>
+          </Section>
+        );
+      })() : null}
+
+      {/* ── Penetration adders that fed customer tier prices ──────── */}
+      {/* The customer's tier price = effectiveSqft × rate + Σ(per-
+          fixture adder). Surfacing the adder breakdown lets a rep
+          re-quote on-site without diverging from what the customer
+          was shown. */}
+      {v3?.pricing &&
+       v3.pricing.penetrationAdderLines &&
+       v3.pricing.penetrationAdderLines.length > 0 ? (
+        <Section
+          title="Penetration adders"
+          badge={`+$${v3.pricing.penetrationAddersTotal.toLocaleString()} total`}
+        >
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+            {v3.pricing.penetrationAdderLines.map((line) => (
+              <div
+                key={line.type}
+                className="flex items-baseline justify-between gap-2 rounded-md border border-white/5 px-3 py-2"
+              >
+                <span className="capitalize text-white/70">
+                  {line.type.replace(/_/g, " ")} × {line.count}
+                </span>
+                <span className="tabular-nums font-semibold">
+                  ${line.subtotal.toLocaleString()}
+                </span>
+              </div>
+            ))}
           </div>
         </Section>
       ) : null}
