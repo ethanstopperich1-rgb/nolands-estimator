@@ -6,6 +6,7 @@ import { checkBotId } from "botid/server";
 import { verifyRecaptcha } from "@/lib/recaptcha";
 import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
 import { attachLeadContext } from "@/lib/sms-conversation";
+import { notifyOfficeOfNewLead } from "@/lib/lead-notifications";
 import {
   createServiceRoleClient,
   resolveOfficeBySlug,
@@ -646,6 +647,35 @@ export async function POST(req: Request) {
     }).catch((err) =>
       console.error("[leads] attachLeadContext failed:", err),
     );
+  }
+
+  // ─── Rep / office new-lead SMS ───────────────────────────────────────
+  // Speed-of-notice ping to the contractor's rep line (or the global
+  // LEAD_NOTIFY_PHONE for Voxaris-internal flow before any office is
+  // wired). Fires only when an estimate is present — that's the final-
+  // submit moment, identical to the dispatch gate. Soft-fails on every
+  // path; never blocks the lead capture response. Independent of the
+  // TCPA voice-consent gate because this is an INTERNAL operator
+  // notification, not consumer marketing.
+  const hasEstimateForNotify =
+    typeof body.estimateLow === "number" && typeof body.estimateHigh === "number";
+  if (hasEstimateForNotify) {
+    const dashboardOrigin = new URL(req.url).origin;
+    void notifyOfficeOfNewLead({
+      office: officeBranding,
+      lead: {
+        leadPublicId: leadId,
+        name: body.name,
+        address: body.address,
+        phone: body.phone,
+        estimateLow: body.estimateLow,
+        estimateHigh: body.estimateHigh,
+        material: body.material,
+        sqft: body.estimatedSqft,
+        source: body.source,
+      },
+      dashboardOrigin,
+    });
   }
 
   // ─── Sydney outbound dispatch ────────────────────────────────────────

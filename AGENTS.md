@@ -238,6 +238,7 @@ agent runs in the room.
 | `LIVEKIT_API_SECRET` | LiveKit Cloud project settings | Server-only; never paste in chat |
 | `SIP_OUTBOUND_TRUNK_ID` | `lk sip outbound create` output | The LiveKit-side outbound trunk ID |
 | `INTERNAL_DISPATCH_SECRET` | Generated once, shared between `/api/leads` and `/api/dispatch-outbound` | HMAC-style same-origin gate |
+| `LEAD_NOTIFY_PHONE` | E.164, optional | Global fallback for the rep-side new-lead SMS in `lib/lead-notifications.ts`. Used pre-launch + for Voxaris-internal testing before an office row has its `inbound_number` populated. Resolution chain: `office.inbound_number` → `LEAD_NOTIFY_PHONE`. |
 
 Optional toggles:
 

@@ -85,6 +85,10 @@ export async function GET(req: Request): Promise<NextResponse> {
     ),
     twilio_creds: envCheck(
       ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"],
+      // Optional: global fallback for rep-side new-lead SMS when the
+      // office row doesn't carry an inbound_number. Used pre-launch
+      // and for Voxaris-internal testing.
+      ["LEAD_NOTIFY_PHONE"],
     ),
     internal_dispatch: envCheck(["INTERNAL_DISPATCH_SECRET"]),
 
