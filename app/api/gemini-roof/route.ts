@@ -1003,7 +1003,11 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // stroke pixels on top of translucent fill) so the facet boundary
 // lines stay visible. Previously cached images were the flat-alpha
 // render where interior outlines disappeared; force a re-roll.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-stroke-aware";
+// Bumped — stroke detection tightened + thin-line morphological
+// filter added. Old cached composites showed bright cyan smudges in
+// the interior of the fill (blob-shaped clusters that passed the
+// loose stroke detector). Force a re-roll under the new filter.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-stroke-thinned";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and

@@ -74,15 +74,66 @@ function isCyanPixel(r: number, g: number, b: number): boolean {
  *  that disappear when we render every cyan pixel at a single flat
  *  fill alpha. */
 function isCyanStrokePixel(r: number, g: number, b: number): boolean {
-  // Tight bounds around #38C5EE. Red must be low (the fill bleeds red
-  // toward gray; the stroke does not). Blue must be high. Green is
-  // intermediate and stays in a tight band.
-  if (r > 110) return false;
-  if (b < 200) return false;
-  if (g < 170 || g > 230) return false;
-  // Sanity: cyan saturation strongly negative on red, positive on blue.
-  if (b - r < 100) return false;
+  // Tight bounds around #38C5EE = (56, 197, 238). The fill is the
+  // 40%-opacity blend OVER shingles; even over dark shingles the
+  // blended red component sits well above 70. The full-opacity stroke
+  // sits within ±15 of each channel. Tightening this band (vs the
+  // earlier (110, 170-230, 200, b-r>=100) version) suppresses the
+  // bright "smudge" false positives where a few stray fill pixels
+  // landed in the loose stroke band and got rendered at full alpha.
+  if (r > 85) return false;
+  if (b < 220) return false;
+  if (g < 180 || g > 215) return false;
+  if (b - r < 135) return false;
   return true;
+}
+
+/**
+ * Demote stroke pixels in blob-shaped clusters back to fill. A real
+ * facet-boundary stroke is a thin line (2-4px wide); a smudge is a
+ * wider blob (8+px) of pixels that happen to share the same cyan
+ * hue. Both pass `isCyanStrokePixel`, but only lines are useful
+ * structure.
+ *
+ * Test: for each stroke pixel, look 3 pixels out in the 4 cardinal
+ * directions. If ALL FOUR of those probe points are also stroke
+ * pixels, this pixel sits inside a blob ≥7px across — demote it.
+ * If ANY probe lands on non-stroke (line edge, line end, fill, or
+ * out-of-frame), this pixel is on or near a line boundary — keep it.
+ */
+function thinStrokeMask(
+  strokeMask: Uint8Array,
+  width: number,
+  height: number,
+): { thinMask: Uint8Array; thinPx: number; demotedPx: number } {
+  const thinMask = new Uint8Array(strokeMask.length);
+  const R = 3; // ring radius — pixels with ≥4px of stroke in every
+  //                direction get demoted (blob signature).
+  let thinPx = 0;
+  let demotedPx = 0;
+  const inside = (x: number, y: number) =>
+    x >= 0 && x < width && y >= 0 && y < height;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (!strokeMask[i]) continue;
+      // Out-of-frame probes count as non-stroke (line at frame edge
+      // should still survive).
+      const left = inside(x - R, y) && strokeMask[y * width + (x - R)];
+      const right = inside(x + R, y) && strokeMask[y * width + (x + R)];
+      const up = inside(x, y - R) && strokeMask[(y - R) * width + x];
+      const down = inside(x, y + R) && strokeMask[(y + R) * width + x];
+      if (left && right && up && down) {
+        // All four cardinal probes hit stroke → this pixel is inside
+        // a ≥7px-thick blob, not on a thin line.
+        demotedPx++;
+      } else {
+        thinMask[i] = 1;
+        thinPx++;
+      }
+    }
+  }
+  return { thinMask, thinPx, demotedPx };
 }
 
 /**
@@ -130,6 +181,23 @@ export async function extractCyanMask(
         compactness: null,
       };
     }
+
+    // Demote blob-shaped cyan clusters back to fill so only thin
+    // facet-boundary lines render at full opacity in the composite.
+    // Without this, bright cyan smudges (4-15px diameter) survive on
+    // the interior of the fill and look like paint splatter.
+    const { thinMask, thinPx, demotedPx } = thinStrokeMask(
+      strokeMask,
+      width,
+      height,
+    );
+    if (demotedPx > 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[cyan-mask] stroke_thinned strokes=${strokePx} → ${thinPx} ` +
+          `(demoted=${demotedPx} blob pixels to fill alpha)`,
+      );
+    }
     // Perimeter = mask pixels with at least one 4-neighbor that is NOT
     // mask (image-border counts as "not mask"). Cheap O(width × height).
     let perimeterPx = 0;
@@ -148,11 +216,11 @@ export async function extractCyanMask(
       (perimeterPx * perimeterPx) / (4 * Math.PI * areaPx);
     return {
       mask,
-      strokeMask,
+      strokeMask: thinMask,
       width,
       height,
       areaPx,
-      strokePx,
+      strokePx: thinPx,
       perimeterPx,
       compactness,
     };
