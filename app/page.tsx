@@ -32,6 +32,7 @@ import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
 import { useRecaptcha } from "@/lib/useRecaptcha";
 import { Wordmark as SharedWordmark } from "@/components/Wordmark";
+import RoofMap from "@/components/RoofMap";
 import { ROOFING_FACTS } from "@/lib/roofing-facts";
 import {
   calculateTieredPricingWithPenetrations,
@@ -88,6 +89,16 @@ interface V3Response {
   /** Gemini's raw generative paint, pre-composite. Kept for the rep
    *  workbench / debug. Not shown to customers. */
   paintedImageRawBase64?: string | null;
+  /** Cyan polygon as a TRANSPARENT-BACKGROUND PNG + lat/lng bounds for
+   *  GroundOverlay use on an interactive Google Maps view. Null when
+   *  Gemini didn't produce a usable cyan mask; in that case the
+   *  frontend renders the interactive satellite map without overlay. */
+  cyanOverlay?: {
+    base64: string;
+    bounds: { north: number; south: number; east: number; west: number };
+    widthPx: number;
+    heightPx: number;
+  } | null;
   objects: Array<{
     type: string;
     centerPx: { x: number; y: number };
@@ -1423,26 +1434,28 @@ function ResultScreen({
             the painted image doesn't tower over the price card. The
             grid auto-rows-fr makes them visually paired blocks. */}
         <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-10 items-center justify-items-center w-full">
-          {/* Painted image */}
-          {paintedImageBase64 ? (
-            <div
-              className="result-card overflow-hidden mx-auto w-full"
-              style={{ maxWidth: "480px", aspectRatio: "1 / 1" }}
-            >
-              <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
-              <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
-              <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
-              <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`data:image/png;base64,${paintedImageBase64}`}
-                alt="Your roof, outlined"
-                className="w-full h-full object-cover"
-              />
-            </div>
-          ) : (
-            <div />
-          )}
+          {/* Interactive Google Map with cyan polygon as a GroundOverlay.
+              The customer can pan / zoom on the actual satellite to
+              confirm orientation — much more reassuring than the prior
+              static crop. Falls back to the server-side composite PNG
+              if the Maps loader errors (e.g. NEXT_PUBLIC_GOOGLE_MAPS_KEY
+              missing on a deploy). */}
+          <div
+            className="result-card overflow-hidden mx-auto w-full"
+            style={{ maxWidth: "480px", aspectRatio: "1 / 1" }}
+          >
+            <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+            <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+            <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+            <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+            <RoofMap
+              centerLat={result.tile.centerLat}
+              centerLng={result.tile.centerLng}
+              zoom={result.tile.zoom}
+              overlay={result.cyanOverlay ?? null}
+              fallbackPngBase64={paintedImageBase64}
+            />
+          </div>
 
           {/* Right column: price + voice-consent CTA, stacked. */}
           <div className="flex flex-col gap-5 w-full" style={{ maxWidth: "440px" }}>

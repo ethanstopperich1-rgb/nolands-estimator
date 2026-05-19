@@ -91,7 +91,7 @@ import {
   GEMINI_ROOF_SYSTEM_INSTRUCTION,
   GEMINI_ROOF_USER_TRIGGER,
 } from "@/lib/gemini-roof-prompt";
-import { extractCyanMask, type CyanMask } from "@/lib/cyan-mask";
+import { extractCyanMask, maskToCyanOverlayPng, type CyanMask } from "@/lib/cyan-mask";
 import { compositeCyanOnAerial } from "@/lib/composite-cyan-overlay";
 import {
   verifyPaintedAgainstInput,
@@ -989,6 +989,23 @@ export interface GeminiRoofResponseV3 {
     siteObstacles: Array<{ kind: string; confidence: number }>;
     apparentAgeBand: { band: string; confidence: number } | null;
   };
+  /** Cyan polygon as a TRANSPARENT-BACKGROUND PNG, suitable for use as
+   *  a Google Maps `GroundOverlay` on top of an interactive satellite
+   *  view. Customer pages render an interactive map at `tile.centerLat`
+   *  / `tile.centerLng` / `tile.zoom` and drape this PNG over it using
+   *  `cyanOverlayBounds`. Null when no usable cyan mask was extracted
+   *  (paint failed, returned no cyan, etc) — frontend should render the
+   *  satellite map without overlay in that case. */
+  cyanOverlay: {
+    /** Base64 PNG, transparent everywhere except where Gemini painted
+     *  cyan. */
+    base64: string;
+    /** Lat/lng bounds of the overlay — matches the source tile exactly,
+     *  so GroundOverlay aligns pixel-for-pixel with the satellite. */
+    bounds: { north: number; south: number; east: number; west: number };
+    widthPx: number;
+    heightPx: number;
+  } | null;
   /** Pro Image paint-verify telemetry. Null when paint wasn't called
    *  (cache hit, missing key path). Otherwise describes the post-flight
    *  pixel-comparison verdict + how many attempts it took. When
@@ -2747,6 +2764,54 @@ async function handleV3Pinned(
     paintedImageBase64 = await watermarkPaintedPng(paintedImageBase64);
   }
 
+  // ─── Cyan-overlay PNG for interactive Google Maps display ────────────
+  // Generate a transparent-background PNG containing just the cyan
+  // polygon. The frontend renders an interactive `google.maps.Map` at
+  // the tile lat/lng/zoom and drapes this PNG over the satellite layer
+  // with `GroundOverlay`. Pan / zoom / type-toggle all work natively;
+  // the cyan stays geo-locked because the overlay is bounded by the
+  // tile's actual lat/lng corners.
+  //
+  // Falls back to null when Gemini didn't produce a usable cyan mask —
+  // the frontend renders the satellite map without the overlay in that
+  // case (still better than a static "couldn't paint" placeholder).
+  let cyanOverlay: GeminiRoofResponseV3["cyanOverlay"] = null;
+  if (cyanMask && cyanMask.areaPx > 0) {
+    try {
+      const overlayPng = await maskToCyanOverlayPng(cyanMask, { alpha: 0.5 });
+      // Tile bounds: the static-maps tile is centered on `lat`/`lng`
+      // and spans `widthPx × tileMPerPx` meters east-west and the same
+      // north-south. Convert half-spans to lat/lng degrees using the
+      // standard 111,320 m-per-degree approximation (cos(lat) for lng).
+      const halfWidthM =
+        (TILE_SIZE_PX * TILE_SCALE * tileMPerPx) / 2;
+      const cosLatLocal = Math.cos((lat * Math.PI) / 180);
+      const dLat = halfWidthM / 111_320;
+      const dLng = halfWidthM / (111_320 * cosLatLocal);
+      cyanOverlay = {
+        base64: overlayPng.toString("base64"),
+        bounds: {
+          north: lat + dLat,
+          south: lat - dLat,
+          east: lng + dLng,
+          west: lng - dLng,
+        },
+        widthPx: cyanMask.width,
+        heightPx: cyanMask.height,
+      };
+      console.log(
+        `[gemini-roof v3] cyan_overlay_built area_px=${cyanMask.areaPx} ` +
+          `png_bytes=${overlayPng.length} bounds=` +
+          `[${dLat.toFixed(5)}°lat, ${dLng.toFixed(5)}°lng]`,
+      );
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] cyan_overlay_build_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
   // Resolve the parcel lookup that fired in parallel with the Gemini
   // fan-out. By this point it almost certainly settled minutes ago — we
   // were waiting on Pro Image, not FDOR — so this is a cheap await.
@@ -2806,6 +2871,7 @@ async function handleV3Pinned(
     },
     paintedImageBase64,
     paintedImageRawBase64,
+    cyanOverlay,
     objects,
     penetrationTotals,
     edges,

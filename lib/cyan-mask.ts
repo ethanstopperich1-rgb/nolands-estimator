@@ -117,6 +117,45 @@ export function pointInCyan(
   return cyan.mask[y * cyan.width + x] === 1;
 }
 
+/**
+ * Render the cyan mask to a transparent PNG suitable for use as a
+ * Google Maps `GroundOverlay`. Cyan pixels get filled with brand cyan
+ * (#38C5EE) at the supplied alpha; non-cyan pixels are fully transparent.
+ *
+ * Output dimensions match the mask exactly — the caller is expected to
+ * georeference the overlay against the same tile bounds the original
+ * painted PNG was produced for.
+ */
+export async function maskToCyanOverlayPng(
+  mask: CyanMask,
+  opts: { r?: number; g?: number; b?: number; alpha?: number } = {},
+): Promise<Buffer> {
+  const r = opts.r ?? 0x38;
+  const g = opts.g ?? 0xc5;
+  const b = opts.b ?? 0xee;
+  const a = Math.round((opts.alpha ?? 0.55) * 255);
+  const { width, height } = mask;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0; i < mask.mask.length; i++) {
+    const base = i * 4;
+    if (mask.mask[i] === 1) {
+      rgba[base] = r;
+      rgba[base + 1] = g;
+      rgba[base + 2] = b;
+      rgba[base + 3] = a;
+    } else {
+      // Fully transparent. RGBA bytes default to 0; alpha at base+3
+      // already 0 means transparent. No-op explicitly for clarity.
+      rgba[base + 3] = 0;
+    }
+  }
+  return sharp(rgba, {
+    raw: { width, height, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+}
+
 /** Tolerant gate: accept a point if it OR any of its 4-neighbors within
  *  `radiusPx` is cyan. Lets us forgive small detection-center errors
  *  near the eave without admitting lawn fixtures. */
