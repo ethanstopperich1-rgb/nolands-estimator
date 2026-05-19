@@ -2155,34 +2155,41 @@ function ParcelBlock({
           className="flex-1 flex flex-col justify-center text-center"
           style={{ fontSize: "13px", lineHeight: 1.55 }}
         >
-          {/* Roof condition lives above the "no parcel data" copy so
-              even properties FDOR doesn't cover still get a visible
-              pain-point read when our system saw something. */}
-          <RoofConditionSection assessment={visualRoofAssessment} />
-          <p
-            className="font-serif"
-            style={{
-              fontSize: "14px",
-              color: "var(--vx-ink)",
-              fontStyle: "italic",
-            }}
-          >
-            Property age + lot details get verified by the roofer on
-            site.
-          </p>
-          <p
-            className="mt-2 mx-auto"
-            style={{
-              fontSize: "12px",
-              color: "var(--vx-ink-soft)",
-              maxWidth: "34ch",
-            }}
-          >
-            County records vary by parcel and aren&apos;t always
-            visible from satellite alone — your rep will pull
-            year-built, living area, and the most recent sale during
-            the 20-minute walkthrough.
-          </p>
+          {hasDisplayableRoofAssessment(visualRoofAssessment) ? (
+            // Visual roof read substitutes for the rep-verifies copy —
+            // it already includes the "confirmed on-site by your rep"
+            // footer, so duplicating the original empty-state paragraphs
+            // would double the message AND stretch the card past
+            // square in the 2×2 grid.
+            <RoofConditionSection assessment={visualRoofAssessment} />
+          ) : (
+            <>
+              <p
+                className="font-serif"
+                style={{
+                  fontSize: "14px",
+                  color: "var(--vx-ink)",
+                  fontStyle: "italic",
+                }}
+              >
+                Property age + lot details get verified by the roofer
+                on site.
+              </p>
+              <p
+                className="mt-2 mx-auto"
+                style={{
+                  fontSize: "12px",
+                  color: "var(--vx-ink-soft)",
+                  maxWidth: "34ch",
+                }}
+              >
+                County records vary by parcel and aren&apos;t always
+                visible from satellite alone — your rep will pull
+                year-built, living area, and the most recent sale
+                during the 20-minute walkthrough.
+              </p>
+            </>
+          )}
         </div>
       )}
 
@@ -2755,29 +2762,51 @@ function WhyRow({
   );
 }
 
+/** Apply the same filters RoofConditionSection uses internally, so
+ *  callers can decide whether to suppress nearby duplicate copy (e.g.
+ *  the empty-state rep-verifies paragraph) without re-implementing
+ *  the gating logic. */
+function hasDisplayableRoofAssessment(
+  assessment: V3Response["visualRoofAssessment"],
+): boolean {
+  if (!assessment) return false;
+  const hasMaterial = describeMaterial(assessment.primaryMaterial) != null;
+  if (assessment.confidence === "low") return hasMaterial;
+  const hasObs = assessment.conditionObservations.some(
+    (t) => describeObservation(t) != null,
+  );
+  return hasMaterial || hasObs;
+}
+
 /**
  * Customer-facing roof condition read from the V3 visual assessment.
  *
  * LEGAL FRAMING — see `feedback_visual_condition_legal_framing` memory.
- * This component renders Gemini Pro's output as a SYSTEM DETECTION,
- * never as fact about the roof:
- *   - Header reads "What our imagery suggests" (hedged framing)
- *   - Material line says "appears to be…"
- *   - Each observation already has its own hedge ("Possible…",
- *     "What looks like…") via describeObservation()
+ * Renders Gemini Pro's output as a SYSTEM DETECTION, never as fact:
+ *   - "Likely material" label hedges by itself (matches WhyRow style
+ *     of the existing parcel rows, so it slots in visually)
+ *   - Each observation carries its own hedge in describeObservation()
  *   - Footer defers ground truth to the rep on-site
  *
- * Gates:
- *   - Returns null if assessment is null (identity gate tripped /
- *     Pro failed / V3 didn't include the field).
- *   - At `confidence: "low"` shows the material line if any, but
- *     SUPPRESSES observations (don't hand a customer pain points the
- *     model itself flagged as uncertain).
- *   - Filters non-pain-point enums (color_uniformity_good,
- *     tree_overhang_heavy, no_visible_issues) — they live in the API
- *     response for the rep view but undermine conversion here.
- *   - Renders nothing if neither material nor any pain-point
- *     observations survived the filters.
+ * Visual goals (post-2026-05 design review):
+ *   - Compact enough that adding it doesn't stretch the 2×2 grid
+ *     bottom row beyond square. One label/value row + bullets +
+ *     one italic source line.
+ *   - Typography matches the existing parcel rows + cadastral footer
+ *     exactly — `WhyRow` for material, same italic 11px muted footer
+ *     style as "Source: FDOR cadastral".
+ *
+ * Gates (also encoded in `hasDisplayableRoofAssessment`):
+ *   - Null assessment → null render
+ *   - `confidence: "low"` suppresses observations entirely (still
+ *     shows material if known — don't hand a customer pain points
+ *     the model flagged as uncertain)
+ *   - Non-pain-point enums (color_uniformity_good, tree_overhang_heavy,
+ *     no_visible_issues) drop here — they stay in the API response
+ *     for the rep workbench but undermine conversion in the customer
+ *     surface
+ *   - Material unknown/mixed → no material line (rep verifies)
+ *   - Nothing-to-show → null render
  */
 function RoofConditionSection({
   assessment,
@@ -2788,19 +2817,22 @@ function RoofConditionSection({
 
   const materialLabel = describeMaterial(assessment.primaryMaterial);
   const lowConfidence = assessment.confidence === "low";
+  // Cap at 2 observations for the customer surface. Two pain points
+  // is enough to motivate a rep walkthrough; more turns the box into
+  // a bulleted laundry list and stretches the 2×2 grid past square.
+  // The rep workbench still gets the full list from the API response.
+  const CUSTOMER_OBSERVATION_CAP = 2;
   const observationLines = lowConfidence
     ? []
     : assessment.conditionObservations
         .map(describeObservation)
-        .filter((line): line is string => line != null);
+        .filter((line): line is string => line != null)
+        .slice(0, CUSTOMER_OBSERVATION_CAP);
 
-  // Don't render the section at all if there's nothing customer-safe
-  // to show. Empty space is better than the section header followed
-  // by zero content.
   if (!materialLabel && observationLines.length === 0) return null;
 
-  // Format the Street View pano date as "Mar 2024" when present.
-  // Anchors the read in a real photo the customer could verify.
+  // Format the Street View pano date as "Mar 2024" when present —
+  // anchors the read in a real photo the customer could verify.
   let streetViewDateLabel: string | null = null;
   if (assessment.streetViewVerified && assessment.streetViewDate) {
     const d = new Date(assessment.streetViewDate);
@@ -2814,66 +2846,40 @@ function RoofConditionSection({
 
   return (
     <div
-      className="mt-4 pt-3"
-      style={{ borderTop: "1px solid var(--vx-rule, rgba(0,0,0,0.08))" }}
+      className="mt-3 pt-3"
+      style={{ borderTop: "1px solid rgba(0,0,0,0.08)" }}
     >
-      <div
-        style={{
-          fontSize: "11px",
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: "var(--vx-muted)",
-          fontWeight: 600,
-          marginBottom: 8,
-        }}
-      >
-        What our imagery suggests
-      </div>
       {materialLabel && (
-        <p
-          className="font-serif"
-          style={{
-            fontSize: "14px",
-            color: "var(--vx-ink)",
-            margin: "0 0 8px",
-            lineHeight: 1.45,
-          }}
-        >
-          Existing roof appears to be{" "}
-          <span style={{ fontWeight: 600 }}>{materialLabel}</span>.
-        </p>
+        <dl className="space-y-2">
+          <WhyRow label="Likely material" value={materialLabel} />
+        </dl>
       )}
       {observationLines.length > 0 && (
         <ul
           style={{
-            margin: 0,
-            paddingLeft: 18,
-            fontSize: "13px",
-            color: "var(--vx-ink)",
-            lineHeight: 1.5,
+            margin: materialLabel ? "8px 0 0" : "0",
+            paddingLeft: 14,
+            fontSize: "12px",
+            color: "var(--vx-ink-soft)",
+            lineHeight: 1.45,
+            listStyle: "disc",
           }}
         >
           {observationLines.map((line, idx) => (
-            <li key={idx} style={{ marginBottom: 4 }}>
+            <li key={idx} style={{ marginBottom: 2 }}>
               {line}
             </li>
           ))}
         </ul>
       )}
-      <p
-        className="font-serif italic"
-        style={{
-          fontSize: "11px",
-          color: "var(--vx-muted)",
-          margin: "10px 0 0",
-          lineHeight: 1.4,
-        }}
+      <div
+        className="mt-2 font-serif italic text-center"
+        style={{ fontSize: "11px", color: "var(--vx-muted)" }}
       >
         Computer-vision read from satellite
-        {streetViewDateLabel ? ` + a ${streetViewDateLabel} street-level photo` : ""}.
-        Final condition is assessed by your rep during the on-site
-        walkthrough.
-      </p>
+        {streetViewDateLabel ? ` + ${streetViewDateLabel} street photo` : ""} ·
+        confirmed on-site by your rep.
+      </div>
     </div>
   );
 }
