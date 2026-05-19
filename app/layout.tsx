@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   Geist,
   Geist_Mono,
@@ -118,6 +118,19 @@ export const metadata: Metadata = {
   title: "Voxaris · Instant roof estimate from your address",
   description:
     "Get a transparent roof estimate in under a minute. Satellite imagery, your county's records, recent severe-weather history — all in one place. No call required.",
+};
+
+// Explicit viewport for mobile sizing. Next.js auto-injects a default
+// in 15, but the 16-canary build pipeline this repo runs on has been
+// less predictable about that injection — set it explicitly so phones
+// scale to device-width and don't render at 980px desktop width.
+// maximumScale=5 (not 1) so the customer can pinch-zoom the painted
+// roof image to verify it matches their house, an accessibility +
+// trust requirement on a sales surface.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
