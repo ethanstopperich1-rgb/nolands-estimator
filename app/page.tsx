@@ -1505,24 +1505,12 @@ function ResultScreen({
           <ParcelBlock parcel={parcel} storms={storms} />
         </div>
 
-        {/* Full-width disclosure band — relocated from inside the tier
-            card. Combines: not-binding caveat + (conditional) tier-
-            coverage explanation + material/waste basis + financing
-            assumption, all in one centered fine-print block so the
-            tier card above stays focused on the actual price. */}
-        <DisclosureBand
-          materialLabel={pricingMaterial.label}
-          wastePercent={result.pricing?.recommendedWastePercent ?? 12}
-          quotableSqft={result.solar.quotableSqft}
-          displaySqft={sqft}
-        />
-
-        {/* Wide Rep CTA — moved out of the 2×2 grid's bottom-right
-            quadrant so the customer's primary action sits as a single
-            full-width block under the disclosure. Gives it stronger
-            visual weight than the cramped quadrant it occupied before,
-            and lets the parcel-record card take the bottom-right slot
-            (where it visually balances the storms block on its left). */}
+        {/* Wide Rep CTA — sits directly under the 2×2 grid as the
+            page's primary action. Conversion-optimized ordering: the
+            customer just finished scanning the measurement + tiers +
+            storms + property record, so the next thing under their
+            eye should be the booking action — not a wall of fine
+            print. Disclosure band moves below the CTA. */}
         <div className="mt-6 mx-auto" style={{ maxWidth: "1000px" }}>
           <RepCTACard
             bookingState={bookingState}
@@ -1533,6 +1521,17 @@ function ResultScreen({
             onBook={bookInPersonEstimate}
           />
         </div>
+
+        {/* Full-width disclosure band — under the CTA so the fine print
+            doesn't sit between the customer and the action. Combines:
+            not-binding caveat + (conditional) tier-coverage explanation
+            + material/waste basis + financing assumption. */}
+        <DisclosureBand
+          materialLabel={pricingMaterial.label}
+          wastePercent={result.pricing?.recommendedWastePercent ?? 12}
+          quotableSqft={result.solar.quotableSqft}
+          displaySqft={sqft}
+        />
 
         {/* Tertiary: re-pin link, ghost. */}
         <div className="mt-4 text-center">
