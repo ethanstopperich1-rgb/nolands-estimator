@@ -2776,6 +2776,13 @@ async function handleV3Pinned(
   // the frontend renders the satellite map without the overlay in that
   // case (still better than a static "couldn't paint" placeholder).
   let cyanOverlay: GeminiRoofResponseV3["cyanOverlay"] = null;
+  if (!cyanMask || cyanMask.areaPx === 0) {
+    console.log(
+      `[gemini-roof v3] cyan_overlay_skipped reason=` +
+        (!cyanMask ? "no_cyan_mask" : "cyan_area_px=0") +
+        " (frontend will render bare satellite map without overlay)",
+    );
+  }
   if (cyanMask && cyanMask.areaPx > 0) {
     try {
       const overlayPng = await maskToCyanOverlayPng(cyanMask, { alpha: 0.5 });

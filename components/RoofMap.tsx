@@ -3,23 +3,24 @@
 /**
  * Interactive Google Maps view of the customer's roof with the cyan
  * polygon Gemini detected draped over the satellite imagery via a
- * GroundOverlay. The customer can pan, zoom, and confirm orientation
- * against the real aerial — much more reassuring than a static painted
- * PNG, especially for asymmetric or complex roofs where the static crop
- * sometimes makes people ask "is that really my house?".
+ * GroundOverlay.
  *
- * The cyan PNG is georeferenced against the same tile bounds the
- * source painted image was rendered at, so the polygon stays glued to
- * the roof through pan/zoom.
+ * Resilience notes:
  *
- * When the cyan overlay isn't available (Gemini didn't return a usable
- * mask), the map still renders — the customer sees the interactive
- * satellite view without an overlay, which is strictly better than the
- * previous "no image at all" fallback.
- *
- * When Google Maps itself fails to load (rare; usually means an API key
- * misconfiguration), we fall back to the static composite PNG that the
- * server already produced.
+ *   - The container uses absolute positioning inside a `position:
+ *     relative` parent. The `result-card` wrapper provides `position:
+ *     relative` and the aspect-ratio sizing; `inset: 0` makes this
+ *     element fill it deterministically, sidestepping the
+ *     aspect-ratio + h-full child race that some browsers hit.
+ *   - Loading state is visible (a faint "Loading map…" caption) so a
+ *     blank dark square never appears even on slow connections.
+ *   - Errors render a visible, customer-readable message instead of
+ *     silently falling back to a static image with no explanation.
+ *     Fallback PNG is shown only when one is available; otherwise the
+ *     error caption stands alone.
+ *   - `loadGoogle()` is a shared singleton — if the address-autocomplete
+ *     already loaded Maps on the hero, this promise resolves
+ *     synchronously.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -39,13 +40,14 @@ export interface RoofMapProps {
     base64: string;
     bounds: { north: number; south: number; east: number; west: number };
   } | null;
-  /** Static composite image (real aerial + cyan). Used as a fallback
-   *  when the Google Maps JS loader fails. Null when even that isn't
-   *  available — the component will render an empty card. */
+  /** Static composite image (real aerial + cyan). Used as a final
+   *  fallback when the Google Maps JS loader fails. */
   fallbackPngBase64: string | null;
   /** Optional alt text for the fallback image / a11y description. */
   altText?: string;
 }
+
+type MapState = "loading" | "ready" | "error";
 
 export default function RoofMap({
   centerLat,
@@ -56,7 +58,8 @@ export default function RoofMap({
   altText = "Your roof, outlined on a satellite view",
 }: RoofMapProps): React.ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mapErr, setMapErr] = useState<string | null>(null);
+  const [state, setState] = useState<MapState>("loading");
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,19 +71,11 @@ export default function RoofMap({
           center: { lat: centerLat, lng: centerLng },
           zoom,
           mapTypeId: "satellite",
-          // Top-down — `tilt: 0` disables the 45° aerial that Google
-          // serves at high zoom in some areas. The cyan polygon was
-          // calculated from straight-overhead imagery, so we keep the
-          // view straight-overhead to match.
           tilt: 0,
           rotateControl: false,
-          // Minimal chrome — the customer is here for the roof, not
-          // for map UI. Pan + zoom still work via gestures.
           disableDefaultUI: true,
           zoomControl: true,
           gestureHandling: "greedy",
-          // Don't let the customer zoom out so far that the building
-          // disappears or so far in that we get blurry upscaling.
           minZoom: 17,
           maxZoom: 22,
           keyboardShortcuts: false,
@@ -100,14 +95,14 @@ export default function RoofMap({
           );
           groundOverlay.setMap(map);
         }
+        if (!cancelled) setState("ready");
       })
       .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn("[RoofMap] google_maps_load_failed", msg);
         if (!cancelled) {
-          console.warn(
-            "[RoofMap] google_maps_load_failed",
-            err instanceof Error ? err.message : String(err),
-          );
-          setMapErr(err instanceof Error ? err.message : String(err));
+          setErrMsg(msg);
+          setState("error");
         }
       });
     return () => {
@@ -116,22 +111,77 @@ export default function RoofMap({
     };
   }, [centerLat, centerLng, zoom, overlay]);
 
-  if (mapErr && fallbackPngBase64) {
+  // Hard-failed path: show the static composite if we have one, otherwise
+  // a readable error caption. Never leave the slot blank.
+  if (state === "error") {
+    if (fallbackPngBase64) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`data:image/png;base64,${fallbackPngBase64}`}
+          alt={altText}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+      );
+    }
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={`data:image/png;base64,${fallbackPngBase64}`}
-        alt={altText}
-        className="w-full h-full object-cover"
-      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+          fontSize: 13,
+          color: "var(--vx-muted, #8A7E68)",
+          textAlign: "center",
+        }}
+      >
+        Map could not load.
+        {errMsg ? <div style={{ marginTop: 6, fontSize: 11 }}>{errMsg}</div> : null}
+      </div>
     );
   }
+
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full"
-      aria-label={altText}
-      role="img"
-    />
+    <>
+      <div
+        ref={containerRef}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+        }}
+        aria-label={altText}
+        role="img"
+      />
+      {state === "loading" && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            fontSize: 12,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            color: "var(--vx-muted, #8A7E68)",
+            background: "var(--vx-paper, #F5EFE0)",
+          }}
+        >
+          Loading map…
+        </div>
+      )}
+    </>
   );
 }
