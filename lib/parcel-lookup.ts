@@ -155,21 +155,58 @@ export async function lookupParcel(
   lat: number,
   lng: number,
 ): Promise<ParcelLookupResult | null> {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    console.warn(
+      `[parcel] invalid query point lat=${lat} lng=${lng} — skipping FDOR lookup`,
+    );
+    return null;
+  }
 
   // First pass: zero-tolerance point-in-polygon query at the exact
   // building centroid. Returns 1 feature on residential lots, 0 on
   // road pins, 1 (giant HOA tract) on gated common areas.
   const exact = await runQuery(lat, lng, 0);
-  const exactPick = pickResidential(exact);
+  console.log(
+    `[parcel] exact_query lat=${lat.toFixed(5)} lng=${lng.toFixed(5)} features=${exact.length}` +
+      (exact.length > 0 ? ` codes=[${exact.map((f) => f.attributes?.DOR_UC ?? "?").join(",")}]` : ""),
+  );
+  const exactPick = pickResidential(exact, "exact");
   if (exactPick) return exactPick;
 
   // Fallback: 25m buffer. Catches the "geocoder snapped to the wrong
   // side of the property line" case + small footprint errors. Still
   // gated by residential filter so an adjacent commercial parcel
   // doesn't win.
-  const buffered = await runQuery(lat, lng, 25);
-  return pickResidential(buffered);
+  const buffered25 = await runQuery(lat, lng, 25);
+  console.log(
+    `[parcel] buffered25_query features=${buffered25.length}` +
+      (buffered25.length > 0
+        ? ` codes=[${buffered25.map((f) => f.attributes?.DOR_UC ?? "?").join(",")}]`
+        : ""),
+  );
+  const bufferedPick = pickResidential(buffered25, "buffered25");
+  if (bufferedPick) return bufferedPick;
+
+  // Last-resort 100m buffer. Catches cases where the building centroid
+  // sits slightly off-parcel (Solar's photogrammetric center can drift
+  // up to ~30m on complex roofs). Still residentially gated so a
+  // neighbor's house parcel will be picked over the road or HOA tract.
+  const buffered100 = await runQuery(lat, lng, 100);
+  console.log(
+    `[parcel] buffered100_query features=${buffered100.length}` +
+      (buffered100.length > 0
+        ? ` codes=[${buffered100.map((f) => f.attributes?.DOR_UC ?? "?").join(",")}]`
+        : ""),
+  );
+  const final = pickResidential(buffered100, "buffered100");
+  if (!final) {
+    console.warn(
+      `[parcel] no_residential_match all_three_queries_failed ` +
+        `lat=${lat.toFixed(5)} lng=${lng.toFixed(5)} ` +
+        `exact=${exact.length} buffered25=${buffered25.length} buffered100=${buffered100.length}`,
+    );
+  }
+  return final;
 }
 
 /**
@@ -233,19 +270,43 @@ async function runQuery(
  *      straddles a property line), prefer the smaller lot — that's
  *      the homeowner's actual parcel, not the abutting HOA tract.
  */
-function pickResidential(features: FdorFeature[]): ParcelLookupResult | null {
+function pickResidential(
+  features: FdorFeature[],
+  queryLabel: string,
+): ParcelLookupResult | null {
+  if (features.length === 0) return null;
+  const rejections: string[] = [];
   const candidates = features.filter((f) => {
     const a = f.attributes ?? {};
-    const isRes = isResidentialUseCode((a.DOR_UC ?? "").toString());
+    const dorUc = (a.DOR_UC ?? "").toString();
+    const isRes = isResidentialUseCode(dorUc);
     const hasBuilding = (a.NO_BULDNG ?? 0) > 0;
     // Sanity floor on living area — kills 480-sqft "home" records that
     // are actually yacht-club outbuildings on multi-acre lots even when
     // the DOR code somehow slips through.
     const hasRealLivingArea = (a.TOT_LVG_AR ?? 0) >= 400;
-    return isRes && hasBuilding && hasRealLivingArea;
+    const ok = isRes && hasBuilding && hasRealLivingArea;
+    if (!ok) {
+      const why = !isRes
+        ? `dor_uc=${dorUc || "(empty)"} not residential`
+        : !hasBuilding
+          ? `no_buildings (NO_BULDNG=${a.NO_BULDNG ?? "null"})`
+          : `living_area<400 (TOT_LVG_AR=${a.TOT_LVG_AR ?? "null"})`;
+      rejections.push(`${a.PARCEL_ID ?? "(no-id)"}: ${why}`);
+    }
+    return ok;
   });
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    if (rejections.length > 0) {
+      console.warn(
+        `[parcel] ${queryLabel}_rejected ${rejections.length} candidates:` +
+          ` ${rejections.slice(0, 3).join("; ")}` +
+          (rejections.length > 3 ? ` +${rejections.length - 3} more` : ""),
+      );
+    }
+    return null;
+  }
 
   // Smallest residential lot wins — that's the home, not the
   // surrounding common-area tract.
@@ -253,6 +314,12 @@ function pickResidential(features: FdorFeature[]): ParcelLookupResult | null {
     (a, b) =>
       (a.attributes.LND_SQFOOT ?? Infinity) -
       (b.attributes.LND_SQFOOT ?? Infinity),
+  );
+  console.log(
+    `[parcel] ${queryLabel}_pick ` +
+      `parcel_id=${candidates[0].attributes.PARCEL_ID ?? "?"} ` +
+      `dor_uc=${candidates[0].attributes.DOR_UC ?? "?"} ` +
+      `(${candidates.length} candidates, smallest-lot wins)`,
   );
 
   return toResult(candidates[0]);

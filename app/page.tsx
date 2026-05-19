@@ -1309,10 +1309,10 @@ function ResultScreen({
   // extra fetch); storms come from /api/storms/recent.
   const parcel = result.parcel;
   const [storms, setStorms] = useState<RecentStormsResponse | null>(null);
-  // Tracks whether the storms fetch is in flight. Used by WhyNowCard to
-  // render parcel data immediately and show a skeleton in the weather
-  // column while the IEM mirror responds — instead of the whole card
-  // popping in late and causing a layout jump as the customer is reading.
+  // Tracks whether the storms fetch is in flight. Used by StormsBlock
+  // to show a 3-line skeleton until the IEM mirror responds, so the
+  // bottom-left quadrant doesn't pop in late and shift the layout as
+  // the customer is reading.
   const [stormsLoading, setStormsLoading] = useState(true);
   useEffect(() => {
     // Query the IEM LSR mirror around the tile center (already the
@@ -1499,15 +1499,10 @@ function ResultScreen({
           {/* BOTTOM-LEFT — recent severe weather */}
           <StormsBlock storms={storms} loading={stormsLoading} />
 
-          {/* BOTTOM-RIGHT — rep CTA, sized to match StormsBlock */}
-          <RepCTACard
-            bookingState={bookingState}
-            bookingError={bookingError}
-            voiceConsent={voiceConsent}
-            setVoiceConsent={setVoiceConsent}
-            leadPublicId={leadPublicId}
-            onBook={bookInPersonEstimate}
-          />
+          {/* BOTTOM-RIGHT — property record (parcel data). Replaces the
+              prior Rep CTA quadrant; the CTA moved to a full-width
+              band below the disclosure for stronger visual weight. */}
+          <ParcelBlock parcel={parcel} storms={storms} />
         </div>
 
         {/* Full-width disclosure band — relocated from inside the tier
@@ -1522,8 +1517,24 @@ function ResultScreen({
           displaySqft={sqft}
         />
 
-        {/* Tertiary: re-pin link, ghost. Moved out of the right column
-            now that it doesn't have a third stacked card to anchor under. */}
+        {/* Wide Rep CTA — moved out of the 2×2 grid's bottom-right
+            quadrant so the customer's primary action sits as a single
+            full-width block under the disclosure. Gives it stronger
+            visual weight than the cramped quadrant it occupied before,
+            and lets the parcel-record card take the bottom-right slot
+            (where it visually balances the storms block on its left). */}
+        <div className="mt-6 mx-auto" style={{ maxWidth: "1000px" }}>
+          <RepCTACard
+            bookingState={bookingState}
+            bookingError={bookingError}
+            voiceConsent={voiceConsent}
+            setVoiceConsent={setVoiceConsent}
+            leadPublicId={leadPublicId}
+            onBook={bookInPersonEstimate}
+          />
+        </div>
+
+        {/* Tertiary: re-pin link, ghost. */}
         <div className="mt-4 text-center">
           <button
             type="button"
@@ -1595,14 +1606,10 @@ function ResultScreen({
           </div>
         )}
 
-        {/* "Why this roof needs attention" — parcel age + recent storms.
-            The two strongest signals an honest roofer can show a homeowner
-            before quoting: how old the structure actually is (FL DOR
-            statewide cadastral, free) and what the property has been
-            through recently (NWS Local Storm Reports via the Iowa State
-            Mesonet, ~T+1h fresh, free). Card hides itself entirely when
-            neither data source resolved — no "no data" placeholders. */}
-        <WhyNowCard parcel={parcel} storms={storms} />
+        {/* WhyNowCard removed from this position — parcel data now
+            renders in the bottom-right quadrant of the 2×2 grid above
+            (via the ParcelBlock component) so it visually balances the
+            severe-weather block on its left. */}
 
         {/* Detail line under the price (full-width below the fold so it
             doesn't crowd the above-the-fold price card). */}
@@ -1719,234 +1726,244 @@ function ImageryQualityBadge({
   );
 }
 
-// ─── "Why this roof needs attention" card ──────────────────────────────
+// ─── Parcel block (bottom-right of the above-the-fold grid) ────────────
 //
-// Renders evidence-based property facts pulled from the FL statewide
-// cadastral (ACT_YR_BLT, EFF_YR_BLT, last recorded sale). Aerial
-// imagery cannot answer "how old is this thing?" — the cadastral can,
-// from official county tax-roll data, for free.
+// Replaces the prior position of the Rep CTA in the 2×2 grid. Shows
+// FL DOR cadastral data — the credible "how old / how big / how much"
+// signal that the satellite estimate can't answer on its own.
 //
-// Recent severe weather used to render here in a second column; it now
-// renders in its own card directly under the satellite map (see
-// `StormsBlock`) so the above-the-fold layout stays balanced against
-// the tier price card on the right. The italic-serif closing narrative
-// below still pulls from storm context for prose.
-//
-// Card hides entirely when there's no parcel data — no "no data" UI noise.
+// Renders even when only some fields are populated (FL DOR commonly
+// returns ACT_YR_BLT=0 with everything else populated). Falls back to
+// a graceful "data unavailable" caption when truly nothing came back —
+// avoids a blank quadrant that breaks the 2×2 visual rhythm. The
+// caption also surfaces the actual reason so reps debugging from the
+// rep workbench know whether to look it up manually.
 
-function WhyNowCard({
+function ParcelBlock({
   parcel,
   storms,
 }: {
   parcel: V3Response["parcel"];
-  /** Still passed through so the italic-serif closer can reference
-   *  storm context in the narrative, even though storms render in
-   *  their own block elsewhere on the page. */
+  /** Storms data feeds the optional closing narrative paragraph. */
   storms: RecentStormsResponse | null;
-}) {
-  // Render the card when ANY useful parcel field came back, not just
-  // year-built. FL DOR sometimes returns ACT_YR_BLT = 0 (county didn't
-  // populate) on a parcel that still has solid livingSqft / lot size /
-  // last-sale data — prior version hid the whole card in that case,
-  // which is why Oak Park looked blank on the result page even though
-  // the parcel lookup succeeded.
-  const hasUsefulParcel =
-    parcel != null &&
-    (parcel.yearBuilt != null ||
-      parcel.effectiveYearBuilt != null ||
-      parcel.livingSqft != null ||
-      parcel.lotSqft != null ||
-      parcel.justValue != null ||
-      parcel.lastSale != null);
-  if (!hasUsefulParcel) return null;
-
+}): React.ReactElement {
   const currentYear = new Date().getFullYear();
-  const age = parcel.yearBuilt ? currentYear - parcel.yearBuilt : null;
+  const age =
+    parcel && parcel.yearBuilt ? currentYear - parcel.yearBuilt : null;
   const effAge =
-    parcel.effectiveYearBuilt && parcel.effectiveYearBuilt > 0
+    parcel && parcel.effectiveYearBuilt && parcel.effectiveYearBuilt > 0
       ? currentYear - parcel.effectiveYearBuilt
       : null;
-  const yearsOwned = parcel.lastSale
-    ? currentYear - parcel.lastSale.year
-    : null;
-  // Lot size in acres looks better to homeowners than raw sqft
-  // (43,560 sqft = 1 acre). Below ~6,000 sqft we display the original
-  // number — that band reads as a "small lot" not "0.13 acres".
+  const yearsOwned =
+    parcel && parcel.lastSale
+      ? currentYear - parcel.lastSale.year
+      : null;
   const lotAcres =
-    parcel.lotSqft && parcel.lotSqft >= 6_000
+    parcel && parcel.lotSqft && parcel.lotSqft >= 6_000
       ? parcel.lotSqft / 43_560
       : null;
 
-  // The italic-serif closer. Builds dynamically off whatever data we
-  // have so the card never looks like a fill-in-the-blank template.
-  const closer = buildWhyNowNarrative({
-    age,
-    effAge,
-    yearsOwned,
-    storms: storms?.summary ?? null,
-  });
+  const hasAnyField =
+    parcel != null &&
+    (age != null ||
+      effAge != null ||
+      parcel.livingSqft != null ||
+      lotAcres != null ||
+      (parcel.justValue != null && parcel.justValue >= 50_000) ||
+      parcel.lastSale != null ||
+      (parcel.buildingCount != null && parcel.buildingCount > 1));
 
   return (
-    <div className="mt-12 mx-auto" style={{ maxWidth: "920px" }}>
-      <div className="text-center eyebrow mb-4">Why this roof needs attention</div>
+    <div
+      className="result-card relative w-full"
+      style={{ padding: "22px 20px" }}
+    >
+      <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+
+      {/* Title — serif terra, matches StormsBlock + RepCTACard titles. */}
       <div
-        className="result-card relative"
-        style={{ padding: "26px 24px" }}
+        className="font-serif mb-4 text-center"
+        style={{
+          fontSize: "20px",
+          fontWeight: 600,
+          color: "var(--vx-terra)",
+          letterSpacing: "-0.005em",
+          lineHeight: 1.2,
+        }}
       >
-        {/* Brand corner markers, same as the painted-image frame */}
-        <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
-        <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
-        <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
-        <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
-
-        <div className="mx-auto" style={{ maxWidth: "440px" }}>
-          {/* ── Property facts ── */}
-          <section>
-            <div
-              className="font-serif italic mb-3"
-              style={{ fontSize: "13px", color: "var(--vx-terra)" }}
-            >
-              Property record
-            </div>
-            <dl className="space-y-2">
-              {age != null && (
-                <WhyRow
-                  label="Year built"
-                  value={
-                    <>
-                      <span className="tabular">{parcel!.yearBuilt}</span>
-                      <span
-                        className="font-serif italic ml-2"
-                        style={{ color: "var(--vx-ink-soft)" }}
-                      >
-                        {age} yr old
-                      </span>
-                    </>
-                  }
-                />
-              )}
-              {effAge != null && effAge !== age && (
-                <WhyRow
-                  label="Last renovated"
-                  value={
-                    <>
-                      <span className="tabular">{parcel!.effectiveYearBuilt}</span>
-                      <span
-                        className="font-serif italic ml-2"
-                        style={{ color: "var(--vx-ink-soft)" }}
-                      >
-                        {effAge} yr ago
-                      </span>
-                    </>
-                  }
-                />
-              )}
-              {parcel?.livingSqft != null && (
-                <WhyRow
-                  label="Living area"
-                  value={
-                    <span className="tabular">
-                      {parcel.livingSqft.toLocaleString()} sqft
-                    </span>
-                  }
-                />
-              )}
-              {lotAcres != null && (
-                <WhyRow
-                  label="Lot size"
-                  value={
-                    <>
-                      <span className="tabular">{lotAcres.toFixed(2)}</span>
-                      <span
-                        className="font-serif italic ml-1"
-                        style={{ color: "var(--vx-ink-soft)" }}
-                      >
-                        acres
-                      </span>
-                    </>
-                  }
-                />
-              )}
-              {parcel?.justValue != null && parcel.justValue >= 50_000 && (
-                <WhyRow
-                  label="County assessed"
-                  value={
-                    <span className="tabular">
-                      ${(parcel.justValue / 1000).toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}
-                      k
-                    </span>
-                  }
-                />
-              )}
-              {parcel?.buildingCount != null && parcel.buildingCount > 1 && (
-                <WhyRow
-                  label="Buildings on lot"
-                  value={
-                    <>
-                      <span className="tabular">{parcel.buildingCount}</span>
-                      <span
-                        className="font-serif italic ml-2"
-                        style={{ color: "var(--vx-ink-soft)" }}
-                      >
-                        main + accessory
-                      </span>
-                    </>
-                  }
-                />
-              )}
-              {parcel?.lastSale && yearsOwned != null && (
-                <WhyRow
-                  label="Last sale"
-                  value={
-                    <>
-                      <span className="tabular">
-                        ${(parcel.lastSale.priceUsd / 1000).toFixed(0)}k
-                      </span>
-                      <span
-                        className="font-serif italic ml-2"
-                        style={{ color: "var(--vx-ink-soft)" }}
-                      >
-                        {parcel.lastSale.year} · {yearsOwned} yr owned
-                      </span>
-                    </>
-                  }
-                />
-              )}
-            </dl>
-            <div
-              className="mt-3 font-serif italic"
-              style={{ fontSize: "11px", color: "var(--vx-muted)" }}
-            >
-              Source: Florida Dept. of Revenue cadastral
-              {parcel?.assessmentYear ? `, ${parcel.assessmentYear} roll` : ""}.
-            </div>
-          </section>
-
-          {/* Storms column moved out of this card (now renders under the
-              satellite map at the top of the page so the left+right
-              above-the-fold columns balance visually). The narrative
-              closer below still pulls from storms data for the prose. */}
-        </div>
-
-        {/* Narrative closer — italic serif, full width under both columns.
-            Reads like a sentence, not a bullet point. */}
-        {closer && (
-          <div
-            className="mt-6 pt-5 mx-auto font-serif italic text-center"
-            style={{
-              fontSize: "15px",
-              lineHeight: 1.55,
-              color: "var(--vx-ink)",
-              maxWidth: "56ch",
-              borderTop: "1px solid var(--vx-rule)",
-            }}
-          >
-            {closer}
-          </div>
-        )}
+        Property record
       </div>
+
+      {hasAnyField && parcel ? (
+        <>
+          <dl className="space-y-2">
+            {age != null && (
+              <WhyRow
+                label="Year built"
+                value={
+                  <>
+                    <span className="tabular">{parcel.yearBuilt}</span>
+                    <span
+                      className="font-serif italic ml-2"
+                      style={{ color: "var(--vx-ink-soft)" }}
+                    >
+                      {age} yr old
+                    </span>
+                  </>
+                }
+              />
+            )}
+            {effAge != null && effAge !== age && (
+              <WhyRow
+                label="Last renovated"
+                value={
+                  <>
+                    <span className="tabular">{parcel.effectiveYearBuilt}</span>
+                    <span
+                      className="font-serif italic ml-2"
+                      style={{ color: "var(--vx-ink-soft)" }}
+                    >
+                      {effAge} yr ago
+                    </span>
+                  </>
+                }
+              />
+            )}
+            {parcel.livingSqft != null && (
+              <WhyRow
+                label="Living area"
+                value={
+                  <span className="tabular">
+                    {parcel.livingSqft.toLocaleString()} sqft
+                  </span>
+                }
+              />
+            )}
+            {lotAcres != null && (
+              <WhyRow
+                label="Lot size"
+                value={
+                  <>
+                    <span className="tabular">{lotAcres.toFixed(2)}</span>
+                    <span
+                      className="font-serif italic ml-1"
+                      style={{ color: "var(--vx-ink-soft)" }}
+                    >
+                      acres
+                    </span>
+                  </>
+                }
+              />
+            )}
+            {parcel.justValue != null && parcel.justValue >= 50_000 && (
+              <WhyRow
+                label="County assessed"
+                value={
+                  <span className="tabular">
+                    ${(parcel.justValue / 1000).toLocaleString(undefined, {
+                      maximumFractionDigits: 0,
+                    })}
+                    k
+                  </span>
+                }
+              />
+            )}
+            {parcel.buildingCount != null && parcel.buildingCount > 1 && (
+              <WhyRow
+                label="Buildings on lot"
+                value={
+                  <>
+                    <span className="tabular">{parcel.buildingCount}</span>
+                    <span
+                      className="font-serif italic ml-2"
+                      style={{ color: "var(--vx-ink-soft)" }}
+                    >
+                      main + accessory
+                    </span>
+                  </>
+                }
+              />
+            )}
+            {parcel.lastSale && yearsOwned != null && (
+              <WhyRow
+                label="Last sale"
+                value={
+                  <>
+                    <span className="tabular">
+                      ${(parcel.lastSale.priceUsd / 1000).toFixed(0)}k
+                    </span>
+                    <span
+                      className="font-serif italic ml-2"
+                      style={{ color: "var(--vx-ink-soft)" }}
+                    >
+                      {parcel.lastSale.year} · {yearsOwned} yr owned
+                    </span>
+                  </>
+                }
+              />
+            )}
+          </dl>
+          <div
+            className="mt-3 font-serif italic text-center"
+            style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+          >
+            Source: Florida Dept. of Revenue cadastral
+            {parcel.assessmentYear ? `, ${parcel.assessmentYear} roll` : ""}.
+          </div>
+        </>
+      ) : (
+        // Graceful empty state — keeps the quadrant filled so the 2×2
+        // grid doesn't collapse. Honest about WHY the data is missing.
+        <div
+          className="text-center font-serif italic"
+          style={{
+            fontSize: "13px",
+            lineHeight: 1.5,
+            color: "var(--vx-ink-soft)",
+          }}
+        >
+          <p>
+            Property record not available for this address.
+          </p>
+          <p
+            className="mt-2"
+            style={{ fontSize: "11.5px", color: "var(--vx-muted)" }}
+          >
+            FL DOR cadastral didn&apos;t return a residential parcel at
+            the pin. The on-site visit will confirm year built, living
+            area, and lot size from county records directly.
+          </p>
+        </div>
+      )}
+
+      {/* Italic narrative closer — only renders when we actually have
+          something to say (parcel facts OR storm context). */}
+      {(hasAnyField || (storms && storms.summary.total > 0)) &&
+        (() => {
+          const closer = buildWhyNowNarrative({
+            age,
+            effAge,
+            yearsOwned,
+            storms: storms?.summary ?? null,
+          });
+          if (!closer) return null;
+          return (
+            <div
+              className="mt-4 pt-3 font-serif italic text-center"
+              style={{
+                fontSize: "13px",
+                lineHeight: 1.5,
+                color: "var(--vx-ink)",
+                borderTop: "1px solid var(--vx-rule)",
+              }}
+            >
+              {closer}
+            </div>
+          );
+        })()}
     </div>
   );
 }
@@ -2020,73 +2037,73 @@ function RepCTACard({
 
   return (
     <div
-      className="result-card relative flex flex-col"
-      style={{ padding: "22px 22px" }}
+      className="result-card relative"
+      style={{ padding: "28px 24px" }}
     >
       <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
       <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
       <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
       <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
 
-      {/* Title — serif terra, matches the StormsBlock title for symmetry. */}
-      <div
-        className="font-serif mb-3 text-center"
-        style={{
-          fontSize: "20px",
-          fontWeight: 600,
-          color: "var(--vx-terra)",
-          letterSpacing: "-0.005em",
-          lineHeight: 1.2,
-        }}
-      >
-        Lock in your real number
-      </div>
+      {/* Center the content inside the wide card with a max-width so the
+          copy + consent + button stay readable on wide screens (the card
+          itself spans the full disclosure-band width). */}
+      <div className="mx-auto" style={{ maxWidth: "560px" }}>
+        {/* Title — serif terra, matches the StormsBlock title for symmetry. */}
+        <div
+          className="font-serif mb-3 text-center"
+          style={{
+            fontSize: "22px",
+            fontWeight: 600,
+            color: "var(--vx-terra)",
+            letterSpacing: "-0.005em",
+            lineHeight: 1.2,
+          }}
+        >
+          Lock in your real number
+        </div>
 
-      {/* Body — lead with value, end with friction-reducer. */}
-      <p
-        className="text-center mb-4"
-        style={{
-          fontSize: "13.5px",
-          lineHeight: 1.5,
-          color: "var(--vx-ink)",
-        }}
-      >
-        A licensed roofer walks your property — exact sqft, decking
-        condition, code work — and puts a{" "}
-        <span style={{ fontWeight: 600 }}>written quote</span> in your hand.{" "}
-        <span className="font-serif italic" style={{ color: "var(--vx-ink-soft)" }}>
-          Free, about 20 minutes, no obligation.
-        </span>
-      </p>
+        {/* Body — lead with value, end with friction-reducer. */}
+        <p
+          className="text-center mb-4"
+          style={{
+            fontSize: "14px",
+            lineHeight: 1.5,
+            color: "var(--vx-ink)",
+          }}
+        >
+          A licensed roofer walks your property — exact sqft, decking
+          condition, code work — and puts a{" "}
+          <span style={{ fontWeight: 600 }}>written quote</span> in your hand.{" "}
+          <span className="font-serif italic" style={{ color: "var(--vx-ink-soft)" }}>
+            Free, about 20 minutes, no obligation.
+          </span>
+        </p>
 
-      {/* TCPA-compliant consent — kept concise. */}
-      <label
-        className="flex items-start gap-3 cursor-pointer mb-4"
-        style={{
-          fontSize: "12.5px",
-          color: "var(--vx-ink-soft)",
-          lineHeight: 1.5,
-        }}
-      >
-        <input
-          type="checkbox"
-          className="checkbox"
-          checked={voiceConsent}
-          onChange={(e) => setVoiceConsent(e.target.checked)}
-          disabled={!leadPublicId || bookingState === "sending"}
-        />
-        <span>
-          Yes, call me with an automated voice intro to schedule. I can
-          hang up or reply STOP anytime.
-        </span>
-      </label>
+        {/* TCPA-compliant consent — kept concise. */}
+        <label
+          className="flex items-start gap-3 cursor-pointer mb-4 mx-auto"
+          style={{
+            fontSize: "12.5px",
+            color: "var(--vx-ink-soft)",
+            lineHeight: 1.5,
+            maxWidth: "480px",
+          }}
+        >
+          <input
+            type="checkbox"
+            className="checkbox"
+            checked={voiceConsent}
+            onChange={(e) => setVoiceConsent(e.target.checked)}
+            disabled={!leadPublicId || bookingState === "sending"}
+          />
+          <span>
+            Yes, call me with an automated voice intro to schedule. I can
+            hang up or reply STOP anytime.
+          </span>
+        </label>
 
-      {/* Button + trust line as a bottom-anchored group. `mt-auto`
-          pushes this whole cluster to the bottom of the flex card so
-          when the storms block on the left makes this column taller,
-          the slack distributes into the gap ABOVE the button rather
-          than awkwardly below it. */}
-      <div className="mt-auto">
+        <div>
         <button
           type="button"
           className="btn-terra w-full"
@@ -2138,6 +2155,7 @@ function RepCTACard({
             {bookingError}
           </p>
         )}
+        </div>
       </div>
     </div>
   );
