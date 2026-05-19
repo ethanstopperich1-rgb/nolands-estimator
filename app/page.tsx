@@ -36,7 +36,8 @@ import RoofMap from "@/components/RoofMap";
 import { ROOFING_FACTS } from "@/lib/roofing-facts";
 import {
   buildFaqJsonLd,
-  buildServiceJsonLd,
+  // buildServiceJsonLd — emitted by app/layout.tsx now so /privacy + /terms
+  // also carry the Service node. Don't re-emit here.
   buildHomeBreadcrumbJsonLd,
   buildHomeWebPageJsonLd,
   jsonLdToScriptContent,
@@ -304,7 +305,8 @@ export default function HomePage() {
   // canonical source of truth for what this page IS.
   const webPageJsonLd = jsonLdToScriptContent(buildHomeWebPageJsonLd());
   const faqJsonLd = jsonLdToScriptContent(buildFaqJsonLd());
-  const serviceJsonLd = jsonLdToScriptContent(buildServiceJsonLd());
+  // Service node moved to app/layout.tsx so /privacy + /terms also
+  // carry it (closes "Service schema only on 1 of 3 pages" audit gap).
   const breadcrumbJsonLd = jsonLdToScriptContent(buildHomeBreadcrumbJsonLd());
 
   return (
@@ -322,11 +324,6 @@ export default function HomePage() {
         // eslint-disable-next-line react/no-danger -- JSON-LD via
         // typed server-side builder; no user input.
         dangerouslySetInnerHTML={{ __html: faqJsonLd }}
-      />
-      <script
-        type="application/ld+json"
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: serviceJsonLd }}
       />
       <script
         type="application/ld+json"

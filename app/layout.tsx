@@ -16,6 +16,7 @@ import {
   buildOrganizationJsonLd,
   buildSoftwareApplicationJsonLd,
   buildWebSiteJsonLd,
+  buildServiceJsonLd,
   jsonLdToScriptContent,
 } from "@/lib/seo/structured-data";
 
@@ -146,6 +147,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const orgJsonLd = jsonLdToScriptContent(buildOrganizationJsonLd());
   const softwareJsonLd = jsonLdToScriptContent(buildSoftwareApplicationJsonLd());
   const websiteJsonLd = jsonLdToScriptContent(buildWebSiteJsonLd());
+  // Service node is emitted at the LAYOUT level (not just the homepage)
+  // so /privacy and /terms also carry the offered-service structured
+  // data. Closes the AI-SEO audit finding "Service schema only on 1 of
+  // 3 pages." The Service @id (`/#service`) is stable across pages so
+  // JSON-LD graph dedup handles any redundancy gracefully.
+  const serviceJsonLd = jsonLdToScriptContent(buildServiceJsonLd());
 
   return (
     <html
@@ -169,6 +176,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           type="application/ld+json"
           // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{ __html: websiteJsonLd }}
+        />
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: serviceJsonLd }}
         />
       </head>
       <body className="min-h-[100dvh] antialiased relative">

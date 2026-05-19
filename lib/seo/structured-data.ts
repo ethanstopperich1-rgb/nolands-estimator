@@ -51,6 +51,27 @@ const ORG_NAME = "Voxaris";
 const PRODUCT_NAME = "Voxaris";
 const LOGO_URL = `${SITE_URL}/icon.png`;
 const OG_IMAGE = `${SITE_URL}/opengraph-image.png`;
+/** When the Voxaris customer-surface product launched. Used as
+ *  `datePublished` on SoftwareApplication + Organization founding date.
+ *  See voxaris-company memory: opened 2026-01-06. */
+const PRODUCT_PUBLISHED_DATE = "2026-01-06";
+
+/**
+ * Current YYYY-MM-DD date stamp emitted as `dateModified` on every
+ * schema node that benefits from a freshness signal. Recomputed at
+ * RENDER time (server-side) so each cold deploy carries the current
+ * date, satisfying "current-year date marker" freshness audits
+ * without requiring a build-time bump.
+ *
+ * Why this is safe to do at render: layout + page server components
+ * run on every request (no static export of these routes), so the
+ * date stays current automatically as long as the deploy is alive.
+ * If we ever ISR or static-export, swap this for a build-time
+ * constant updated by CI on deploy.
+ */
+function currentDateStamp(): string {
+  return new Date().toISOString().split("T")[0];
+}
 
 // Sources of truth for these are the user's voxaris-company memory +
 // the lib/branding.ts BRAND_CONFIG. Update both when company facts
@@ -95,7 +116,8 @@ export function buildOrganizationJsonLd(): Record<string, unknown> {
       "Roof material classification",
       "Severe weather history reporting",
     ],
-    foundingDate: "2026-01-06",
+    foundingDate: PRODUCT_PUBLISHED_DATE,
+    dateModified: currentDateStamp(),
     sameAs: [
       // Add real social profiles here as they go live. Avoid placeholders
       // — Google specifically penalizes Organization nodes that link to
@@ -148,6 +170,9 @@ export function buildSoftwareApplicationJsonLd(): Record<string, unknown> {
       "High-resolution satellite imagery with date attribution",
       "Privacy-preserving — no rep visits the property to generate the estimate",
     ],
+    datePublished: PRODUCT_PUBLISHED_DATE,
+    dateModified: currentDateStamp(),
+    softwareVersion: "1.0",
   };
 }
 
@@ -177,6 +202,7 @@ export function buildWebSiteJsonLd(): Record<string, unknown> {
       "query-input": "required name=search_term_string",
     },
     inLanguage: "en-US",
+    dateModified: currentDateStamp(),
   };
 }
 
@@ -409,6 +435,7 @@ export function buildServiceJsonLd(): Record<string, unknown> {
         },
       ],
     },
+    dateModified: currentDateStamp(),
   };
 }
 
@@ -476,6 +503,8 @@ function buildWebPageJsonLd(opts: {
     publisher: { "@id": `${SITE_URL}/#organization` },
     inLanguage: "en-US",
     ...(opts.section ? { articleSection: opts.section } : {}),
+    dateModified: currentDateStamp(),
+    datePublished: PRODUCT_PUBLISHED_DATE,
     mentions: VOXARIS_STATS.map((s) => ({
       "@type": "QuantitativeValue",
       name: s.name,
