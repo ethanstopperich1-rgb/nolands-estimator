@@ -73,10 +73,16 @@ const metadataBase = process.env.NEXT_PUBLIC_SITE_ORIGIN
       ? new URL(`https://${process.env.VERCEL_URL}`)
       : new URL("https://pitch.voxaris.io");
 
+// Root-level metadata is the homeowner-facing copy because `/` is the
+// customer surface and shared links (Slack, iMessage, X previews) pull
+// from here. Dashboard pages can override per-route. Prior copy ("the
+// closing tool for roofing teams") was the rep-side pitch — wrong
+// audience for the link preview a homeowner sees in their text thread.
 export const metadata: Metadata = {
   metadataBase,
-  title: "Voxaris Pitch · Roofing Estimator",
-  description: "Estimate to deal in five minutes. The closing tool for roofing teams.",
+  title: "Voxaris · Instant roof estimate from your address",
+  description:
+    "Get a transparent roof estimate in under a minute. Satellite imagery, your county's records, recent severe-weather history — all in one place. No call required.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

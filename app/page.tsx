@@ -222,6 +222,44 @@ const LOADING_MESSAGES: Array<{ at: number; text: string }> = [
 // ROOFING_FACTS imported above — canonical list lives in
 // lib/roofing-facts.ts so /dashboard/estimate shares the same source.
 
+/**
+ * Customer-readable labels for the rooftop-object enum the Gemini Flash
+ * rich-data pass emits. The model returns lowercase_snake_case
+ * identifiers (`hvac_unit`, `plumbing_boot`, `satellite_dish`) for
+ * downstream pricing math; this map controls what the homeowner
+ * actually sees on the "On the roof" chip row.
+ *
+ * Plural form auto-derives from the count — almost everything just
+ * takes "s", and the special cases live in the map.
+ *
+ * Add new object types by appending to the map. Falling back to the
+ * raw enum reads OK if a future type ships before the label catches
+ * up (`vent_pipe` → "Vent pipe") rather than crashing.
+ */
+const OBJECT_TYPE_LABELS: Record<string, { singular: string; plural?: string }> = {
+  vent: { singular: "Roof vent" },
+  chimney: { singular: "Chimney" },
+  hvac_unit: { singular: "HVAC unit" },
+  skylight: { singular: "Skylight" },
+  plumbing_boot: { singular: "Plumbing boot" },
+  satellite_dish: { singular: "Satellite dish", plural: "Satellite dishes" },
+  solar_panel: { singular: "Solar panel" },
+};
+
+function humanizeObjectType(raw: string, count: number): string {
+  const entry = OBJECT_TYPE_LABELS[raw];
+  if (entry) {
+    if (count === 1) return entry.singular;
+    return entry.plural ?? `${entry.singular}s`;
+  }
+  // Fallback: sentence-case the raw enum so a brand-new type still
+  // reads cleanly without a code change.
+  const cleaned = raw.replace(/_/g, " ");
+  const sentenceCased = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  if (count === 1) return sentenceCased;
+  return `${sentenceCased}s`;
+}
+
 export default function HomePage() {
   return (
     <main className="voxaris">
@@ -286,16 +324,62 @@ function VoxarisFlow() {
         cache: "no-store",
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Estimate service ${res.status}: ${text.slice(0, 200)}`);
+        // Server logs already capture status + body; surface a
+        // human-readable message to the homeowner. Raw "Estimate
+        // service 502: <stack>" was the prior behavior and read as
+        // broken even when the underlying issue was transient.
+        const friendly = friendlyEstimateError(res.status);
+        console.warn(
+          "[customer] estimate_failed",
+          res.status,
+          (await res.text().catch(() => "")).slice(0, 300),
+        );
+        throw new Error(friendly);
       }
       const data = (await res.json()) as V3Response;
       setResult(data);
       setStep("result");
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : String(err));
+      // Network-level failure (DNS / abort / offline) lands here too.
+      // Detect and message specifically so the customer doesn't see
+      // "TypeError: Failed to fetch."
+      const msg =
+        err instanceof Error && err.message ? err.message : String(err);
+      const isNetwork = /failed to fetch|networkerror|load failed/i.test(msg);
+      setErrorMsg(
+        isNetwork
+          ? "We couldn't reach our servers. Check your connection and try again."
+          : msg,
+      );
       setStep("error");
     }
+  }
+
+  /**
+   * Map HTTP status codes from the V3 pipeline into copy a homeowner can
+   * actually read. The customer can't act on "502 bad gateway" — they
+   * can act on "the imagery service is having a moment, try again."
+   *
+   * Server still logs the raw status/body for our debugging; this only
+   * controls what's shown on the customer-facing error screen.
+   */
+  function friendlyEstimateError(status: number): string {
+    if (status === 422) {
+      return "We couldn't identify a roof at that exact pin. Try re-pinning the center of the building.";
+    }
+    if (status === 429) {
+      return "Our roof-measurement service is busy right now. Please wait a minute and try again.";
+    }
+    if (status === 503) {
+      return "Our roof-measurement service is briefly offline. We'll be back in a minute — please retry.";
+    }
+    if (status >= 500) {
+      return "Something went wrong on our side measuring this roof. Our team has been notified — please retry in a moment.";
+    }
+    if (status >= 400) {
+      return "We couldn't measure that address. Try starting over with the full street address.";
+    }
+    return "Something unexpected happened. Please retry.";
   }
 
   function startOver(): void {
@@ -628,12 +712,17 @@ function HeroScreen({
                   <path d="M20 20l-3.5-3.5" />
                 </svg>
               </span>
+              <label htmlFor="voxaris-address-input" className="sr-only">
+                Property street address
+              </label>
               <input
                 ref={addrRef}
+                id="voxaris-address-input"
                 type="text"
                 className="addr-input"
                 placeholder="Begin typing your address…"
                 autoComplete="street-address"
+                aria-label="Property street address"
                 required
                 spellCheck={false}
               />
@@ -1180,6 +1269,11 @@ function ResultScreen({
   // extra fetch); storms come from /api/storms/recent.
   const parcel = result.parcel;
   const [storms, setStorms] = useState<RecentStormsResponse | null>(null);
+  // Tracks whether the storms fetch is in flight. Used by WhyNowCard to
+  // render parcel data immediately and show a skeleton in the weather
+  // column while the IEM mirror responds — instead of the whole card
+  // popping in late and causing a layout jump as the customer is reading.
+  const [stormsLoading, setStormsLoading] = useState(true);
   useEffect(() => {
     // Query the IEM LSR mirror around the tile center (already the
     // building centroid for pin-confirmed flows). 25mi radius, 365 days
@@ -1192,6 +1286,7 @@ function ResultScreen({
       radiusMiles: "25",
       daysBack: "365",
     });
+    setStormsLoading(true);
     fetch(`/api/storms/recent?${params.toString()}`, {
       signal: ctrl.signal,
       cache: "no-store",
@@ -1203,6 +1298,9 @@ function ResultScreen({
       .catch(() => {
         // Soft-fail — the card hides the weather section if storms
         // never resolves, the parcel section still renders.
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setStormsLoading(false);
       });
     return () => ctrl.abort();
   }, [result.tile.centerLat, result.tile.centerLng]);
@@ -1534,7 +1632,8 @@ function ResultScreen({
             <div className="flex flex-wrap justify-center gap-3">
               {Object.entries(objectCounts).map(([type, count]) => (
                 <span key={type} className="chip">
-                  {type} <span className="chip-value tabular">×{count}</span>
+                  {humanizeObjectType(type, count)}{" "}
+                  <span className="chip-value tabular">×{count}</span>
                 </span>
               ))}
             </div>
@@ -1548,7 +1647,7 @@ function ResultScreen({
             through recently (NWS Local Storm Reports via the Iowa State
             Mesonet, ~T+1h fresh, free). Card hides itself entirely when
             neither data source resolved — no "no data" placeholders. */}
-        <WhyNowCard parcel={parcel} storms={storms} />
+        <WhyNowCard parcel={parcel} storms={storms} stormsLoading={stormsLoading} />
 
         {/* Detail line under the price (full-width below the fold so it
             doesn't crowd the above-the-fold price card). */}
@@ -1620,17 +1719,23 @@ function ResultScreen({
 function WhyNowCard({
   parcel,
   storms,
+  stormsLoading,
 }: {
   parcel: V3Response["parcel"];
   storms: RecentStormsResponse | null;
+  /** True while /api/storms/recent is in flight. We render the parcel
+   *  column immediately and show a skeleton in the storms column so
+   *  the card doesn't pop in late and cause a layout jump as the
+   *  customer is reading the rest of the page. */
+  stormsLoading: boolean;
 }) {
-  // Bail out if neither data source resolved. Keeps the page calm when
-  // we're estimating for an out-of-state property, a brand-new build,
-  // or in the brief window before storms finishes loading on a property
-  // that the cadastral didn't cover.
+  // Bail out if neither data source resolved AND we're not still waiting
+  // on storms. Keeps the page calm when we're estimating for an
+  // out-of-state property, brand-new build, or genuinely nothing
+  // happened in the last 12 months around the address.
   const hasParcel = parcel != null && parcel.yearBuilt != null;
   const hasStorms = storms != null && storms.summary.total > 0;
-  if (!hasParcel && !hasStorms) return null;
+  if (!hasParcel && !hasStorms && !stormsLoading) return null;
 
   const currentYear = new Date().getFullYear();
   const age = hasParcel ? currentYear - (parcel.yearBuilt as number) : null;
@@ -1756,7 +1861,41 @@ function WhyNowCard({
           )}
 
           {/* ── Recent severe weather ── */}
-          {hasStorms ? (
+          {stormsLoading && !hasStorms ? (
+            // Skeleton while /api/storms/recent is in flight. Reserves
+            // the column's vertical space so the rest of the card
+            // doesn't jump when storms data arrives ~500-1500ms after
+            // the V3 result lands.
+            <section aria-busy="true" aria-label="Loading recent severe weather">
+              <div
+                className="font-serif italic mb-3"
+                style={{ fontSize: "13px", color: "var(--vx-terra)" }}
+              >
+                Severe weather, last 12 months
+              </div>
+              <div className="space-y-2.5">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      height: 14,
+                      background:
+                        "linear-gradient(90deg, var(--vx-rule) 0%, var(--vx-rule) 40%, transparent 100%)",
+                      borderRadius: 3,
+                      opacity: 0.55,
+                      width: i === 2 ? "70%" : "100%",
+                    }}
+                  />
+                ))}
+                <div
+                  className="mt-3 font-serif italic"
+                  style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+                >
+                  Reading the National Weather Service log…
+                </div>
+              </div>
+            </section>
+          ) : hasStorms ? (
             <section>
               <div
                 className="font-serif italic mb-3"
