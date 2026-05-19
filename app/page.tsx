@@ -2092,7 +2092,18 @@ function StormsBlock({
       <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
       <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
       <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
-      <div className="eyebrow mb-3 text-center">Severe weather, last 12 months</div>
+      <div
+        className="font-serif mb-4 text-center"
+        style={{
+          fontSize: "20px",
+          fontWeight: 600,
+          color: "var(--vx-terra)",
+          letterSpacing: "-0.005em",
+          lineHeight: 1.2,
+        }}
+      >
+        Severe weather, last 12 months
+      </div>
 
       {loading && !hasStorms ? (
         <div aria-busy="true" aria-label="Loading recent severe weather">
