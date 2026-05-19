@@ -93,11 +93,6 @@ import {
 } from "@/lib/gemini-roof-prompt";
 import { extractCyanMask, maskToCyanOverlayPng, type CyanMask } from "@/lib/cyan-mask";
 import { compositeCyanOnAerial } from "@/lib/composite-cyan-overlay";
-import {
-  verifyPaintedAgainstInput,
-  type PaintVerdict,
-  type PaintVerifyResult,
-} from "@/lib/paint-verify";
 import { countAzimuthClusters } from "@/lib/roof-geometry/azimuth-cluster";
 import {
   filterPenetrations,
@@ -480,129 +475,6 @@ async function callGeminiMultimodal(
   return { paintedImageBase64, objects, rawText };
 }
 
-interface VerifiedMultimodalResult extends GeminiMultimodalResult {
-  /** Verify verdict on the returned image. "edited" when verify
-   *  confirmed a real edit; "ambiguous" when the verdict was unclear
-   *  (we return it but flag for telemetry); "hallucinated" only when
-   *  all retries failed (caller should fall back to no painted image). */
-  verifyVerdict: PaintVerdict;
-  verifyReason: string;
-  verifyAttempts: number;
-  verifyCyanCoverage: number;
-  verifyMae: number | null;
-}
-
-/** Maximum number of Pro Image rolls before giving up and falling back
- *  to the bare-aerial composite path. Lowered from 3 → 2 because
- *  Ethan's composite fix (767c233) means even a bad paint isn't fatal —
- *  the customer gets the real aerial either way. One retry is enough to
- *  recover from the most common "Pro Image returned no cyan" failure
- *  without burning $0.075 on a third attempt that rarely helps. */
-const PAINT_MAX_ATTEMPTS = 2;
-
-/**
- * Wraps callGeminiMultimodal with post-flight pixel verification. When
- * Pro Image returns a hallucinated image (regenerated scene rather than
- * an edit of the supplied tile), this re-rolls up to MAX_ATTEMPTS-1
- * additional times. Verify thresholds in lib/paint-verify.ts adapt to
- * the cyan-coverage fraction so large houses that fill most of the tile
- * don't trip a false hallucination flag.
- */
-async function callGeminiMultimodalWithVerify(
-  tileBase64: string,
-  apiKey: string,
-  solarSegmentCount: number | null = null,
-): Promise<VerifiedMultimodalResult | null> {
-  let lastResult: GeminiMultimodalResult | null = null;
-  let lastVerify: PaintVerifyResult | null = null;
-  for (let attempt = 1; attempt <= PAINT_MAX_ATTEMPTS; attempt++) {
-    let result: GeminiMultimodalResult;
-    try {
-      result = await callGeminiMultimodal(tileBase64, apiKey, solarSegmentCount);
-    } catch (err) {
-      console.warn(
-        `[gemini-roof v3] paint_attempt_${attempt}_threw ` +
-          (err instanceof Error ? err.message : String(err)),
-      );
-      // Retries on the next iteration carry their own cost; bill them.
-      if (attempt > 1) {
-        void trackAiSpend(
-          AI_CALL_COST_USD.gemini_pro_image_paint,
-          `gemini-roof-v3 paint_retry attempt=${attempt}`,
-        );
-      }
-      continue;
-    }
-    // Each retry past the first incurs an additional paint call cost
-    // that wasn't billed in the bulk-track at pipeline entry.
-    if (attempt > 1) {
-      void trackAiSpend(
-        AI_CALL_COST_USD.gemini_pro_image_paint,
-        `gemini-roof-v3 paint_retry attempt=${attempt}`,
-      );
-    }
-    // No image at all — treat as a hallucination signal (model gave up).
-    if (!result.paintedImageBase64) {
-      lastResult = result;
-      lastVerify = {
-        verdict: "hallucinated",
-        reason: "paint_returned_null",
-        cyanCoverageFraction: 0,
-        cyanCentroidOffset: null,
-        nonCyanMae: null,
-        sampleCount: 0,
-      };
-      console.warn(
-        `[gemini-roof v3] paint_verify attempt=${attempt} verdict=hallucinated reason=paint_returned_null`,
-      );
-      continue;
-    }
-    const verify = await verifyPaintedAgainstInput(
-      tileBase64,
-      result.paintedImageBase64,
-    );
-    lastResult = result;
-    lastVerify = verify;
-    console.log(
-      `[gemini-roof v3] paint_verify attempt=${attempt} ` +
-        `verdict=${verify.verdict} reason="${verify.reason}" ` +
-        `cyan=${(verify.cyanCoverageFraction * 100).toFixed(1)}% ` +
-        `centroid_off=${verify.cyanCentroidOffset?.toFixed(2) ?? "n/a"} ` +
-        `mae=${verify.nonCyanMae?.toFixed(1) ?? "n/a"} (diagnostic)`,
-    );
-    // "edited" → ship it. "ambiguous" → also ship (better to display a
-    // slightly-off edit than to burn a $0.075 retry on every borderline
-    // case; the dead-zone band is calibrated to be narrow). Only
-    // "hallucinated" triggers a retry.
-    if (verify.verdict !== "hallucinated") {
-      return {
-        ...result,
-        verifyVerdict: verify.verdict,
-        verifyReason: verify.reason,
-        verifyAttempts: attempt,
-        verifyCyanCoverage: verify.cyanCoverageFraction,
-        verifyMae: verify.nonCyanMae,
-      };
-    }
-  }
-  // All attempts hallucinated. Return the last result with the
-  // hallucinated flag — caller decides whether to suppress the
-  // painted image, fall back to raw tile, etc.
-  if (!lastResult || !lastVerify) return null;
-  console.warn(
-    `[gemini-roof v3] paint_hallucinated_after_${PAINT_MAX_ATTEMPTS}_attempts ` +
-      `final_reason="${lastVerify.reason}"`,
-  );
-  return {
-    ...lastResult,
-    verifyVerdict: lastVerify.verdict,
-    verifyReason: lastVerify.reason,
-    verifyAttempts: PAINT_MAX_ATTEMPTS,
-    verifyCyanCoverage: lastVerify.cyanCoverageFraction,
-    verifyMae: lastVerify.nonCyanMae,
-  };
-}
-
 // Legacy single-modality call retained for non-pin-confirmed paths.
 // Returns the older structured-output shape (outline/facets/lines/objects).
 async function callGemini(
@@ -913,13 +785,13 @@ export interface GeminiRoofResponseV3 {
    *  customers when the dual publisher routes to "composite" or
    *  "raw_aerial". Null when paint failed. */
   paintedImageRawBase64: string | null;
-  /** Which path the dual publisher took to produce the customer's
-   *  visible image. "pro_edit" = Pro Image's output direct (real edit
-   *  on the input tile); "composite" = cyan mask drawn on the raw
-   *  Google aerial (Pro Image regenerated background); "raw_aerial" =
-   *  no cyan at all (paint or mask failed). The rep workbench shows
-   *  this so we can audit edit-vs-composite rates per property. */
-  customerImageSource: "pro_edit" | "composite" | "raw_aerial";
+  /** Which path the route took to produce the customer's visible image.
+   *  "composite" = cyan mask drawn on the raw Google aerial (the normal
+   *  case); "raw_aerial" = no cyan available (paint or mask failed),
+   *  customer sees the bare satellite tile. The "pro_edit" variant was
+   *  removed when the dual publisher was reverted — Pro Image's output
+   *  is never shown directly to customers. */
+  customerImageSource: "composite" | "raw_aerial";
   /** Rooftop objects detected by Gemini (vents, chimneys, skylights,
    *  HVAC, solar panels, etc). Empty array when Gemini failed. */
   objects: Array<{
@@ -1013,19 +885,12 @@ export interface GeminiRoofResponseV3 {
     widthPx: number;
     heightPx: number;
   } | null;
-  /** Pro Image paint-verify telemetry. Null when paint wasn't called
-   *  (cache hit, missing key path). Otherwise describes the post-flight
-   *  pixel-comparison verdict + how many attempts it took. When
-   *  `verdict === "hallucinated"`, `paintedImageBase64` is dropped to
-   *  null and the customer sees the raw tile instead of a fabricated
-   *  scene. */
-  paintVerify: {
-    verdict: PaintVerdict;
-    reason: string;
-    attempts: number;
-    cyanCoverageFraction: number;
-    nonCyanMae: number | null;
-  } | null;
+  /** Always null in the current pipeline — paint-verify was removed
+   *  when the dual publisher was reverted (the cyan-mask-or-raw
+   *  composite already handles the "Pro Image gave us nothing useful"
+   *  case). Field kept on the interface so older readers
+   *  (eval harness, rep workbench) don't break. */
+  paintVerify: null;
   /** Deterministic geometric signals that drive the geometric waste
    *  formula. Exposed so the rep workbench / debug tools can audit
    *  "why is the suggested waste 17%?". */
@@ -1131,7 +996,10 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // discards Pro Image's facade) and adds a cyan-centroid sanity check.
 // Old cached entries from before this fix may include legitimate
 // paints that the prior strict MAE check rejected; force a re-roll.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-dual-publisher";
+// Bumped — dual publisher reverted; pipeline condensed (verify removed,
+// both Flash line calls removed, second-pass painted rich-data removed).
+// Older cached responses are shaped differently; force a re-roll.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-condensed";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1961,40 +1829,21 @@ async function handleV3Pinned(
   // when Solar's roofSegmentStats.length is in [2, 6]. Never on
   // complex multi-wing estates.
   const solarSegmentsForHint: number | null = null;
-  const [paintedResult, richResult, rawLinesResult] = await Promise.allSettled([
-    callGeminiMultimodalWithVerify(tile.base64, geminiKey, solarSegmentsForHint),
+  // Two-call parallel fan-out. Prior versions also fired callGeminiLines
+  // on raw + painted, which produced rep-only edge LFs flagged as
+  // unreliable in the route header AND pushed total wall clock past
+  // the 90s function ceiling on complex roofs (Vercel logs showed the
+  // raw-lines call timing out at 30s). Cutting both line calls + the
+  // second-pass painted rich-data call brings the pipeline from
+  // 70-120s back to 30-55s.
+  const [paintedResult, richResult] = await Promise.allSettled([
+    callGeminiMultimodal(tile.base64, geminiKey, solarSegmentsForHint),
     callGeminiRichData(tile.base64, geminiKey),
-    callGeminiLines(tile.base64, geminiKey),
   ]);
 
-  // Paint-verify gating: if Pro Image hallucinated on all retries, drop
-  // the painted image so the customer sees the raw satellite tile
-  // instead of a fabricated scene. Customers prefer "no painted overlay"
-  // to "wrong house painted." Downstream stages (cyan-mask extraction,
-  // mask-gated penetration filter, compactness signal) already handle
-  // `paintedImageBase64 = null` gracefully — they just skip.
-  let paintVerifyVerdict: PaintVerdict | null = null;
-  let paintVerifyAttempts = 0;
-  let paintVerifyReason: string | null = null;
-  let paintVerifyMae: number | null = null;
-  let paintVerifyCyanCoverage: number | null = null;
-  if (paintedResult.status === "fulfilled" && paintedResult.value) {
-    const v = paintedResult.value;
-    paintVerifyVerdict = v.verifyVerdict;
-    paintVerifyAttempts = v.verifyAttempts;
-    paintVerifyReason = v.verifyReason;
-    paintVerifyMae = v.verifyMae;
-    paintVerifyCyanCoverage = v.verifyCyanCoverage;
-    if (v.verifyVerdict === "hallucinated") {
-      paintedImageBase64 = null;
-      console.warn(
-        `[gemini-roof v3] paint_dropped_after_hallucination ` +
-          `attempts=${v.verifyAttempts} reason="${v.verifyReason}"`,
-      );
-    } else {
-      paintedImageBase64 = v.paintedImageBase64;
-    }
-  } else if (paintedResult.status === "rejected") {
+  if (paintedResult.status === "fulfilled") {
+    paintedImageBase64 = paintedResult.value.paintedImageBase64;
+  } else {
     console.warn(
       "[gemini-roof v3] painted_call_failed",
       paintedResult.reason instanceof Error
@@ -2041,89 +1890,14 @@ async function handleV3Pinned(
     console.warn("[gemini-roof v3] rich_data_call_failed", geminiRichErr);
   }
 
-  // ─── Edge / line source selection ──────────────────────────────────
-  //
-  // Two candidate sources:
-  //   A. RAW-tile lines pass (ran in parallel above) — Flash on satellite
-  //   B. PAINTED-tile lines pass (serial below) — Flash on cyan overlay
-  //
-  // Prefer painted when it has BOTH eaves AND ridges/hips (means the
-  // strokes were prominent enough); otherwise fall back to raw. Both
-  // outputs use the same schema so the selection is trivial.
-  let rawLinesValue: GeminiLineDetection[] = [];
-  let rawFacetCount: GeminiFacetCount | null = null;
-  if (rawLinesResult.status === "fulfilled") {
-    rawLinesValue = rawLinesResult.value.lines;
-    rawFacetCount = rawLinesResult.value.facetCount;
-  } else {
-    console.warn(
-      "[gemini-roof v3] raw_lines_call_failed",
-      rawLinesResult.reason instanceof Error
-        ? rawLinesResult.reason.message
-        : String(rawLinesResult.reason),
-    );
-  }
-
-  let paintedLinesValue: GeminiLineDetection[] = [];
-  let paintedFacetCount: GeminiFacetCount | null = null;
-  // ─── Second-stage parallel block (runs only when paint succeeded) ───
-  //   - callGeminiLines on painted PNG       — for edge classification
-  //   - callGeminiRichData on painted PNG    — for two-pass agreement
-  //   - extractCyanMask on painted PNG       — for geometric gating +
-  //                                            compactness signal
-  // All three are independent and run concurrently. Adds ~$0.005 in
-  // Flash cost and keeps total wall clock at max(painted-rich) since
-  // these run in parallel.
+  // ─── Cyan-mask extraction (serial after paint) ───────────────────────
+  // Single sharp call, ~1s. Returns null when paint failed or returned
+  // nothing usable; the composite step below handles null mask by
+  // falling back to the bare aerial.
   let cyanMask: CyanMask | null = null;
-  let secondaryObjects: RawObject[] = [];
   if (paintedImageBase64) {
-    const [paintedLinesSettled, paintedRichSettled, maskSettled] =
-      await Promise.allSettled([
-        callGeminiLines(paintedImageBase64, geminiKey, GEMINI_LINES_FROM_PAINTED_PROMPT),
-        callGeminiRichData(paintedImageBase64, geminiKey),
-        extractCyanMask(paintedImageBase64),
-      ]);
-
-    if (paintedLinesSettled.status === "fulfilled") {
-      paintedLinesValue = paintedLinesSettled.value.lines;
-      paintedFacetCount = paintedLinesSettled.value.facetCount;
-      console.log(
-        `[gemini-roof v3] painted_lines lines=${paintedLinesValue.length} ` +
-          `facets=${paintedFacetCount?.count ?? "null"} ${paintedFacetCount?.complexity ?? ""}`,
-      );
-    } else {
-      console.warn(
-        "[gemini-roof v3] painted_lines_call_failed",
-        paintedLinesSettled.reason instanceof Error
-          ? paintedLinesSettled.reason.message
-          : String(paintedLinesSettled.reason),
-      );
-    }
-
-    if (paintedRichSettled.status === "fulfilled") {
-      secondaryObjects = paintedRichSettled.value.objects.map((o) => {
-        const { centerPx, bboxPx } = box2dToPx(o.box_2d);
-        return {
-          type: o.type,
-          centerPx,
-          bboxPx,
-          confidence: o.confidence,
-        };
-      });
-      console.log(
-        `[gemini-roof v3] painted_rich objects=${secondaryObjects.length}`,
-      );
-    } else {
-      console.warn(
-        "[gemini-roof v3] painted_rich_call_failed",
-        paintedRichSettled.reason instanceof Error
-          ? paintedRichSettled.reason.message
-          : String(paintedRichSettled.reason),
-      );
-    }
-
-    if (maskSettled.status === "fulfilled") {
-      cyanMask = maskSettled.value;
+    try {
+      cyanMask = await extractCyanMask(paintedImageBase64);
       if (cyanMask) {
         console.log(
           `[gemini-roof v3] cyan_mask area_px=${cyanMask.areaPx} ` +
@@ -2131,70 +1905,20 @@ async function handleV3Pinned(
             `compactness=${cyanMask.compactness?.toFixed(2) ?? "null"}`,
         );
       }
-    } else {
+    } catch (err) {
       console.warn(
         "[gemini-roof v3] cyan_mask_extract_failed",
-        maskSettled.reason instanceof Error
-          ? maskSettled.reason.message
-          : String(maskSettled.reason),
+        err instanceof Error ? err.message : String(err),
       );
     }
-  }
-
-  // Selection rule — painted wins if it has the canonical mix of eaves
-  // AND ridges/hips. Otherwise raw wins (it's the more reliable source
-  // on roofs where Pro Image's strokes are subtle).
-  const paintedByType = paintedLinesValue.reduce<Record<string, number>>(
-    (acc, l) => { acc[l.type] = (acc[l.type] ?? 0) + 1; return acc; },
-    {},
-  );
-  const paintedHasCanonical =
-    (paintedByType.eave ?? 0) > 0 &&
-    ((paintedByType.ridge ?? 0) + (paintedByType.hip ?? 0)) > 0;
-  let linesValue: GeminiLineDetection[] | null = null;
-  if (paintedHasCanonical) {
-    linesValue = paintedLinesValue;
-    console.log(
-      `[gemini-roof v3] line_source=painted ` +
-        `(painted=${paintedLinesValue.length} raw=${rawLinesValue.length})`,
-    );
-  } else if (rawLinesValue.length > 0) {
-    linesValue = rawLinesValue;
-    console.log(
-      `[gemini-roof v3] line_source=raw ` +
-        `(painted=${paintedLinesValue.length} under-traced, raw=${rawLinesValue.length})`,
-    );
-  } else if (paintedLinesValue.length > 0) {
-    linesValue = paintedLinesValue;
-    console.log(
-      `[gemini-roof v3] line_source=painted_partial ` +
-        `(painted=${paintedLinesValue.length} no canonical mix, raw=0)`,
-    );
-  }
-
-  // Facet count source — painted is canonical when > 0, else raw lines
-  // facet_count, else rich-data raw-tile estimate. Always prefer
-  // visually-grounded counts over the raw-tile rich-data pass which
-  // tends to over-count shadow patches as separate planes.
-
-  const canonicalFacetCount =
-    (paintedFacetCount && paintedFacetCount.count > 0 ? paintedFacetCount : null) ??
-    (rawFacetCount && rawFacetCount.count > 0 ? rawFacetCount : null);
-  if (canonicalFacetCount) {
-    geminiAnalysis = {
-      ...geminiAnalysis,
-      facetCountEstimate: canonicalFacetCount,
-    };
   }
 
   console.log(
     `[gemini-roof v3] pinned (${lat.toFixed(5)},${lng.toFixed(5)}) ` +
       `painted=${paintedImageBase64 ? "yes" : "no"} ` +
       `raw_objects=${rawObjects.length} ` +
-      `secondary_objects=${secondaryObjects.length} ` +
-      `cyan_mask=${cyanMask ? "yes" : "no"} ` +
-      `facets_canonical=${geminiAnalysis.facetCountEstimate?.count ?? "null"} ` +
-      `lines=${linesValue?.length ?? 0}`,
+      `cyan_mask=${cyanMask ? `yes (${cyanMask.areaPx}px)` : "no"} ` +
+      `facets=${geminiAnalysis.facetCountEstimate?.count ?? "null"}`,
   );
 
   // Filter out flat / near-flat Solar segments before summing sqft.
@@ -2280,48 +2004,11 @@ async function handleV3Pinned(
     );
   }
 
-  // Convert Gemini's pixel line segments to linear feet using the
-  // tile's ground-sample-distance (meters per pixel at this lat/zoom),
-  // slope-corrected on hip/valley/rake LFs since those run along the
-  // pitched surface, not the ground.
-  let geminiEdges: GeminiRoofResponseV3["geminiEdges"] = null;
-  if (linesValue && linesValue.length > 0) {
-    const tileCosLatLocal = Math.cos((lat * Math.PI) / 180);
-    const tileMPerPxLocal =
-      (156_543.03392 * tileCosLatLocal) /
-      Math.pow(2, PIN_TILE_ZOOM + TILE_SCALE - 1);
-    let r = 0;
-    let v = 0;
-    let k = 0;
-    let e = 0;
-    for (const ln of linesValue) {
-      const isSloped =
-        ln.type === "hip" || ln.type === "valley" || ln.type === "rake";
-      const lf = gemLineLengthFt(
-        ln.start_pixel,
-        ln.end_pixel,
-        tileMPerPxLocal,
-        avgPitchDeg,
-        isSloped,
-      );
-      if (ln.type === "ridge" || ln.type === "hip") r += lf;
-      else if (ln.type === "valley") v += lf;
-      else if (ln.type === "rake") k += lf;
-      else if (ln.type === "eave") e += lf;
-    }
-    geminiEdges = {
-      ridgesHipsLf: Math.round(r),
-      valleysLf: Math.round(v),
-      rakesLf: Math.round(k),
-      eavesLf: Math.round(e),
-      linesCount: linesValue.length,
-    };
-    console.log(
-      `[gemini-roof v3] gemini_lines count=${linesValue.length} ` +
-        `ridges+hips=${Math.round(r)}ft valleys=${Math.round(v)}ft ` +
-        `rakes=${Math.round(k)}ft eaves=${Math.round(e)}ft`,
-    );
-  }
+  // Gemini-line edge LFs are no longer computed — both Flash line calls
+  // were cut to keep the pipeline under the 90s function ceiling. Rep
+  // workbench falls back to Solar's geometric `classifyEdges` (already
+  // populated as `result.edges` below) when it needs edge totals.
+  const geminiEdges: GeminiRoofResponseV3["geminiEdges"] = null;
 
   // Raw Solar values (in sqft).
   const solarRawSloped = totalSlopedM2 > 0 ? Math.round(totalSlopedM2 * 10.7639) : 0;
@@ -2580,7 +2267,11 @@ async function handleV3Pinned(
       cyanMask,
       tileMPerPx,
       totalSqft: filterCtxSqft,
-      secondaryDetections: paintedImageBase64 ? secondaryObjects : null,
+      // Single-pass detection — the two-pass painted-image cross-check
+      // was cut for latency. The type-specific confidence floors +
+      // bbox-in-feet + cyan-mask gate in lib/penetration-filter still
+      // catch the headline false-positive cases without it.
+      secondaryDetections: null,
     },
   );
   objects = filteredObjects.map((o) => ({
@@ -2749,97 +2440,46 @@ async function handleV3Pinned(
   //   3. line-classification + downstream consumers already ran above
   //      on the unwatermarked raw paint; no impact on measurement math
   const paintedImageRawBase64 = paintedImageBase64;
-  // ─── DUAL PUBLISHER for the customer image ─────────────────────────
+  // ─── Customer-facing composite ─────────────────────────────────────
+  // Two outcomes:
+  //   1. Mask has cyan → composite cyan polygon onto the RAW Google
+  //      aerial. Customer sees their actual photo with cyan only on
+  //      the measured roof planes. Pro Image's generative reinterpre-
+  //      tation of the facade never reaches the customer.
+  //   2. Mask is empty (Pro Image failed or returned no cyan) → show
+  //      the raw aerial alone. Customer still sees a real photo of
+  //      their house, just without the highlighted polygon.
   //
-  // Three possible outcomes, picked by signal:
-  //
-  //   1. PRO_EDIT  — Pro Image actually edited the input tile. Cyan
-  //                  sits on real shingles, ridge/hip strokes are
-  //                  crisp, background pixels remain close to the
-  //                  original aerial. This is the "magazine-clean"
-  //                  paint that built the product's visual rep on
-  //                  Winter Garden / Orlando 2026-05-17. We send Pro
-  //                  Image's PNG straight to the customer here; no
-  //                  composite needed because the background IS the
-  //                  real photo.
-  //
-  //   2. COMPOSITE — Pro Image returned cyan in the right place but
-  //                  generated a new background (the Oak Park failure
-  //                  mode from a32a487). We keep only the cyan polygon
-  //                  via extractCyanMask, then composite it onto the
-  //                  REAL Google aerial. Customer sees their actual
-  //                  photo with cyan only where we measured.
-  //
-  //   3. RAW_AERIAL — Pro Image failed entirely, the mask is empty,
-  //                  or the mask is so large it's clearly garbage
-  //                  (lawn-bleed, flood-fill). Show the raw aerial
-  //                  with no cyan. Customer still sees a real photo
-  //                  of their house — just without the highlighted
-  //                  polygon. Better than a fake-looking composite.
-  //
-  // Gate values calibrated from existing telemetry on edit-vs-
-  // regenerate runs. PRO_EDIT gates are intentionally tight — false
-  // positives ship a Gemini-regenerated building straight to the
-  // customer, which is the failure we're protecting against. Better
-  // to fall to COMPOSITE on a borderline case than to leak a bad
-  // PRO_EDIT through.
-  const PRO_EDIT_MAE_CEILING = 12;        // 0-255 per-channel; lower = real edit
-  const PRO_EDIT_COVERAGE_MIN = 0.08;     // 8% of frame minimum (small roofs)
-  const PRO_EDIT_COVERAGE_MAX = 0.30;     // 30% ceiling — beyond this is overpaint
-  const COMPOSITE_FILL_CEILING = 0.35;    // matches lib/composite-cyan-overlay.ts
-
-  type CustomerImageSource = "pro_edit" | "composite" | "raw_aerial";
-  let customerImageSource: CustomerImageSource;
-  let customerImageReason: string;
-
-  const haveProPaint = paintedImageBase64 != null;
-  const haveMask = cyanMask != null && cyanMask.areaPx > 0;
-  const maskFillFraction =
-    cyanMask != null && cyanMask.width > 0
-      ? cyanMask.areaPx / (cyanMask.width * cyanMask.height)
-      : 0;
-
-  if (
-    haveProPaint &&
-    haveMask &&
-    paintVerifyVerdict === "edited" &&
-    paintVerifyMae != null &&
-    paintVerifyMae < PRO_EDIT_MAE_CEILING &&
-    paintVerifyCyanCoverage != null &&
-    paintVerifyCyanCoverage >= PRO_EDIT_COVERAGE_MIN &&
-    paintVerifyCyanCoverage <= PRO_EDIT_COVERAGE_MAX
-  ) {
-    // Path 1: PRO_EDIT. Send Pro Image's output directly.
-    customerImageSource = "pro_edit";
-    customerImageReason = `mae=${paintVerifyMae.toFixed(1)} coverage=${(paintVerifyCyanCoverage * 100).toFixed(0)}%`;
-    // paintedImageBase64 already holds Pro Image's PNG — no change needed.
-  } else if (haveMask && maskFillFraction <= COMPOSITE_FILL_CEILING) {
-    // Path 2: COMPOSITE. Mask looks usable; background was likely regenerated.
-    customerImageSource = "composite";
-    customerImageReason =
-      `verdict=${paintVerifyVerdict ?? "n/a"} ` +
-      `mae=${paintVerifyMae?.toFixed(1) ?? "n/a"} ` +
-      `coverage=${paintVerifyCyanCoverage != null ? (paintVerifyCyanCoverage * 100).toFixed(0) + "%" : "n/a"} ` +
-      `fill=${(maskFillFraction * 100).toFixed(0)}%`;
+  // The prior "dual publisher" (commit 6e096dd) added a third path
+  // that shipped Pro Image's PNG directly when paint-verify said it
+  // was a clean edit. Reverted here — the marginal visual gain wasn't
+  // worth the complexity, and the verify gates were producing
+  // false-negative "raw_aerial" outcomes on legitimate complex roofs.
+  // Composite is robust; one path is easier to reason about.
+  let customerImageSource: "composite" | "raw_aerial";
+  if (paintedImageBase64 && cyanMask && cyanMask.areaPx > 0) {
     paintedImageBase64 = await compositeCyanOnAerial(
       tile.rawBase64,
-      cyanMask!,
+      cyanMask,
+    );
+    customerImageSource = "composite";
+    console.log(
+      `[gemini-roof v3] customer_image=composite ` +
+        `cyan_area=${cyanMask.areaPx}px ` +
+        `fill=${((cyanMask.areaPx / (cyanMask.width * cyanMask.height)) * 100).toFixed(0)}%`,
     );
   } else {
-    // Path 3: RAW_AERIAL.
-    customerImageSource = "raw_aerial";
-    customerImageReason = !haveProPaint
-      ? "paint_failed"
-      : !haveMask
-        ? "mask_empty_or_extract_failed"
-        : `mask_too_large fill=${(maskFillFraction * 100).toFixed(0)}%`;
     paintedImageBase64 = tile.rawBase64;
+    customerImageSource = "raw_aerial";
+    const reason = !paintedImageRawBase64
+      ? "paint_failed"
+      : !cyanMask
+        ? "mask_extract_failed"
+        : "mask_empty";
+    console.log(
+      `[gemini-roof v3] customer_image=raw_aerial reason=${reason}`,
+    );
   }
-
-  console.log(
-    `[gemini-roof v3] customer_image source=${customerImageSource} ` +
-      `(${customerImageReason})`,
-  );
   // Stamp the brand watermark on whatever we ended up with. Soft-fails
   // to the unwatermarked image — never breaks the response.
   if (paintedImageBase64) {
@@ -2978,15 +2618,7 @@ async function handleV3Pinned(
       annualSunshineHours: solar?.solarPotential?.maxSunshineHoursPerYear ?? null,
     },
     geminiAnalysis,
-    paintVerify: paintVerifyVerdict
-      ? {
-          verdict: paintVerifyVerdict,
-          reason: paintVerifyReason ?? "",
-          attempts: paintVerifyAttempts,
-          cyanCoverageFraction: paintVerifyCyanCoverage ?? 0,
-          nonCyanMae: paintVerifyMae,
-        }
-      : null,
+    paintVerify: null,
     qualitySignals: {
       compactness: cyanMask?.compactness ?? null,
       azimuthClusters,
