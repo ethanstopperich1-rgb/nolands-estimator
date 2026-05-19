@@ -249,15 +249,42 @@ async function runQuery(
 
   try {
     const r = await fetch(`${FDOR_CADASTRAL_URL}?${params.toString()}`, {
-      // FGIO is a high-traffic Esri-hosted service — 6s is plenty for
-      // an indexed spatial query, anything longer is a flake.
-      signal: AbortSignal.timeout(6_000),
+      // Bumped 6s → 12s. The 6s window was failing on Vercel us-east-1
+      // → FGIO Esri hosts during peak load — the indexed spatial
+      // query itself is fast but the cross-region TLS handshake plus
+      // queue time on FGIO's shared tenancy occasionally pushes total
+      // wall clock past 6s. 12s leaves enough headroom for the slow
+      // path without bottlenecking the V3 pipeline (parcel call is
+      // fired in parallel with Gemini's 25-50s paint, so anything
+      // under 50s is free latency).
+      signal: AbortSignal.timeout(12_000),
     });
-    if (!r.ok) return [];
+    if (!r.ok) {
+      console.warn(
+        `[parcel] fdor_http_${r.status} buffer=${bufferMeters}m ` +
+          `(returning empty feature set, lookup falls through to next tier)`,
+      );
+      return [];
+    }
     const body = (await r.json()) as FdorQueryResponse;
-    if (body.error) return [];
+    if (body.error) {
+      console.warn(
+        `[parcel] fdor_api_error buffer=${bufferMeters}m ` +
+          `code=${body.error.code} msg="${body.error.message}"`,
+      );
+      return [];
+    }
     return body.features ?? [];
-  } catch {
+  } catch (err) {
+    // Surface the actual error reason — prior version swallowed every
+    // throw silently, so timeouts looked identical to "0 features
+    // returned" in production logs. Now we log abort timeouts, DNS
+    // failures, and TLS handshake errors distinctly.
+    console.warn(
+      `[parcel] fdor_fetch_failed buffer=${bufferMeters}m reason="${
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      }"`,
+    );
     return [];
   }
 }

@@ -1811,7 +1811,7 @@ function ParcelBlock({
 
   return (
     <div
-      className="result-card relative w-full"
+      className="result-card relative w-full flex flex-col"
       style={{ padding: "22px 20px" }}
     >
       <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
@@ -1951,26 +1951,42 @@ function ParcelBlock({
           </div>
         </>
       ) : (
-        // Graceful empty state — keeps the quadrant filled so the 2×2
-        // grid doesn't collapse. Honest about WHY the data is missing.
+        // Graceful empty state. flex-1 + justify-center makes this
+        // section grow to fill whatever vertical space the storms block
+        // (sibling on the left) is taking up, with the content centered
+        // — no dead pocket at the bottom of the card.
+        //
+        // Copy reframed away from "we failed to fetch X" toward what
+        // the rep WILL do on-site, so the empty state still adds value
+        // for the customer instead of reading as a missing-data
+        // apology.
         <div
-          className="text-center font-serif italic"
-          style={{
-            fontSize: "13px",
-            lineHeight: 1.5,
-            color: "var(--vx-ink-soft)",
-          }}
+          className="flex-1 flex flex-col justify-center text-center"
+          style={{ fontSize: "13px", lineHeight: 1.55 }}
         >
-          <p>
-            Property record not available for this address.
+          <p
+            className="font-serif"
+            style={{
+              fontSize: "14px",
+              color: "var(--vx-ink)",
+              fontStyle: "italic",
+            }}
+          >
+            Property age + lot details get verified by the roofer on
+            site.
           </p>
           <p
-            className="mt-2"
-            style={{ fontSize: "11.5px", color: "var(--vx-muted)" }}
+            className="mt-2 mx-auto"
+            style={{
+              fontSize: "12px",
+              color: "var(--vx-ink-soft)",
+              maxWidth: "34ch",
+            }}
           >
-            FL DOR cadastral didn&apos;t return a residential parcel at
-            the pin. The on-site visit will confirm year built, living
-            area, and lot size from county records directly.
+            County records vary by parcel and aren&apos;t always
+            visible from satellite alone — your rep will pull
+            year-built, living area, and the most recent sale during
+            the 20-minute walkthrough.
           </p>
         </div>
       )}
