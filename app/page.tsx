@@ -2809,7 +2809,10 @@ function PinHeader({ onBack }: { onBack?: () => void } = {}) {
     <header className="relative z-20 pt-7 lg:pt-10">
       <div className="max-w-7xl mx-auto px-6 lg:px-10 flex items-center justify-between">
         <Link href="/" className="leading-none" aria-label="Voxaris — home">
-          <Wordmark size="md" tone="ink" />
+          {/* Header wordmark matches the footer size (lg) — both lockups
+              are now identical in stroke weight so the customer reads
+              one consistent brand mark from hero to footer. */}
+          <Wordmark size="lg" tone="ink" />
         </Link>
         {onBack && (
           <button
