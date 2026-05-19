@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+import {
+  buildTermsPageJsonLd,
+  jsonLdToScriptContent,
+} from "@/lib/seo/structured-data";
 
 export const metadata: Metadata = {
   title: "Terms of Service · Voxaris",
@@ -10,8 +14,20 @@ export const metadata: Metadata = {
 const LAST_UPDATED = "May 16, 2026";
 
 export default function TermsPage() {
+  // Per-subpage JSON-LD: WebPage + FAQPage + BreadcrumbList mirroring
+  // the privacy-page wiring. Same audit fixes apply here.
+  const jsonLdNodes = buildTermsPageJsonLd();
+
   return (
     <div className="space-y-1">
+      {jsonLdNodes.map((node, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger -- typed builder, no user input
+          dangerouslySetInnerHTML={{ __html: jsonLdToScriptContent(node) }}
+        />
+      ))}
       <header>
         <h1>Terms of Service</h1>
         <p className="meta">Last updated · {LAST_UPDATED}</p>

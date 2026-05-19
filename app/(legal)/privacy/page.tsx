@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+import {
+  buildPrivacyPageJsonLd,
+  jsonLdToScriptContent,
+} from "@/lib/seo/structured-data";
 
 export const metadata: Metadata = {
   title: "Privacy Policy · Voxaris",
@@ -13,8 +17,23 @@ export const metadata: Metadata = {
 const LAST_UPDATED = "May 16, 2026";
 
 export default function PrivacyPage() {
+  // Per-subpage JSON-LD: WebPage (author = Voxaris Organization,
+  // mentions = hard product stats) + FAQPage (6 privacy-specific Q&As
+  // mirroring the policy text) + BreadcrumbList (Home → Privacy).
+  // Closes the audit findings on author info, statistics, FAQPage,
+  // and question-phrased headings being only on the homepage.
+  const jsonLdNodes = buildPrivacyPageJsonLd();
+
   return (
     <div className="space-y-1">
+      {jsonLdNodes.map((node, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger -- typed builder, no user input
+          dangerouslySetInnerHTML={{ __html: jsonLdToScriptContent(node) }}
+        />
+      ))}
       <header>
         <h1>Privacy Policy</h1>
         <p className="meta">Last updated · {LAST_UPDATED}</p>

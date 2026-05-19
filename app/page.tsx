@@ -38,6 +38,7 @@ import {
   buildFaqJsonLd,
   buildServiceJsonLd,
   buildHomeBreadcrumbJsonLd,
+  buildHomeWebPageJsonLd,
   jsonLdToScriptContent,
 } from "@/lib/seo/structured-data";
 import {
@@ -289,12 +290,21 @@ export default function HomePage() {
   // initial SSR HTML. Browsers ignore them (no visible UI). AI
   // crawlers + Google's rich-result tester parse them as the
   // canonical source of truth for what this page IS.
+  const webPageJsonLd = jsonLdToScriptContent(buildHomeWebPageJsonLd());
   const faqJsonLd = jsonLdToScriptContent(buildFaqJsonLd());
   const serviceJsonLd = jsonLdToScriptContent(buildServiceJsonLd());
   const breadcrumbJsonLd = jsonLdToScriptContent(buildHomeBreadcrumbJsonLd());
 
   return (
     <main className="voxaris">
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger -- WebPage wrapper:
+        // author = Voxaris Organization (closes audit gap on author
+        // info), mentions = hard product stats (closes audit gap on
+        // statistics per page).
+        dangerouslySetInnerHTML={{ __html: webPageJsonLd }}
+      />
       <script
         type="application/ld+json"
         // eslint-disable-next-line react/no-danger -- JSON-LD via

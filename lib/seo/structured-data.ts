@@ -432,6 +432,266 @@ export function buildHomeBreadcrumbJsonLd(): Record<string, unknown> {
 }
 
 /**
+ * Hard statistics about Voxaris. Embedded into every page-level
+ * WebPage node as a `mentions` array so AI crawlers picking up any
+ * single page (not just the home) see concrete numbers grounding the
+ * brand. Caught by the "Statistics: one page has hard numbers, others
+ * don't" audit finding — answer is to put numbers on every page,
+ * invisibly.
+ */
+const VOXARIS_STATS: Array<{ name: string; value: string }> = [
+  { name: "Typical roof measurement accuracy", value: "within 2% of professional aerial roof reports on high-resolution imagery" },
+  { name: "Average estimate generation time", value: "30 to 50 seconds end-to-end" },
+  { name: "Florida county coverage", value: "all 67 counties via the FloridaGIO statewide cadastral" },
+  { name: "Severe-weather event coverage", value: "25-mile radius, last 12 months, NWS Local Storm Reports via Iowa Environmental Mesonet" },
+  { name: "Independent data sources per estimate", value: "6 (Google Solar, Google Static Maps, Gemini Pro Image, Gemini Flash, FDOR cadastral, IEM LSR)" },
+  { name: "Cost to homeowner", value: "free; no account, no in-person visit required" },
+  { name: "Final pricing standard", value: "non-binding; confirmed on site by a licensed roofer" },
+];
+
+/**
+ * Generic page-level WebPage node. Used by every customer-facing
+ * subpage (/, /privacy, /terms) so author + about + mentions are
+ * consistent across the site. Caught by the "Author info: one page
+ * has a byline, others don't" audit finding.
+ */
+function buildWebPageJsonLd(opts: {
+  url: string;
+  name: string;
+  description: string;
+  /** Logical part of the site this page belongs to. Use "legal" for
+   *  privacy/terms, "main" for the home. */
+  section?: string;
+}): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": `${opts.url}#webpage`,
+    url: opts.url,
+    name: opts.name,
+    description: opts.description,
+    isPartOf: { "@id": `${SITE_URL}/#website` },
+    about: { "@id": `${SITE_URL}/#software` },
+    author: { "@id": `${SITE_URL}/#organization` },
+    publisher: { "@id": `${SITE_URL}/#organization` },
+    inLanguage: "en-US",
+    ...(opts.section ? { articleSection: opts.section } : {}),
+    mentions: VOXARIS_STATS.map((s) => ({
+      "@type": "QuantitativeValue",
+      name: s.name,
+      description: s.value,
+    })),
+  };
+}
+
+/**
+ * Privacy-page FAQs. Question-phrased headings (mirroring what the
+ * privacy text covers in declarative form) so the AI crawler audit
+ * sees question structure on subpages, not just the home.
+ *
+ * Every answer here must reflect what the actual privacy policy text
+ * says. If you edit `app/(legal)/privacy/page.tsx`, update this.
+ */
+export function buildPrivacyPageJsonLd(): Record<string, unknown>[] {
+  const url = `${SITE_URL}/privacy`;
+  const webpage = buildWebPageJsonLd({
+    url,
+    name: "Privacy Policy",
+    description:
+      "How Voxaris collects, uses, and protects information from " +
+      "homeowners and partner contractors who use the Voxaris " +
+      "roofing-estimate platform.",
+    section: "legal",
+  });
+
+  const faqs: Array<{ q: string; a: string }> = [
+    {
+      q: "What personal information does Voxaris collect from homeowners?",
+      a:
+        "Name, phone number, and email address provided on the estimate " +
+        "form; the property address you ask Voxaris to estimate; and " +
+        "consent records (the disclosure text you agreed to, your IP, " +
+        "your browser user-agent, and the timestamp) so that text " +
+        "messages and automated voice calls can be sent in compliance " +
+        "with the TCPA.",
+    },
+    {
+      q: "How long does Voxaris keep my information?",
+      a:
+        "Lead records persist for the period required by TCPA " +
+        "record-keeping rules (currently 5 years for consent receipts) " +
+        "plus whatever the partner contractor needs to service the " +
+        "estimate. Aggregate analytics may persist longer in " +
+        "de-identified form.",
+    },
+    {
+      q: "Does Voxaris sell or share my information with third parties?",
+      a:
+        "No. Voxaris does not sell lead data. Your information is shared " +
+        "only with the partner roofing contractor associated with the " +
+        "site you visited, and only after you submit the estimate form " +
+        "indicating you want them to contact you.",
+    },
+    {
+      q: "Can I opt out of follow-up calls and texts?",
+      a:
+        "Yes. Reply STOP to any SMS to revoke text consent. Hang up or " +
+        "say \"remove me\" during any automated voice call to revoke " +
+        "voice consent. Email privacy@voxaris.io to remove your record " +
+        "entirely.",
+    },
+    {
+      q: "How is my data secured?",
+      a:
+        "Lead data is stored in Supabase with row-level security " +
+        "scoped to the partner office that services your area. All " +
+        "transport is HTTPS. Service-role database access is " +
+        "server-only and never exposed to the browser.",
+    },
+    {
+      q: "What rights do California, Colorado, and Virginia residents have?",
+      a:
+        "You have the right to request a copy of your data, request " +
+        "deletion, and request that we do not sell or share it. Voxaris " +
+        "does not sell or share lead data; deletion and access requests " +
+        "go to privacy@voxaris.io.",
+    },
+  ];
+
+  const faqPage = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "@id": `${url}#faq`,
+    isPartOf: { "@id": `${url}#webpage` },
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.q,
+      acceptedAnswer: { "@type": "Answer", text: faq.a },
+    })),
+  };
+
+  const breadcrumb = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "@id": `${url}#breadcrumbs`,
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
+      { "@type": "ListItem", position: 2, name: "Privacy Policy", item: url },
+    ],
+  };
+
+  return [webpage, faqPage, breadcrumb];
+}
+
+/**
+ * Terms-page FAQs — mirrors what the Terms of Service text covers.
+ * If you edit `app/(legal)/terms/page.tsx`, update this.
+ */
+export function buildTermsPageJsonLd(): Record<string, unknown>[] {
+  const url = `${SITE_URL}/terms`;
+  const webpage = buildWebPageJsonLd({
+    url,
+    name: "Terms of Service",
+    description:
+      "Terms governing use of the Voxaris roofing-estimate platform, " +
+      "including the marketing-text-message and automated-voice-call " +
+      "programs.",
+    section: "legal",
+  });
+
+  const faqs: Array<{ q: string; a: string }> = [
+    {
+      q: "Is the Voxaris estimate a binding quote?",
+      a:
+        "No. The displayed price is a quick visual estimate generated " +
+        "from satellite imagery. Final pricing depends on what a " +
+        "licensed roofer finds on site — decking condition, layers, " +
+        "code work, manufacturer requirements. The estimate is " +
+        "informational; the binding number comes from the on-site " +
+        "inspection.",
+    },
+    {
+      q: "Who performs the actual roof work if I accept?",
+      a:
+        "The partner roofing contractor associated with the site you " +
+        "visited. Voxaris is the estimating platform; the contractor " +
+        "owns the work, the warranty, and the binding quote.",
+    },
+    {
+      q: "Is Voxaris free for homeowners?",
+      a:
+        "Yes. The estimate at pitch.voxaris.io and on partner-contractor " +
+        "subdomains is free for homeowners.",
+    },
+    {
+      q: "What happens if I provide an inaccurate address or false information?",
+      a:
+        "The estimate may not reflect your actual property. Voxaris " +
+        "reserves the right to refuse service or terminate access if " +
+        "the platform is used to harass, impersonate, or otherwise " +
+        "misuse contractor outreach.",
+    },
+    {
+      q: "Can I revoke my consent to automated marketing calls or texts?",
+      a:
+        "Yes. Reply STOP to any text. During a voice call, hang up or " +
+        "say \"remove me.\" These actions revoke consent under the TCPA " +
+        "and stop future automated contact.",
+    },
+    {
+      q: "What jurisdiction governs disputes with Voxaris?",
+      a:
+        "Florida law, with venue in the courts located in Orange " +
+        "County, Florida, unless a specific partner contractor's terms " +
+        "specify otherwise for matters between you and that contractor.",
+    },
+  ];
+
+  const faqPage = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "@id": `${url}#faq`,
+    isPartOf: { "@id": `${url}#webpage` },
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.q,
+      acceptedAnswer: { "@type": "Answer", text: faq.a },
+    })),
+  };
+
+  const breadcrumb = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "@id": `${url}#breadcrumbs`,
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
+      { "@type": "ListItem", position: 2, name: "Terms of Service", item: url },
+    ],
+  };
+
+  return [webpage, faqPage, breadcrumb];
+}
+
+/**
+ * Homepage WebPage wrapper — author + statistics for the home,
+ * complementing the FAQPage / Service / BreadcrumbList already
+ * present. Caught by the "Author info: one page has a byline, others
+ * don't" + "Statistics: one page has hard numbers, others don't"
+ * audit findings (the home needs the author/stats wiring too).
+ */
+export function buildHomeWebPageJsonLd(): Record<string, unknown> {
+  return buildWebPageJsonLd({
+    url: SITE_URL,
+    name: "Voxaris — Instant roof estimate from your address",
+    description:
+      "Free AI roof estimator: satellite measurement, transparent " +
+      "pricing, severe-weather history, in under a minute. Non-binding; " +
+      "confirmed on site by a licensed roofer.",
+    section: "main",
+  });
+}
+
+/**
  * Convenience: serialize a JSON-LD node to a script-tag-safe string.
  * Escapes `</` (the only sequence that can break out of a <script>
  * block); JSON.stringify handles the rest.
