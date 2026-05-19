@@ -88,15 +88,17 @@ export function buildNewLeadSmsBody(
   dashboardOrigin: string,
 ): string {
   const lines: string[] = [];
-  lines.push(`🏠 New Voxaris lead — ${payload.name}`);
+  // GSM-7 safe: no emoji, no em-dash, no en-dash, no middle-dot. Keeps
+  // single-segment cost (~$0.012) vs UCS-2 multi-segment ($0.024-0.036).
+  lines.push(`NEW LEAD - ${payload.name}`);
   lines.push(payload.address);
 
   if (payload.estimateLow != null && payload.estimateHigh != null) {
     const lo = payload.estimateLow.toLocaleString();
     const hi = payload.estimateHigh.toLocaleString();
     const sqftBit =
-      payload.sqft != null ? ` · ${payload.sqft.toLocaleString()} sqft` : "";
-    lines.push(`Est $${lo}–$${hi}${sqftBit}`);
+      payload.sqft != null ? `, ${payload.sqft.toLocaleString()} sqft` : "";
+    lines.push(`Est $${lo}-$${hi}${sqftBit}`);
   }
 
   const phoneE164 = toE164(payload.phone);

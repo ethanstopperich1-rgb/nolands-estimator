@@ -312,14 +312,16 @@ async function sendRepUpdate(opts: {
   const dest = resolveNotifyPhone(opts.office);
   if (!dest || !twilioConfigured()) return false;
 
+  // GSM-7 safe: no emoji, no em-dash. Each headline stays single-
+  // segment with the body lines that follow.
   const headline =
     opts.outcome === "appt_scheduled"
-      ? `📅 New appt scheduled — ${opts.lead.name}`
+      ? `APPT SCHEDULED - ${opts.lead.name}`
       : opts.outcome === "callback_requested"
-        ? `📞 Callback requested — ${opts.lead.name}`
+        ? `CALLBACK REQUESTED - ${opts.lead.name}`
         : opts.outcome === "voicemail"
-          ? `📭 Voicemail left — ${opts.lead.name}`
-          : `ℹ️ Call ended (${opts.outcome}) — ${opts.lead.name}`;
+          ? `VOICEMAIL LEFT - ${opts.lead.name}`
+          : `CALL ENDED (${opts.outcome}) - ${opts.lead.name}`;
 
   const lines: string[] = [headline, opts.lead.address];
   if (opts.appointmentAt) lines.push(`When: ${formatAppt(opts.appointmentAt)}`);
