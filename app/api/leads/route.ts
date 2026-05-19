@@ -595,7 +595,14 @@ export async function POST(req: Request) {
     // office row didn't resolve (dev / preview without Supabase).
     const officeName = officeBranding?.displayName ?? "Voxaris Pitch";
     const agentName = officeBranding?.livekitAgentName ?? "Sydney";
-    const smsBody = `Hi ${firstName}, this is ${agentName} from ${officeName}. We got your estimate request for ${body.address}. ${estimateLine}Reply with any questions or text BOOK to schedule a free inspection. Reply STOP to opt out.`;
+    // Test-mode CTA: invite the customer to opt-in to an immediate AI
+    // voice callback via "YES". The /api/sms/inbound webhook intercepts
+    // the YES keyword (before the AI-reply pipeline), dispatches Sydney
+    // via /api/dispatch-outbound, and replies a confirmation. This is
+    // the SMS-first lead flow Voxaris is testing pre-Voice-Trust: SMS
+    // confirms → YES → Sydney calls → post-call SMS to homeowner +
+    // rep notify SMS. Keep "BOOK" too for the legacy bot path.
+    const smsBody = `Hi ${firstName}, this is ${agentName} from ${officeName}. We got your estimate request for ${body.address}. ${estimateLine}Reply YES and Sydney (our AI assistant) will call you now to schedule a free inspection. Reply STOP to opt out.`;
 
     // Run both writes in parallel and don't await — keep the API
     // response fast.

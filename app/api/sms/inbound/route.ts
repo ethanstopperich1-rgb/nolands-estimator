@@ -120,6 +120,35 @@ export async function POST(req: Request) {
     });
   }
 
+  // ─── YES → trigger Sydney callback ────────────────────────────────
+  // Deterministic intercept BEFORE the AI-reply pipeline. The
+  // confirmation SMS sent from /api/leads ends with:
+  //   "Reply YES and Sydney will call you now..."
+  // When the homeowner replies YES (or close variants), we:
+  //   1. Look up their most-recent lead row by phone (Supabase service
+  //      role; office_id comes from the lead row).
+  //   2. POST /api/dispatch-outbound with the lead context. The
+  //      INTERNAL_DISPATCH_SECRET gate keeps this server-to-server.
+  //   3. Reply via SMS: "Got it — calling you in a few seconds."
+  //   4. Append the turn so the SMS thread shows the YES + reply.
+  //
+  // TCPA note: the homeowner's affirmative reply to a clear AI-voice
+  // disclosure ("Sydney, our AI assistant, will call you") is express
+  // written consent under TCPA + the FCC Feb 2024 AI-voice ruling. We
+  // log a consent row alongside the dispatch for the audit trail.
+  const yesMatch = body.match(/^(yes|y|yeah|yep|yup|sure|ok|okay|call me|call)\b/i);
+  if (yesMatch) {
+    const handled = await handleYesCallback({ from, body });
+    if (handled) {
+      return new Response("<Response/>", {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
+    // If the YES handler couldn't find a lead, fall through to the AI
+    // path so the homeowner gets some response instead of silence.
+  }
+
   // Append the inbound user message.
   const conv = await appendTurn({ phone: from, role: "user", body });
 
@@ -213,6 +242,172 @@ Rules:
 - Stay strictly on roofing. Off-topic → "I can only help with your roofing project — anything I can answer there?"
 
 You have full conversation history below. Read it before replying so you don't re-ask for info already given.`;
+}
+
+/**
+ * Look up the homeowner's most-recent lead by phone, fire an outbound
+ * Sydney dispatch, and reply via SMS. Returns true when the dispatch
+ * was attempted (success OR failure both count — we already replied),
+ * false when there's no matching lead so the caller can fall through
+ * to the AI path.
+ */
+async function handleYesCallback(opts: {
+  from: string;
+  body: string;
+}): Promise<boolean> {
+  if (!supabaseServiceRoleConfigured()) {
+    console.warn("[sms-inbound:yes] supabase service role not configured");
+    return false;
+  }
+  const sb = createServiceRoleClient();
+
+  // Most-recent lead for this phone. The `phone` column stores the
+  // RAW user input (formatted, hyphens, parens, etc.), not E.164, so
+  // a strict equality match would miss. We match on the trailing 10
+  // digits via ilike — robust against (407) 555-1234 / 407-555-1234 /
+  // 4075551234 / +14075551234. Tenancy is enforced via the lead row's
+  // office_id; the inbound webhook is shared across all offices on the
+  // Voxaris Twilio number for testing.
+  const last10 = opts.from.replace(/\D/g, "").slice(-10);
+  if (last10.length !== 10) {
+    console.warn("[sms-inbound:yes] non-10-digit from", opts.from);
+    return false;
+  }
+  const { data: leads, error } = await sb
+    .from("leads")
+    .select(
+      "public_id, office_id, name, address, phone, estimate_low, estimate_high, estimated_sqft, material, tcpa_consent",
+    )
+    .ilike("phone", `%${last10}%`)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const lead = leads?.[0] ?? null;
+
+  if (error) {
+    console.error("[sms-inbound:yes] lead lookup failed:", error.message);
+    return false;
+  }
+  if (!lead) {
+    console.log("[sms-inbound:yes] no lead found for phone", opts.from);
+    return false;
+  }
+
+  // Look up the office slug — /api/dispatch-outbound requires it for
+  // tenancy + Sydney's per-office persona.
+  const { data: office } = await sb
+    .from("offices")
+    .select("slug, name, livekit_agent_name")
+    .eq("id", lead.office_id)
+    .maybeSingle();
+
+  if (!office) {
+    console.error("[sms-inbound:yes] office not found for lead", lead.public_id);
+    return false;
+  }
+
+  // Log the voice-consent event. This is the TCPA paper trail for the
+  // SMS YES → AI voice callback path.
+  try {
+    // lead_id intentionally omitted — the consents FK targets leads.id
+    // (uuid), not the public_id string. The phone + office_id + ISO
+    // timestamp are enough to correlate to the lead in audits.
+    await sb.from("consents").insert({
+      consent_type: "voice_sms_yes",
+      consented_at: new Date().toISOString(),
+      disclosure_text: `Homeowner replied YES to: 'Reply YES and Sydney (our AI assistant) will call you now to schedule a free inspection.' Lead public_id: ${lead.public_id}`,
+      phone: opts.from,
+      office_id: lead.office_id,
+      user_agent: "twilio-sms-webhook",
+    });
+  } catch (err) {
+    console.warn("[sms-inbound:yes] consent insert failed:", err);
+  }
+
+  // Update lead status so the dashboard shows "calling" on the row
+  // between YES and the post-call webhook.
+  try {
+    await sb
+      .from("leads")
+      .update({ status: "calling", updated_at: new Date().toISOString() })
+      .eq("public_id", lead.public_id);
+  } catch (err) {
+    console.warn("[sms-inbound:yes] lead status update failed:", err);
+  }
+
+  // POST /api/dispatch-outbound. We resolve the origin from the
+  // request URL we're already serving — same host, so this stays
+  // server-to-server within Vercel.
+  const dispatchSecret = process.env.INTERNAL_DISPATCH_SECRET ?? "";
+  if (!dispatchSecret) {
+    console.error("[sms-inbound:yes] INTERNAL_DISPATCH_SECRET missing");
+    await sendSms({
+      to: opts.from,
+      body: "Thanks — a team member will call you shortly.",
+    });
+    await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+    await appendTurn({
+      phone: opts.from,
+      role: "assistant",
+      body: "Thanks — a team member will call you shortly.",
+    });
+    return true;
+  }
+
+  const origin =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : process.env.NEXT_PUBLIC_BASE_URL ?? "https://pitch.voxaris.io";
+
+  const dispatchPayload = {
+    leadId: lead.public_id,
+    leadPublicId: lead.public_id,
+    name: lead.name,
+    phone: opts.from,
+    address: lead.address,
+    estimateLow: lead.estimate_low ?? undefined,
+    estimateHigh: lead.estimate_high ?? undefined,
+    estimatedSqft: lead.estimated_sqft ?? undefined,
+    material: lead.material ?? undefined,
+    office: office.slug,
+    agentName: office.livekit_agent_name ?? "sydney",
+  };
+
+  try {
+    const res = await fetch(`${origin}/api/dispatch-outbound`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dispatch-secret": dispatchSecret,
+      },
+      body: JSON.stringify(dispatchPayload),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error(
+        "[sms-inbound:yes] dispatch failed",
+        res.status,
+        text.slice(0, 300),
+      );
+    } else {
+      console.log("[sms-inbound:yes] dispatched Sydney for", lead.public_id);
+    }
+  } catch (err) {
+    console.error("[sms-inbound:yes] dispatch fetch threw:", err);
+  }
+
+  // Reply to the homeowner — we already kicked off the call, so this
+  // is an acknowledgment regardless of whether the SIP leg succeeds
+  // (Sydney's logs are the source of truth for the call itself).
+  const ackBody = `Got it — ${office.livekit_agent_name ? office.livekit_agent_name.charAt(0).toUpperCase() + office.livekit_agent_name.slice(1) : "Sydney"} will call you in a few seconds from ${office.name}.`;
+  try {
+    await sendSms({ to: opts.from, body: ackBody });
+  } catch (err) {
+    console.error("[sms-inbound:yes] ack SMS failed:", err);
+  }
+
+  await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+  await appendTurn({ phone: opts.from, role: "assistant", body: ackBody });
+  return true;
 }
 
 async function generateReply(conv: SmsConversation): Promise<string> {

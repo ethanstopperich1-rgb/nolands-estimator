@@ -262,6 +262,52 @@ Optional toggles:
    with SHAKEN/STIR attestation. Without it, outbound calls get
    marked `Spam Likely` on Verizon / AT&T / T-Mobile networks.
 
+### SMS-first lead flow (testing pre-Voice-Trust)
+
+For pre-launch testing — before SHAKEN/STIR attestation is approved
+and outbound voice can ship safely — Voxaris uses an SMS-gated voice
+flow so the homeowner explicitly opts in via text before Sydney
+calls. The full round-trip:
+
+1. **Homeowner submits the estimator** → `/api/leads` captures the
+   lead and sends the confirmation SMS via `lib/twilio.ts`. The body
+   includes `"Reply YES and Sydney (our AI assistant) will call you
+   now..."`.
+2. **Homeowner replies YES** → `/api/sms/inbound` intercepts the YES
+   keyword BEFORE the AI-reply pipeline. It:
+   - Looks up the most-recent lead by phone (fuzzy match on last 10
+     digits, since `leads.phone` stores raw user input not E.164).
+   - Logs a `consents` row of type `voice_sms_yes` for TCPA audit.
+   - Sets `leads.status = "calling"`.
+   - POSTs `/api/dispatch-outbound` (server-to-server,
+     `INTERNAL_DISPATCH_SECRET` gate) with the lead context.
+   - Replies via SMS: "Got it — Sydney will call you in a few
+     seconds from {office}."
+3. **Sydney runs the call** in LiveKit. When the conversation ends,
+   the agent worker POSTs `/api/sms/post-call` with
+   `{ leadPublicId, outcome, summary?, appointmentAt? }`. Valid
+   outcomes: `appt_scheduled`, `callback_requested`, `no_appointment`,
+   `voicemail`, `failed`.
+4. **`/api/sms/post-call`** closes the loop:
+   - Updates `leads.status` to the outcome and appends a note line.
+   - Sends a homeowner confirmation SMS (copy varies by outcome).
+   - Sends a rep/office SMS via the same destination chain as
+     `notifyOfficeOfNewLead`: "📅 New appt scheduled — {name},
+     {address}, {deep link}".
+
+This entire path is gated by `INTERNAL_DISPATCH_SECRET` on the
+server-to-server hops and by Twilio webhook signature validation on
+the inbound leg. The homeowner SMS opt-out (STOP) is enforced by
+`lib/twilio.ts:sendSms` on every outbound, including the rep
+notifications.
+
+For the LiveKit agent: the Sydney worker should call
+`POST {origin}/api/sms/post-call` in its `on_disconnected` /
+`on_conversation_complete` handler with the lead public_id from
+`ctx.job.metadata.leadId`. The `x-dispatch-secret` header value comes
+from the worker's `INTERNAL_DISPATCH_SECRET` env var (same value as
+the Vercel project).
+
 ### Smoke test (after wiring + env vars)
 
 `curl -X POST $VERCEL_PROD_URL/api/_health` should return
