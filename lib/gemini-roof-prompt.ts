@@ -35,12 +35,17 @@
  * instruction blocks. Numbered rules + tables are skimmable; the
  * model carries them further into the generation pass than long prose.
  */
-export const GEMINI_ROOF_SYSTEM_INSTRUCTION = `Edit this 1280×1280 aerial satellite image. Paint a magazine-clean translucent cyan overlay on every visible roof plane of the single residential building at the exact center of the frame (pixel 640, 640). The user has already confirmed this is the target — do not second-guess which structure to annotate.
+export const GEMINI_ROOF_SYSTEM_INSTRUCTION = `Edit this 1280×1280 aerial satellite image. Add a translucent cyan overlay on every visible roof plane of the single residential building at the exact center of the frame (pixel 640, 640). The user has already confirmed this is the target — do not second-guess which structure to paint.
+
+## OUTPUT CONSTRAINT (read this first)
+Your output is the SUPPLIED 1280×1280 satellite photo with cyan paint added on top. Every pixel that is NOT covered by your cyan overlay must match the input image. You are not generating a new image. You are not redrawing the scene. You are not improving the photo's resolution, lighting, color, contrast, or sharpness. The input photo is the canvas; the cyan is your only addition.
+
+If you cannot identify a roof to paint with high confidence (e.g. the image is too obscured by clouds or trees, or the central pixel does not sit on a building), return the input image UNCHANGED with no cyan added. Do not invent a roof. Do not generate a new satellite image. Do not regenerate the scene from scratch.
 
 ## STYLE
 - Fill: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan.
 - Outline: cyan #38C5EE at full opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring.
-- The effect is PAINTED on the roof, not pasted over it. Preserve photographic realism everywhere outside the painted area.
+- The effect is paint ADDED on top of the existing photo, not a replacement of it. Preserve the original pixels everywhere outside the painted area.
 
 ## RULE 1 — One continuous polygon per plane. No exceptions.
 Every distinct roof plane (each unique direction the roof faces) is painted as ONE solid, gap-free polygon. **No notches. No triangular cutouts. No holes around fixtures. No bite-outs along inside edges. No indentations that follow shadow lines.**
@@ -108,15 +113,7 @@ Slightly incomplete is correct when uncertain. Over-painting onto lawn/trees is 
 
 If you cannot name the candidate boundary as one of the six legal edges (eave/ridge/hip/valley/rake/gable end), it is a shadow. Paint through it.
 
-## SELF-CHECK BEFORE RETURNING
-Walk your painted image once more:
-1. Any cyan boundary that follows a shadow line? → Extend cyan across that boundary.
-2. Triangular or sharp-cornered notches along any plane's inside edge? → Fill them.
-3. Small unpainted holes around vents, chimneys, skylights, HVAC, dishes, or panels? → Paint over them (only the chimney mass / panel body itself stays uncovered).
-4. Each distinct roof plane represented as ONE continuous polygon? → Merge disconnected pieces of the same plane.
-5. Cyan extending past the eave onto the lawn shadow? → Pull it back to the eave.
-
-A human architect outlining each plane on a printout draws clean, continuous polygons. Match that.`;
+Reminder: your output is the supplied photo with cyan paint added. Do not regenerate the scene. Do not invent a new image. Add cyan where the rules above say cyan goes; leave every other pixel as the input had it.`;
 
 /**
  * USER TRIGGER — minimal anchor phrase that follows the image part in

@@ -93,6 +93,11 @@ import {
 } from "@/lib/gemini-roof-prompt";
 import { extractCyanMask, type CyanMask } from "@/lib/cyan-mask";
 import { compositeCyanOnAerial } from "@/lib/composite-cyan-overlay";
+import {
+  verifyPaintedAgainstInput,
+  type PaintVerdict,
+  type PaintVerifyResult,
+} from "@/lib/paint-verify";
 import { countAzimuthClusters } from "@/lib/roof-geometry/azimuth-cluster";
 import {
   filterPenetrations,
@@ -533,6 +538,127 @@ async function callGeminiMultimodal(
   return { paintedImageBase64, objects, rawText };
 }
 
+interface VerifiedMultimodalResult extends GeminiMultimodalResult {
+  /** Verify verdict on the returned image. "edited" when verify
+   *  confirmed a real edit; "ambiguous" when the verdict was unclear
+   *  (we return it but flag for telemetry); "hallucinated" only when
+   *  all retries failed (caller should fall back to no painted image). */
+  verifyVerdict: PaintVerdict;
+  verifyReason: string;
+  verifyAttempts: number;
+  verifyCyanCoverage: number;
+  verifyMae: number | null;
+}
+
+/** Maximum number of Pro Image rolls before giving up and returning the
+ *  hallucinated result with a flag. 3 attempts means worst-case
+ *  3 × ~$0.075 = $0.225 in Gemini spend per hallucinating address.
+ *  In practice the first attempt succeeds ~93-95% of the time, so the
+ *  average cost is ~$0.085 — roughly 13% higher than today. */
+const PAINT_MAX_ATTEMPTS = 3;
+
+/**
+ * Wraps callGeminiMultimodal with post-flight pixel verification. When
+ * Pro Image returns a hallucinated image (regenerated scene rather than
+ * an edit of the supplied tile), this re-rolls up to MAX_ATTEMPTS-1
+ * additional times. Verify thresholds in lib/paint-verify.ts adapt to
+ * the cyan-coverage fraction so large houses that fill most of the tile
+ * don't trip a false hallucination flag.
+ */
+async function callGeminiMultimodalWithVerify(
+  tileBase64: string,
+  apiKey: string,
+  solarSegmentCount: number | null = null,
+): Promise<VerifiedMultimodalResult | null> {
+  let lastResult: GeminiMultimodalResult | null = null;
+  let lastVerify: PaintVerifyResult | null = null;
+  for (let attempt = 1; attempt <= PAINT_MAX_ATTEMPTS; attempt++) {
+    let result: GeminiMultimodalResult;
+    try {
+      result = await callGeminiMultimodal(tileBase64, apiKey, solarSegmentCount);
+    } catch (err) {
+      console.warn(
+        `[gemini-roof v3] paint_attempt_${attempt}_threw ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+      // Retries on the next iteration carry their own cost; bill them.
+      if (attempt > 1) {
+        void trackAiSpend(
+          AI_CALL_COST_USD.gemini_pro_image_paint,
+          `gemini-roof-v3 paint_retry attempt=${attempt}`,
+        );
+      }
+      continue;
+    }
+    // Each retry past the first incurs an additional paint call cost
+    // that wasn't billed in the bulk-track at pipeline entry.
+    if (attempt > 1) {
+      void trackAiSpend(
+        AI_CALL_COST_USD.gemini_pro_image_paint,
+        `gemini-roof-v3 paint_retry attempt=${attempt}`,
+      );
+    }
+    // No image at all — treat as a hallucination signal (model gave up).
+    if (!result.paintedImageBase64) {
+      lastResult = result;
+      lastVerify = {
+        verdict: "hallucinated",
+        reason: "paint_returned_null",
+        cyanCoverageFraction: 0,
+        nonCyanMae: null,
+        sampleCount: 0,
+      };
+      console.warn(
+        `[gemini-roof v3] paint_verify attempt=${attempt} verdict=hallucinated reason=paint_returned_null`,
+      );
+      continue;
+    }
+    const verify = await verifyPaintedAgainstInput(
+      tileBase64,
+      result.paintedImageBase64,
+    );
+    lastResult = result;
+    lastVerify = verify;
+    console.log(
+      `[gemini-roof v3] paint_verify attempt=${attempt} ` +
+        `verdict=${verify.verdict} reason="${verify.reason}" ` +
+        `cyan=${(verify.cyanCoverageFraction * 100).toFixed(1)}% ` +
+        `mae=${verify.nonCyanMae?.toFixed(1) ?? "n/a"} ` +
+        `n=${verify.sampleCount}`,
+    );
+    // "edited" → ship it. "ambiguous" → also ship (better to display a
+    // slightly-off edit than to burn a $0.075 retry on every borderline
+    // case; the dead-zone band is calibrated to be narrow). Only
+    // "hallucinated" triggers a retry.
+    if (verify.verdict !== "hallucinated") {
+      return {
+        ...result,
+        verifyVerdict: verify.verdict,
+        verifyReason: verify.reason,
+        verifyAttempts: attempt,
+        verifyCyanCoverage: verify.cyanCoverageFraction,
+        verifyMae: verify.nonCyanMae,
+      };
+    }
+  }
+  // All attempts hallucinated. Return the last result with the
+  // hallucinated flag — caller decides whether to suppress the
+  // painted image, fall back to raw tile, etc.
+  if (!lastResult || !lastVerify) return null;
+  console.warn(
+    `[gemini-roof v3] paint_hallucinated_after_${PAINT_MAX_ATTEMPTS}_attempts ` +
+      `final_reason="${lastVerify.reason}"`,
+  );
+  return {
+    ...lastResult,
+    verifyVerdict: lastVerify.verdict,
+    verifyReason: lastVerify.reason,
+    verifyAttempts: PAINT_MAX_ATTEMPTS,
+    verifyCyanCoverage: lastVerify.cyanCoverageFraction,
+    verifyMae: lastVerify.nonCyanMae,
+  };
+}
+
 // Legacy single-modality call retained for non-pin-confirmed paths.
 // Returns the older structured-output shape (outline/facets/lines/objects).
 async function callGemini(
@@ -919,6 +1045,19 @@ export interface GeminiRoofResponseV3 {
     siteObstacles: Array<{ kind: string; confidence: number }>;
     apparentAgeBand: { band: string; confidence: number } | null;
   };
+  /** Pro Image paint-verify telemetry. Null when paint wasn't called
+   *  (cache hit, missing key path). Otherwise describes the post-flight
+   *  pixel-comparison verdict + how many attempts it took. When
+   *  `verdict === "hallucinated"`, `paintedImageBase64` is dropped to
+   *  null and the customer sees the raw tile instead of a fabricated
+   *  scene. */
+  paintVerify: {
+    verdict: PaintVerdict;
+    reason: string;
+    attempts: number;
+    cyanCoverageFraction: number;
+    nonCyanMae: number | null;
+  } | null;
   /** Deterministic geometric signals that drive the geometric waste
    *  formula. Exposed so the rep workbench / debug tools can audit
    *  "why is the suggested waste 17%?". */
@@ -1015,7 +1154,11 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // counting (EagleView-style) instead of per-wing counting. Cached
 // "5–10 facets on Jupiter" entries from before this change are no
 // longer correct — re-paint forces fresh per-face counts.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-composite";
+// Bumped — cached entries from before paint-verify + composite shipped
+// carry hallucinated PNGs that we now (a) detect and retry via verify,
+// (b) overlay onto the real Google aerial via composite. Cache miss on
+// next read forces a fresh paint+verify+composite pass.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-composite-verify";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1836,14 +1979,39 @@ async function handleV3Pinned(
       ).length
     : null;
   const [paintedResult, richResult, rawLinesResult] = await Promise.allSettled([
-    callGeminiMultimodal(tile.base64, geminiKey, solarSegmentsForHint),
+    callGeminiMultimodalWithVerify(tile.base64, geminiKey, solarSegmentsForHint),
     callGeminiRichData(tile.base64, geminiKey),
     callGeminiLines(tile.base64, geminiKey),
   ]);
 
-  if (paintedResult.status === "fulfilled") {
-    paintedImageBase64 = paintedResult.value.paintedImageBase64;
-  } else {
+  // Paint-verify gating: if Pro Image hallucinated on all retries, drop
+  // the painted image so the customer sees the raw satellite tile
+  // instead of a fabricated scene. Customers prefer "no painted overlay"
+  // to "wrong house painted." Downstream stages (cyan-mask extraction,
+  // mask-gated penetration filter, compactness signal) already handle
+  // `paintedImageBase64 = null` gracefully — they just skip.
+  let paintVerifyVerdict: PaintVerdict | null = null;
+  let paintVerifyAttempts = 0;
+  let paintVerifyReason: string | null = null;
+  let paintVerifyMae: number | null = null;
+  let paintVerifyCyanCoverage: number | null = null;
+  if (paintedResult.status === "fulfilled" && paintedResult.value) {
+    const v = paintedResult.value;
+    paintVerifyVerdict = v.verifyVerdict;
+    paintVerifyAttempts = v.verifyAttempts;
+    paintVerifyReason = v.verifyReason;
+    paintVerifyMae = v.verifyMae;
+    paintVerifyCyanCoverage = v.verifyCyanCoverage;
+    if (v.verifyVerdict === "hallucinated") {
+      paintedImageBase64 = null;
+      console.warn(
+        `[gemini-roof v3] paint_dropped_after_hallucination ` +
+          `attempts=${v.verifyAttempts} reason="${v.verifyReason}"`,
+      );
+    } else {
+      paintedImageBase64 = v.paintedImageBase64;
+    }
+  } else if (paintedResult.status === "rejected") {
     console.warn(
       "[gemini-roof v3] painted_call_failed",
       paintedResult.reason instanceof Error
@@ -2705,6 +2873,15 @@ async function handleV3Pinned(
       annualSunshineHours: solar?.solarPotential?.maxSunshineHoursPerYear ?? null,
     },
     geminiAnalysis,
+    paintVerify: paintVerifyVerdict
+      ? {
+          verdict: paintVerifyVerdict,
+          reason: paintVerifyReason ?? "",
+          attempts: paintVerifyAttempts,
+          cyanCoverageFraction: paintVerifyCyanCoverage ?? 0,
+          nonCyanMae: paintVerifyMae,
+        }
+      : null,
     qualitySignals: {
       compactness: cyanMask?.compactness ?? null,
       azimuthClusters,
