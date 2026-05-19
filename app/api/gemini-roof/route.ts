@@ -92,6 +92,7 @@ import {
   GEMINI_ROOF_USER_TRIGGER,
 } from "@/lib/gemini-roof-prompt";
 import { extractCyanMask, type CyanMask } from "@/lib/cyan-mask";
+import { compositeCyanOnAerial } from "@/lib/composite-cyan-overlay";
 import { countAzimuthClusters } from "@/lib/roof-geometry/azimuth-cluster";
 import {
   filterPenetrations,
@@ -247,7 +248,15 @@ async function fetchGoogleStaticTile(
   lng: number,
   apiKey: string,
   zoom: number = TILE_ZOOM,
-): Promise<{ base64: string; mimeType: "image/png" }> {
+): Promise<{
+  /** Shadow-lifted version sent to Gemini for paint + analysis. */
+  base64: string;
+  /** Untouched Google Static Maps PNG bytes. The customer-facing display
+   *  composites cyan-mask-over-raw, not over the lifted version, so the
+   *  photo they see matches what Google actually has at the address. */
+  rawBase64: string;
+  mimeType: "image/png";
+}> {
   const url =
     `https://maps.googleapis.com/maps/api/staticmap` +
     `?center=${lat},${lng}&zoom=${zoom}` +
@@ -299,7 +308,11 @@ async function fetchGoogleStaticTile(
     );
   }
 
-  return { base64: processed.toString("base64"), mimeType: "image/png" };
+  return {
+    base64: processed.toString("base64"),
+    rawBase64: raw.toString("base64"),
+    mimeType: "image/png",
+  };
 }
 
 /**
@@ -815,11 +828,21 @@ export interface GeminiRoofResponseV3 {
     widthPx: number;
     heightPx: number;
   };
-  /** Base64-encoded PNG returned by Gemini — cyan-painted roof
-   *  overlay drawn directly onto the satellite tile. The frontend
-   *  shows this in place of the raw tile. Null when Gemini failed
-   *  but Solar succeeded — customer still gets the headline number. */
+  /** Customer-facing painted image. As of May 2026 this is a TRUE
+   *  composite: real Google Static Maps aerial + translucent cyan
+   *  overlay tracing the roof polygon Gemini detected (mask extracted
+   *  via lib/cyan-mask.ts, composited via lib/composite-cyan-overlay.ts,
+   *  watermarked, then returned). The frontend shows this directly.
+   *  Null only when both Gemini paint AND the raw aerial fetch failed
+   *  — extremely rare since the aerial is the same request Google
+   *  responded to for the tile. */
   paintedImageBase64: string | null;
+  /** Gemini Pro Image's RAW generative paint output, pre-composite.
+   *  Useful for the rep workbench (debug: did Gemini paint correctly?
+   *  did the mask extractor catch every cyan pixel?). NOT shown to
+   *  customers — Pro Image is generative and can re-render geometry
+   *  that doesn't match the actual aerial. Null when paint failed. */
+  paintedImageRawBase64: string | null;
   /** Rooftop objects detected by Gemini (vents, chimneys, skylights,
    *  HVAC, solar panels, etc). Empty array when Gemini failed. */
   objects: Array<{
@@ -992,7 +1015,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // counting (EagleView-style) instead of per-wing counting. Cached
 // "5–10 facets on Jupiter" entries from before this change are no
 // longer correct — re-paint forces fresh per-face counts.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-parcel";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-composite";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1797,8 +1820,21 @@ async function handleV3Pinned(
   // synchronous read. On Jupiter's hip-and-turret composition Solar
   // returns ~5 distinct shingle segments. Without this hint Pro Image
   // visually merged adjacent same-pitch hips into one big polygon.
-  const solarSegmentsForHint =
-    solar?.solarPotential?.roofSegmentStats?.length ?? null;
+  //
+  // 2026-05-18 fix (8450 Oak Park regression): we previously passed the
+  // FULL `roofSegmentStats.length` here — 17 on Oak Park — which forced
+  // Pro Image to fabricate facet boundaries to hit a count that
+  // included low-slope wings (6.6° / 11.6°) and other segments we'd
+  // already filtered out of the displayed measurement. The model went
+  // into generative-fill mode and painted a fictional symmetric estate.
+  // Use the SAME 3°+ filter we apply to the customer headline sqft so
+  // the hint matches reality everywhere else in the pipeline.
+  const DISPLAY_MIN_PITCH_DEG_FOR_HINT = 3;
+  const solarSegmentsForHint = solar?.solarPotential?.roofSegmentStats
+    ? solar.solarPotential.roofSegmentStats.filter(
+        (s) => (s.pitchDegrees ?? 0) >= DISPLAY_MIN_PITCH_DEG_FOR_HINT,
+      ).length
+    : null;
   const [paintedResult, richResult, rawLinesResult] = await Promise.allSettled([
     callGeminiMultimodal(tile.base64, geminiKey, solarSegmentsForHint),
     callGeminiRichData(tile.base64, geminiKey),
@@ -2545,10 +2581,36 @@ async function handleV3Pinned(
       `penetration_adders=$${penetrationAdders.total}`,
   );
 
-  // Stamp the painted PNG with a faint `voxaris.io` watermark BEFORE
-  // it goes into the response / Supabase Storage. This runs AFTER the
-  // line-classification Gemini passes above so the stamp doesn't pollute
-  // downstream model input. Soft-fails to the unwatermarked image.
+  // ─── Customer-facing composite (May 2026 fix) ──────────────────────
+  // Replace Gemini's full-frame generated paint with a TRUE composite:
+  // the real Google Static Maps aerial + the cyan polygon Gemini found.
+  // The customer sees their actual satellite photo with cyan tint only
+  // over the roof planes; Gemini's generative reinterpretation of the
+  // building (which can render fictional facets on complex hip roofs)
+  // never reaches the customer page.
+  //
+  // Gemini's raw paint is kept on `paintedImageRawBase64` for the rep
+  // workbench / debug, where seeing both is useful.
+  //
+  // Order of operations:
+  //   1. composite cyan-mask-over-raw-aerial → customer's painted image
+  //   2. watermark the composite (not the raw Gemini output anymore)
+  //   3. line-classification + downstream consumers already ran above
+  //      on the unwatermarked raw paint; no impact on measurement math
+  const paintedImageRawBase64 = paintedImageBase64;
+  if (paintedImageBase64 && cyanMask && cyanMask.areaPx > 0) {
+    paintedImageBase64 = await compositeCyanOnAerial(
+      tile.rawBase64,
+      cyanMask,
+    );
+  } else if (paintedImageBase64 == null) {
+    // Pro Image failed entirely — fall back to the raw aerial so the
+    // customer still sees a picture of their house, just without the
+    // cyan tint. Better than a blank slot.
+    paintedImageBase64 = tile.rawBase64;
+  }
+  // Stamp the brand watermark on whatever we ended up with. Soft-fails
+  // to the unwatermarked image — never breaks the response.
   if (paintedImageBase64) {
     paintedImageBase64 = await watermarkPaintedPng(paintedImageBase64);
   }
@@ -2611,6 +2673,7 @@ async function handleV3Pinned(
       heightPx: TILE_SIZE_PX * TILE_SCALE,
     },
     paintedImageBase64,
+    paintedImageRawBase64,
     objects,
     penetrationTotals,
     edges,

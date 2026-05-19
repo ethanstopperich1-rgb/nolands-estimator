@@ -78,7 +78,14 @@ interface V3Response {
     widthPx: number;
     heightPx: number;
   };
+  /** True composite: real Google Static Maps aerial + translucent cyan
+   *  overlay tracing the roof polygon Gemini detected. This is what the
+   *  customer sees — their actual satellite photo with cyan only on the
+   *  measured roof planes. */
   paintedImageBase64: string | null;
+  /** Gemini's raw generative paint, pre-composite. Kept for the rep
+   *  workbench / debug. Not shown to customers. */
+  paintedImageRawBase64?: string | null;
   objects: Array<{
     type: string;
     centerPx: { x: number; y: number };
@@ -820,7 +827,15 @@ function PinScreen({
       const center = { lat: resolved.lat, lng: resolved.lng };
       const map = new g.maps.Map(mapElRef.current, {
         center,
-        zoom: 20,
+        // Zoom 21 matches `PIN_TILE_ZOOM` on the measurement pipeline
+        // (`app/api/gemini-roof/route.ts`). When the pin map was 20,
+        // customers confirmed their roof in a wider frame than what got
+        // measured — the building looked smaller at confirm time, then
+        // the result screen showed a tighter crop, and the framing
+        // mismatch contributed to "is this even my house?" reactions
+        // on complex properties. Match the framing exactly so what the
+        // customer sees at confirm IS what the pipeline measures.
+        zoom: 21,
         mapTypeId: g.maps.MapTypeId.SATELLITE,
         tilt: 0,
         disableDefaultUI: true,
