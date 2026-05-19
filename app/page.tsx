@@ -1429,232 +1429,102 @@ function ResultScreen({
           )}
         </div>
 
-        {/* Above-the-fold row — image + storms LEFT, price + CTA RIGHT.
-            `items-start` so the two columns top-align (the left column
-            is now taller than the right because the recent-storms block
-            sits under the map). */}
-        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-10 items-start justify-items-center w-full">
-          {/* Left column: interactive Google Map with cyan polygon as a
-              GroundOverlay, AND the recent-severe-weather block stacked
-              underneath. Stacking storms under the map (instead of in
-              the prior "Why this roof needs attention" two-column card
-              below) evens out the visual weight against the tier-price
-              card on the right. */}
+        {/* Above-the-fold 2×2 grid — equal-width columns, two rows that
+            stretch to match heights. Layout:
+              ┌─────────────┬─────────────┐
+              │   Map       │  Tier Prices│  (top row — map sets height)
+              ├─────────────┼─────────────┤
+              │  Storms     │  Rep CTA    │  (bottom row — equal heights)
+              └─────────────┴─────────────┘
+            Tier prices used to include the fine print (not-binding,
+            tier-coverage, financing) — relocated to a full-width band
+            below the grid so the price card stays focused on the actual
+            tiers. */}
+        <div
+          className="mt-10 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-stretch w-full mx-auto"
+          style={{ maxWidth: "1000px" }}
+        >
+          {/* TOP-LEFT — interactive map */}
           <div
-            className="flex flex-col gap-5 w-full mx-auto"
-            style={{ maxWidth: "480px" }}
+            className="result-card overflow-hidden w-full"
+            style={{ aspectRatio: "1 / 1" }}
           >
-            {/* Map card */}
+            <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+            <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+            <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+            <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+            <RoofMap
+              centerLat={result.tile.centerLat}
+              centerLng={result.tile.centerLng}
+              zoom={result.tile.zoom}
+              overlay={result.cyanOverlay ?? null}
+              fallbackPngBase64={paintedImageBase64}
+            />
+          </div>
+
+          {/* TOP-RIGHT — clean tier price card (no fine print) */}
+          {tiers ? (
             <div
-              className="result-card overflow-hidden w-full"
-              style={{ aspectRatio: "1 / 1" }}
+              className="result-card flex flex-col justify-center"
+              style={{ padding: "22px 20px" }}
             >
-              <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
-              <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
-              <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
-              <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
-              <RoofMap
-                centerLat={result.tile.centerLat}
-                centerLng={result.tile.centerLng}
-                zoom={result.tile.zoom}
-                overlay={result.cyanOverlay ?? null}
-                fallbackPngBase64={paintedImageBase64}
-              />
+              <div className="eyebrow mb-3 text-center">Three ways to roof this home</div>
+              <div className="flex flex-col" style={{ gap: "10px" }}>
+                {tiers.map((t) => (
+                  <TierRow key={t.tier.id} tier={t} />
+                ))}
+              </div>
             </div>
+          ) : (
+            <div />
+          )}
 
-            {/* Recent severe weather — directly under the map. Was in
-                WhyNowCard's right column; moved here so the left side of
-                the above-the-fold row matches the height of the tier
-                price card. */}
-            <StormsBlock storms={storms} loading={stormsLoading} />
-          </div>
+          {/* BOTTOM-LEFT — recent severe weather */}
+          <StormsBlock storms={storms} loading={stormsLoading} />
 
-          {/* Right column: price + voice-consent CTA, stacked. */}
-          <div className="flex flex-col gap-5 w-full" style={{ maxWidth: "440px" }}>
-            {tiers && (
-              <div className="result-card" style={{ padding: "22px 20px" }}>
-                <div className="eyebrow mb-3 text-center">Three ways to roof this home</div>
-                <div className="flex flex-col" style={{ gap: "10px" }}>
-                  {tiers.map((t) => (
-                    <TierRow key={t.tier.id} tier={t} />
-                  ))}
-                </div>
-                <div
-                  className="mt-4 pt-4 mx-auto text-center"
-                  style={{
-                    fontSize: "12px",
-                    lineHeight: 1.55,
-                    color: "var(--vx-ink-soft)",
-                    maxWidth: "40ch",
-                    borderTop: "1px solid var(--vx-rule)",
-                  }}
-                >
-                  <span style={{ color: "var(--vx-ink)", fontWeight: 700 }}>
-                    Not a final or binding quote.
-                  </span>{" "}
-                  Quick visual estimate from satellite imagery. Final price
-                  depends on what we find on site (decking condition,
-                  layers, code work). Confirmed by a licensed roofer.
-                </div>
-                {/* Display-vs-quotable clarification — only renders when the
-                    headline sqft (3°+ filter, the homeowner's "whole roof")
-                    differs from the asphalt-shingle pricing area (12°+
-                    filter). Quietly explains why the tier prices map to a
-                    smaller number, instead of leaving the customer to wonder
-                    if our math is broken. */}
-                {result.solar.quotableSqft != null &&
-                  sqft != null &&
-                  result.solar.quotableSqft < sqft && (
-                    <div
-                      className="mt-2 mx-auto text-center font-serif italic"
-                      style={{
-                        fontSize: "11px",
-                        lineHeight: 1.5,
-                        color: "var(--vx-muted)",
-                        maxWidth: "44ch",
-                      }}
-                    >
-                      Tier prices cover the{" "}
-                      <span className="tabular" style={{ fontStyle: "normal" }}>
-                        {result.solar.quotableSqft.toLocaleString()}
-                      </span>{" "}
-                      sqft of asphalt-shingle roof. The remaining{" "}
-                      <span className="tabular" style={{ fontStyle: "normal" }}>
-                        {(sqft - result.solar.quotableSqft).toLocaleString()}
-                      </span>{" "}
-                      sqft is low-slope and quotes separately on site (different
-                      material, different price).
-                    </div>
-                  )}
-                <div
-                  className="mt-2 text-center"
-                  style={{
-                    fontSize: "11px",
-                    color: "var(--vx-ink-soft)",
-                    opacity: 0.7,
-                  }}
-                >
-                  Priced as {pricingMaterial.label.toLowerCase()} · {result.pricing?.recommendedWastePercent ?? 12}% waste assumed
-                </div>
-                <div
-                  className="mt-1 text-center"
-                  style={{
-                    fontSize: "10.5px",
-                    color: "var(--vx-muted)",
-                    letterSpacing: "0.04em",
-                    fontFamily: "var(--vx-font-ui)",
-                  }}
-                >
-                  Monthly est. assumes 15-year financing at 9.99% APR.
-                  Actual terms depend on credit + your finance partner.
-                </div>
-              </div>
-            )}
+          {/* BOTTOM-RIGHT — rep CTA, sized to match StormsBlock */}
+          <RepCTACard
+            bookingState={bookingState}
+            bookingError={bookingError}
+            voiceConsent={voiceConsent}
+            setVoiceConsent={setVoiceConsent}
+            leadPublicId={leadPublicId}
+            onBook={bookInPersonEstimate}
+          />
+        </div>
 
-            {/* Voice consent CTA — sits right next to the price. */}
-            {bookingState === "booked" ? (
-              <div
-                className="result-card text-center"
-                style={{
-                  padding: "22px 20px",
-                  borderColor: "var(--vx-terra)",
-                }}
-              >
-                <div className="eyebrow mb-2" style={{ color: "var(--vx-terra)" }}>
-                  You&apos;re on the list
-                </div>
-                <p
-                  className="font-serif mx-auto"
-                  style={{
-                    fontSize: "18px",
-                    lineHeight: 1.35,
-                    color: "var(--vx-ink)",
-                  }}
-                >
-                  A specialist will call within a few minutes to confirm a time. Watch your phone.
-                </p>
-              </div>
-            ) : (
-              <div className="result-card" style={{ padding: "20px 20px" }}>
-                <div className="eyebrow mb-3">Want a rep at your door?</div>
-                <label
-                  className="flex items-start gap-3 cursor-pointer"
-                  style={{
-                    fontSize: "13px",
-                    color: "var(--vx-ink-soft)",
-                    lineHeight: 1.55,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    className="checkbox"
-                    checked={voiceConsent}
-                    onChange={(e) => setVoiceConsent(e.target.checked)}
-                    disabled={!leadPublicId || bookingState === "sending"}
-                  />
-                  <span>
-                    <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                      Call me with an automated voice intro
-                    </span>{" "}
-                    to walk through this estimate and book an on-site visit. I can hang up or reply STOP anytime.
-                  </span>
-                </label>
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    className="btn-terra w-full"
-                    disabled={
-                      !voiceConsent ||
-                      !leadPublicId ||
-                      bookingState === "sending"
-                    }
-                    onClick={bookInPersonEstimate}
-                  >
-                    {bookingState === "sending" ? "Booking…" : "Get a rep to my door"}
-                    <span className="arrow" aria-hidden="true">→</span>
-                  </button>
-                </div>
-                {!leadPublicId && (
-                  <p
-                    className="mt-3"
-                    style={{
-                      fontSize: "11px",
-                      color: "var(--vx-muted)",
-                      fontStyle: "italic",
-                    }}
-                  >
-                    Refresh and resubmit to enable booking.
-                  </p>
-                )}
-                {bookingState === "error" && bookingError && (
-                  <p className="mt-3" style={{ fontSize: "11px", color: "#8a2c2c" }}>
-                    {bookingError}
-                  </p>
-                )}
-              </div>
-            )}
+        {/* Full-width disclosure band — relocated from inside the tier
+            card. Combines: not-binding caveat + (conditional) tier-
+            coverage explanation + material/waste basis + financing
+            assumption, all in one centered fine-print block so the
+            tier card above stays focused on the actual price. */}
+        <DisclosureBand
+          materialLabel={pricingMaterial.label}
+          wastePercent={result.pricing?.recommendedWastePercent ?? 12}
+          quotableSqft={result.solar.quotableSqft}
+          displaySqft={sqft}
+        />
 
-            {/* Tertiary: re-pin link, ghost. */}
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={onRePin}
-                style={{
-                  fontSize: "11px",
-                  letterSpacing: "0.18em",
-                  textTransform: "uppercase",
-                  color: "var(--vx-muted)",
-                  fontWeight: 600,
-                  background: "none",
-                  border: 0,
-                  cursor: "pointer",
-                  padding: "4px 0",
-                }}
-              >
-                ← Re-pin building center
-              </button>
-            </div>
-          </div>
+        {/* Tertiary: re-pin link, ghost. Moved out of the right column
+            now that it doesn't have a third stacked card to anchor under. */}
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={onRePin}
+            style={{
+              fontSize: "11px",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "var(--vx-muted)",
+              fontWeight: 600,
+              background: "none",
+              border: 0,
+              cursor: "pointer",
+              padding: "4px 0",
+            }}
+          >
+            ← Re-pin building center
+          </button>
         </div>
 
         {/* Measurement chips. FACES E ("predominant compass") removed —
@@ -2059,6 +1929,279 @@ function WhyNowCard({
             {closer}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Rep CTA card (bottom-right of the above-the-fold grid) ────────────
+//
+// Repositioned from a stacked card under the tier prices to its own
+// quadrant beside the storms block, matching the storms block's height.
+// Copy rewritten to lead with value ("Lock in your real number") rather
+// than commitment ("Want a rep at your door?") — homeowners just saw a
+// price they didn't ask for, so framing the CTA as VERIFICATION instead
+// of a sales call is the right entrance.
+
+type BookingState = "idle" | "sending" | "booked" | "error";
+
+function RepCTACard({
+  bookingState,
+  bookingError,
+  voiceConsent,
+  setVoiceConsent,
+  leadPublicId,
+  onBook,
+}: {
+  bookingState: BookingState;
+  bookingError: string | null;
+  voiceConsent: boolean;
+  setVoiceConsent: (v: boolean) => void;
+  leadPublicId: string | null;
+  onBook: () => void;
+}): React.ReactElement {
+  if (bookingState === "booked") {
+    return (
+      <div
+        className="result-card relative flex flex-col justify-center text-center"
+        style={{
+          padding: "26px 22px",
+          borderColor: "var(--vx-terra)",
+          borderWidth: "2px",
+        }}
+      >
+        <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+        <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+        <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+        <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+        <div
+          className="font-serif mb-3"
+          style={{
+            fontSize: "20px",
+            fontWeight: 600,
+            color: "var(--vx-terra)",
+            letterSpacing: "-0.005em",
+          }}
+        >
+          You&apos;re on the list
+        </div>
+        <p
+          className="font-serif mx-auto"
+          style={{
+            fontSize: "16px",
+            lineHeight: 1.4,
+            color: "var(--vx-ink)",
+            maxWidth: "32ch",
+          }}
+        >
+          A specialist will call within a few minutes to confirm a time.
+          Watch your phone.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="result-card relative flex flex-col"
+      style={{ padding: "22px 22px" }}
+    >
+      <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+
+      {/* Title — serif terra, matches the StormsBlock title for symmetry. */}
+      <div
+        className="font-serif mb-3 text-center"
+        style={{
+          fontSize: "20px",
+          fontWeight: 600,
+          color: "var(--vx-terra)",
+          letterSpacing: "-0.005em",
+          lineHeight: 1.2,
+        }}
+      >
+        Lock in your real number
+      </div>
+
+      {/* Body — lead with value, end with friction-reducer. */}
+      <p
+        className="text-center mb-4"
+        style={{
+          fontSize: "13.5px",
+          lineHeight: 1.5,
+          color: "var(--vx-ink)",
+        }}
+      >
+        A licensed roofer walks your property — exact sqft, decking
+        condition, code work — and puts a{" "}
+        <span style={{ fontWeight: 600 }}>written quote</span> in your hand.{" "}
+        <span className="font-serif italic" style={{ color: "var(--vx-ink-soft)" }}>
+          Free, about 20 minutes, no obligation.
+        </span>
+      </p>
+
+      {/* TCPA-compliant consent — kept concise. */}
+      <label
+        className="flex items-start gap-3 cursor-pointer mb-4"
+        style={{
+          fontSize: "12.5px",
+          color: "var(--vx-ink-soft)",
+          lineHeight: 1.5,
+        }}
+      >
+        <input
+          type="checkbox"
+          className="checkbox"
+          checked={voiceConsent}
+          onChange={(e) => setVoiceConsent(e.target.checked)}
+          disabled={!leadPublicId || bookingState === "sending"}
+        />
+        <span>
+          Yes, call me with an automated voice intro to schedule. I can
+          hang up or reply STOP anytime.
+        </span>
+      </label>
+
+      <button
+        type="button"
+        className="btn-terra w-full"
+        style={{
+          fontSize: "15px",
+          fontWeight: 700,
+          letterSpacing: "0.02em",
+          padding: "14px 18px",
+        }}
+        disabled={
+          !voiceConsent ||
+          !leadPublicId ||
+          bookingState === "sending"
+        }
+        onClick={onBook}
+      >
+        {bookingState === "sending" ? "Booking…" : "Lock in my real number"}
+        <span className="arrow" aria-hidden="true">→</span>
+      </button>
+
+      {!leadPublicId && (
+        <p
+          className="mt-3 text-center"
+          style={{
+            fontSize: "11px",
+            color: "var(--vx-muted)",
+            fontStyle: "italic",
+          }}
+        >
+          Refresh and resubmit to enable booking.
+        </p>
+      )}
+      {bookingState === "error" && bookingError && (
+        <p className="mt-3 text-center" style={{ fontSize: "11px", color: "#8a2c2c" }}>
+          {bookingError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Disclosure band (full-width fine print under the grid) ─────────────
+//
+// Consolidates four pieces of fine print that used to live inside the
+// tier-price card on the right column:
+//
+//   1. "Not a final or binding quote" caveat
+//   2. (conditional) tier-coverage explanation when display sqft >
+//      quotable sqft (i.e. low-slope addition present)
+//   3. Material + waste basis
+//   4. Financing assumption
+//
+// Pulling them out of the price card lets the tiers stand cleanly on
+// their own and keeps related disclosures grouped in one place.
+
+function DisclosureBand({
+  materialLabel,
+  wastePercent,
+  quotableSqft,
+  displaySqft,
+}: {
+  materialLabel: string;
+  wastePercent: number;
+  quotableSqft: number | null;
+  displaySqft: number | null;
+}): React.ReactElement {
+  const hasLowSlopeGap =
+    quotableSqft != null &&
+    displaySqft != null &&
+    quotableSqft < displaySqft;
+  const lowSlopeSqft = hasLowSlopeGap
+    ? (displaySqft as number) - (quotableSqft as number)
+    : 0;
+  return (
+    <div
+      className="mt-8 mx-auto"
+      style={{
+        maxWidth: "1000px",
+        padding: "18px 24px",
+        borderTop: "1px solid var(--vx-rule)",
+        borderBottom: "1px solid var(--vx-rule)",
+        background: "rgba(15, 27, 45, 0.015)",
+      }}
+    >
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 md:gap-8 text-center">
+        {/* Cell 1 — Not a final quote */}
+        <div style={{ fontSize: "12px", lineHeight: 1.55, color: "var(--vx-ink-soft)" }}>
+          <span style={{ color: "var(--vx-ink)", fontWeight: 700 }}>
+            Not a final or binding quote.
+          </span>{" "}
+          Quick visual estimate from satellite imagery. Final price
+          depends on what we find on site (decking condition, layers,
+          code work). Confirmed by a licensed roofer.
+        </div>
+
+        {/* Cell 2 — Tier coverage (display vs quotable sqft) */}
+        <div style={{ fontSize: "12px", lineHeight: 1.55, color: "var(--vx-ink-soft)" }}>
+          {hasLowSlopeGap ? (
+            <>
+              Tier prices above cover the{" "}
+              <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+                {(quotableSqft as number).toLocaleString()}
+              </span>{" "}
+              sqft of shingled roof. The remaining{" "}
+              <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+                {lowSlopeSqft.toLocaleString()}
+              </span>{" "}
+              sqft is a near-flat section that needs a different
+              material — we add that as a separate line item on site.
+            </>
+          ) : (
+            <>
+              <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+                Priced as {materialLabel.toLowerCase()}
+              </span>{" "}
+              with{" "}
+              <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+                {wastePercent}%
+              </span>{" "}
+              waste assumed. Final material selection happens on the
+              on-site visit.
+            </>
+          )}
+        </div>
+
+        {/* Cell 3 — Financing assumption */}
+        <div style={{ fontSize: "12px", lineHeight: 1.55, color: "var(--vx-ink-soft)" }}>
+          <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+            Monthly est. assumes 15-year financing at 9.99% APR.
+          </span>{" "}
+          Actual terms depend on credit + your finance partner.
+          {hasLowSlopeGap && (
+            <>
+              {" "}Priced as {materialLabel.toLowerCase()},{" "}
+              <span className="tabular">{wastePercent}%</span> waste assumed.
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
