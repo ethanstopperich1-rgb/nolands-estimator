@@ -31,35 +31,134 @@ The truth path for every measurement is the **V3 pipeline** at
 drawer, lead report page) reads from the same JSON shape persisted to
 `leads.roof_v3_json` after the customer's session.
 
-## Business model (locked May 2026)
+## Business model (locked May 2026 — outcome-led)
 
-Voxaris is **vertical SaaS for residential roofing contractors**, NOT
-a lead-gen company and NOT a homeowner-facing free tool. The customer
-is the roofer; the homeowner is the roofer's customer.
+### The one-sentence positioning
 
-The core product is a **free EagleView-quality roof report** —
-within 2% sqft accuracy on Florida HIGH-imagery properties, verified
-against the eval harness in `scripts/eval-eagleview/`. The roofer
-uses it two ways:
+**Voxaris turns any roofing website into a 24/7 appointment machine,
+white-labeled as the contractor's brand.**
 
-1. **Lead magnet** — embedded on their website. Homeowner types
-   address, gets the report, becomes a captured lead.
-2. **Closing tool** — pulled up on the rep's tablet at the kitchen
-   table. Same report, same data, builds trust, closes the deal.
+That's the job. Every component — estimator, Sydney voice AI, SMS
+follow-up, AEO website, JobNimbus push — is in service of that one
+outcome: **booked appointments, 24/7, on their brand.**
 
-Three SKUs per the May 2026 pricing card (see the Noland's Roofing
-proposal for reference numbers):
+NOT positioned as: a lead-gen company, an EagleView competitor,
+"unlimited roof reports", or a "one-stop shop." Those framings all
+anchor on features instead of the outcome the roofer is actually
+buying.
 
-  - **Estimator** (the wedge): $1,500 setup + $1,795/mo · unlimited
-    EagleView-quality reports, white-labeled
-  - **Voice AI receptionist** (Sydney): $1,200 setup + $1,495/mo ·
-    24/7 inbound + 10-sec voice handoff on every captured lead
-  - **Website + AEO Framework v3.2**: $1,495 setup + $1,495/mo ·
-    schema + llms.txt + 4 blog posts/mo + AEO score tracking
+### What this product actually does end-to-end (Noland's deployment)
 
-Bundle: ~$4,800/mo + ~$4,200 setup. ~$57k ARR per contractor. Sell
-the estimator first as the wedge; voice AI + Website+AEO are upsells
-once they're already a customer.
+A complete top-of-funnel revenue machine. The estimator is the entry
+point of an automated pipeline that takes a stranger on a website to
+a booked appointment without a human touching it:
+
+1. Homeowner lands on the contractor's white-labeled subdomain
+2. Types their address → painted EagleView-quality report in <30s
+3. Sydney (AI voice receptionist) calls within ~10s if they consent
+4. SMS follow-up sequence on every lead, opted-in or not
+5. Rep notified instantly (SMS to their cell + dashboard alert)
+6. Appointment books into JobNimbus (or whatever CRM the office uses)
+7. Rep wakes up to booked jobs, not missed after-hours calls
+
+### Buyer psychology (this drives every pitch + landing-page word)
+
+The buyer is a roofing contractor / franchise owner. The Job To Be
+Done is **booked appointments with pre-measured homeowners**. Not
+estimates. Not voice AI. Not websites. The appointment is the only
+thing they actually pay for everything else to produce.
+
+| Psychological obstacle | How "24/7 appointment machine" answers it |
+|---|---|
+| Status-quo bias | Their current stack goes dark at 5pm. Ours doesn't. |
+| Loss aversion | Every unanswered after-hours call is a job that went to the competitor who picked up. |
+| "We already have EagleView" | EagleView sends a PDF. We send a pre-measured homeowner to your CRM. |
+| "We have a website" | A website that doesn't capture + follow up leads is a brochure. |
+| Bundle price feels high | What's a booked appointment worth in FL? $8k–$40k. Math runs itself. |
+| Trust gap (new vendor) | White-label means homeowners see your brand, not ours. You own the relationship. |
+| "We use an answering service" | An answering service takes a message. Sydney books the appointment. |
+
+**White-label is a psychological lock-in mechanism, not just a feature.**
+Once the contractor's brand is on the subdomain, their ads point to
+it, their yard signs have the QR code — switching costs become
+enormous (IKEA effect + endowment effect). They've built their lead
+machine on top of us. That's the moat.
+
+### The competitive frame — we don't compete with EagleView
+
+We compete with **the contractor's current cobbled-together stack** —
+and we win by making that stack feel like the liability it is:
+
+- vs. **EagleView**: "EagleView sends a PDF to your rep's inbox. We
+  send a pre-measured homeowner to your CRM."
+- vs. **website agency**: "Your agency built you a brochure. We built
+  you a lead machine."
+- vs. **answering service**: "An answering service takes a message.
+  Sydney books the appointment."
+- vs. **Angi / HomeAdvisor**: "Angi sells your lead to 4 other
+  roofers. Ours routes to you exclusively, pre-measured, with the
+  homeowner already on the phone."
+
+### Hierarchy of messages (use this order in every channel)
+
+For every pitch deck, X post, cold DM, landing page:
+
+1. **The outcome** (always first): Booked appointments. 24/7.
+   White-labeled as your brand.
+2. **The mechanism** (credibility): Homeowner types address → roof
+   report in <30s → Sydney calls within ~10s → appointment in your
+   CRM.
+3. **The contrast** (anchoring): You're paying EagleView per report,
+   an agency for a site that doesn't capture leads, an answering
+   service that misses after-hours. We replace all three.
+4. **The proof point**: Newcomb accuracy data now. Noland's case
+   study once deployed.
+5. **The ask** (always specific): "Try your own address at
+   pitch.voxaris.io. Takes 30 seconds."
+
+### The cold-pitch script (canonical)
+
+> "We turn your website into a 24/7 appointment machine —
+> white-labeled as your brand. Homeowner types their address, gets
+> an EagleView-quality roof report in 30 seconds, Sydney calls them
+> within 10 seconds, appointment books into your CRM. You wake up to
+> booked jobs, not missed calls.
+>
+> Florida contractors are running this at ~$1,800/mo for the
+> estimator alone, ~$4,800/mo for the full stack.
+>
+> Demo takes 30 seconds: try your address at pitch.voxaris.io."
+
+The "wake up to booked jobs, not missed calls" line is the
+loss-aversion frame. Every roofer has experienced waking up to a
+missed call that became a competitor's job. That sentence lives in
+their memory.
+
+### Pricing + sales order (commitment-and-consistency sequence)
+
+Three SKUs per the May 2026 pricing card (Noland's Roofing proposal
+for reference numbers):
+
+- **Estimator** (the wedge): $1,500 setup + $1,795/mo · unlimited
+  white-labeled reports, the lead-capture surface
+- **Voice AI receptionist** (Sydney): $1,200 setup + $1,495/mo ·
+  24/7 inbound + ~10-sec voice handoff on every captured lead
+- **Website + AEO Framework v3.2**: $1,495 setup + $1,495/mo ·
+  schema + llms.txt + 4 blog posts/mo + AEO score tracking
+
+Bundle: ~$4,800/mo + ~$4,200 setup. ~$57k ARR per contractor.
+
+**The sequence matters.** Do NOT pitch the bundle in cold outreach
+— the foot-in-the-door psychology works against you. Sell the
+estimator first ("try your address, 30 seconds"). Once they're a
+customer:
+- Upsell #1 (voice AI): "leads are flowing — want Sydney to call
+  them within 10 seconds so you stop losing the after-hours ones?"
+- Upsell #2 (AEO website): "your competitors are getting answered
+  in ChatGPT/Perplexity searches. Here's how to get there too."
+
+Each yes makes the next yes easier. Collapsing this into one
+bundle pitch upfront flips the psychology against you.
 
 **What `pitch.voxaris.io` actually is**: the public demo Voxaris uses
 to close contractors. NOT the customer product. Real customer
