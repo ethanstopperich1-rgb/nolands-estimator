@@ -12,20 +12,28 @@
  * thin shell.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
 import { fmtDateTime, fmtUSD, type Lead } from "@/lib/dashboard-format";
+import {
+  calculateTieredPricingWithPenetrations,
+  geminiMaterialToRateKey,
+  type TierPrice,
+} from "@/lib/pricing/calculate-waste";
+import RepAssignDropdown from "@/components/dashboard/RepAssignDropdown";
 
 interface PaintedV3 {
   painted_url?: string | null;
   solar?: {
     sqft: number | null;
-    /** Pricing-eligible sqft (≥ 12° pitch only — the asphalt-shingle
+    /** Pricing-eligible asphalt-shingle sqft (≥ 12° pitch only — the
      *  basis the customer's tier prices were calculated against).
      *  When this differs from `sqft` (display headline, ≥ 3°), the
-     *  customer saw a low-slope addition disclosure. Rep should see
-     *  both numbers so a re-quote on-site stays consistent. */
+     *  customer saw a low-slope addition disclosure. Falls back to
+     *  `sqft` for legacy records that predate the display/quotable
+     *  split. Rep should see both numbers so a re-quote on-site stays
+     *  consistent. */
     quotableSqft?: number | null;
     footprintSqft?: number | null;
     pitchDegrees: number | null;
@@ -56,6 +64,10 @@ interface PaintedV3 {
     eavesLf?: number;
     linesCount?: number;
   } | null;
+  /** Gemini Flash structured output. `roofMaterial` drives tier
+   *  material scaling at ≥0.65 confidence (same floor as the customer
+   *  page — see app/page.tsx). `facetCountEstimate` is informational
+   *  for the rep's measurement panel. */
   geminiAnalysis?: {
     roofMaterial?: { type: string; confidence: number } | null;
     facetCountEstimate?: {
@@ -64,9 +76,10 @@ interface PaintedV3 {
       confidence: number;
     } | null;
   };
-  /** Per-tier penetration adders that fed into the customer's tier
-   *  prices. Rep needs visibility so a re-quote on-site matches what
-   *  the customer was shown. */
+  /** Pricing inputs persisted by the V3 pipeline. Recomputed
+   *  client-side here for the tier render so reps see the same
+   *  Good/Better/Best the customer saw, including the per-tier
+   *  penetration adders that fed into the customer's totals. */
   pricing?: {
     recommendedWastePercent: number;
     penetrationAddersTotal: number;
@@ -77,6 +90,15 @@ interface PaintedV3 {
       subtotal: number;
     }>;
   };
+  /** Object detections post-filter. Same shape the customer page
+   *  receives — fed into `calculateTieredPricingWithPenetrations` so
+   *  the per-fixture adders on rep tiers match the customer's. */
+  objects?: Array<{
+    type: string;
+    centerPx?: { x: number; y: number };
+    bboxPx?: { x: number; y: number; width: number; height: number };
+    confidence?: number;
+  }>;
 }
 
 /** Same confidence threshold the customer page applies before using a
@@ -96,6 +118,55 @@ export default function LeadReport({ lead }: { lead: Lead }) {
   const v3 = (lead.roof_v3_json ?? null) as PaintedV3 | null;
   const paintedUrl =
     typeof v3?.painted_url === "string" ? v3.painted_url : null;
+
+  // ── Customer-equivalent tier pricing ──────────────────────────────
+  // Recompute the Good/Better/Best the customer saw, from the same
+  // inputs and same lib function. Reps need to see the price they
+  // were quoted against, not just measurements. Falls back gracefully
+  // when v3 is missing or partial (legacy leads, or rep-side estimates
+  // entered manually without a V3 run).
+  const displaySqft = v3?.solar?.sqft ?? null;
+  const quotableSqft = v3?.solar?.quotableSqft ?? displaySqft;
+  const pricingObjects = (v3?.objects ?? []).map((o) => ({
+    type: o.type,
+    centerPx: o.centerPx ?? { x: 0, y: 0 },
+    bboxPx: o.bboxPx ?? { x: 0, y: 0, width: 0, height: 0 },
+    confidence: o.confidence ?? 1,
+  }));
+  const detectedMaterialKey =
+    geminiMaterialToRateKey(v3?.geminiAnalysis?.roofMaterial?.type) ?? null;
+  const detectedMaterialConfidence =
+    v3?.geminiAnalysis?.roofMaterial?.confidence ?? 0;
+  // Same 0.65 floor the customer page uses (app/page.tsx). Low-confidence
+  // material → fall back to architectural-shingle baseline. Better to
+  // under-quote on a tile-or-metal hunch than to over-quote on a wrong
+  // guess.
+  const pricingMaterialKey =
+    detectedMaterialConfidence >= 0.65 ? detectedMaterialKey : null;
+  const tiers: TierPrice[] | null = useMemo(() => {
+    if (quotableSqft == null) return null;
+    const wastePercent = v3?.pricing?.recommendedWastePercent ?? 12;
+    const waste = {
+      suggestedPercent: wastePercent,
+      complexityScore: 0,
+      breakdown: {
+        fromFacets: 0,
+        fromValleys: 0,
+        fromRidgesHips: 0,
+        fromSteepPitch: 0,
+      },
+      table: [] as Array<{ percent: number; totalSquares: number }>,
+    };
+    return calculateTieredPricingWithPenetrations(
+      quotableSqft,
+      waste,
+      pricingObjects,
+      pricingMaterialKey,
+    ).tiers;
+    // Inputs derived from v3 are stable per-lead; recompute on
+    // re-render is cheap (one synchronous function call).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotableSqft, v3?.pricing?.recommendedWastePercent, pricingMaterialKey, lead.public_id]);
 
   // Property fallbacks. Many leads land with `zip` and `county` empty
   // on the row even when the address string carries them — /api/leads
@@ -225,18 +296,28 @@ export default function LeadReport({ lead }: { lead: Lead }) {
               ) : null}
             </p>
           </div>
-          <Link
-            href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium transition-colors"
-            style={{
-              background: "var(--vx-ink)",
-              color: "var(--vx-cream)",
-              borderRadius: 0,
-            }}
-          >
-            Open in workbench
-            <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Rep assignment lives next to "Open in workbench" so the
+                manager's first action on opening a lead is to pick who
+                owns it. Hides itself when no reps are loaded (Supabase
+                misconfigured, or office has no rep records yet). */}
+            <RepAssignDropdown
+              leadId={lead.id}
+              currentAssignedTo={lead.assigned_to ?? null}
+            />
+            <Link
+              href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium transition-colors"
+              style={{
+                background: "var(--vx-ink)",
+                color: "var(--vx-cream)",
+                borderRadius: 0,
+              }}
+            >
+              Open in workbench
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -293,6 +374,43 @@ export default function LeadReport({ lead }: { lead: Lead }) {
           </div>
         )}
       </Section>
+
+      {/* ── Customer-quoted tier prices ────────────────────────────────
+          Mirrors the Good/Better/Best the customer saw on the result
+          screen. Computed from the same inputs (quotableSqft, waste %,
+          penetration adders, detected material at ≥0.65 confidence) and
+          the same `calculateTieredPricingWithPenetrations` lib call.
+          Hides when there's no V3 sqft to price against — legacy leads,
+          or rows where the V3 run never persisted. */}
+      {tiers && tiers.length > 0 ? (
+        <Section title="Customer-quoted tiers" badge="V3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {tiers.map((t) => (
+              <RepTierCard key={t.tier.id} tier={t} />
+            ))}
+          </div>
+          {quotableSqft != null && displaySqft != null && quotableSqft < displaySqft ? (
+            <p
+              className="mt-3 text-[12px] font-serif italic"
+              style={{ color: "var(--vx-ink-soft)" }}
+            >
+              Customer saw{" "}
+              <span className="tabular" style={{ fontStyle: "normal" }}>
+                {displaySqft.toLocaleString()}
+              </span>{" "}
+              sqft headline; tier prices cover the{" "}
+              <span className="tabular" style={{ fontStyle: "normal" }}>
+                {quotableSqft.toLocaleString()}
+              </span>{" "}
+              sqft of asphalt-shingle roof. The remaining{" "}
+              <span className="tabular" style={{ fontStyle: "normal" }}>
+                {(displaySqft - quotableSqft).toLocaleString()}
+              </span>{" "}
+              sqft is low-slope and quoted separately on site.
+            </p>
+          ) : null}
+        </Section>
+      ) : null}
 
       {/* ── Two-column: customer + property ───────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -852,5 +970,59 @@ function KnobInput({
       />
       <span>{suffix}</span>
     </label>
+  );
+}
+
+/**
+ * Per-tier card on the customer-quoted tiers row. Mirrors the
+ * Good/Better/Best the customer saw on app/page.tsx but rendered in
+ * the dashboard's flat-cream styling. Shows the monthly finance
+ * number BIG (matching the customer's lead-with-monthly UI from
+ * commit cba144d) with the cash total in fine print.
+ */
+function RepTierCard({ tier }: { tier: TierPrice }) {
+  return (
+    <div
+      className="p-4 flex flex-col"
+      style={{
+        background: "var(--vx-cream)",
+        border: "1px solid var(--vx-rule)",
+      }}
+    >
+      <div
+        className="text-[10px] uppercase tracking-[0.18em] font-semibold mb-1.5"
+        style={{ color: "var(--vx-terra)" }}
+      >
+        {tier.tier.name}
+      </div>
+      <div
+        className="text-[12px] mb-3"
+        style={{ color: "var(--vx-ink-soft)", lineHeight: 1.45 }}
+      >
+        {tier.tier.tagline}
+      </div>
+      <div className="mt-auto">
+        <div className="flex items-baseline gap-1">
+          <span
+            className="font-serif tabular"
+            style={{ fontSize: "26px", lineHeight: 1, color: "var(--vx-ink)" }}
+          >
+            {fmtUSD(tier.monthly)}
+          </span>
+          <span
+            className="font-serif italic"
+            style={{ fontSize: "12px", color: "var(--vx-ink-soft)" }}
+          >
+            /mo
+          </span>
+        </div>
+        <div
+          className="mt-1 tabular"
+          style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+        >
+          est. {fmtUSD(tier.total)} total
+        </div>
+      </div>
+    </div>
   );
 }
