@@ -770,6 +770,19 @@ function HeroScreen({
         {/* Hero copy */}
         <div className="relative z-10 max-w-5xl mx-auto px-6 lg:px-10 pt-24 lg:pt-32 pb-16 lg:pb-20 text-center">
           <OrnamentSvg />
+          {/* Brand promise tag — sets the time expectation before the
+              homeowner submits anything. If the pipeline ever runs
+              longer than this, that's a regression worth fixing in the
+              route, not a copy change here. The corresponding "≈ 30
+              sec" badge next to the address input echoes this promise
+              at the exact moment they're about to commit. */}
+          <div
+            className="rise eyebrow mb-6"
+            data-d="1"
+            style={{ color: "var(--vx-terra)" }}
+          >
+            Price · in as little as 30 seconds
+          </div>
           <h1
             className="rise font-serif tracking-tight mx-auto"
             data-d="1"
