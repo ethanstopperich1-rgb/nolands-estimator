@@ -21,6 +21,7 @@
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
@@ -2031,7 +2032,7 @@ function SaveEstimateCard({
             <span style={{ color: "var(--vx-ink)" }}>{resolved.formatted}</span>.
             Add a customer name / phone later from the lead drawer.
           </p>
-          <a
+          <Link
             href="/dashboard/leads"
             className="self-start inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium transition-colors"
             style={{
@@ -2041,7 +2042,7 @@ function SaveEstimateCard({
             }}
           >
             View in leads →
-          </a>
+          </Link>
         </div>
       ) : (
         <div className="flex flex-col gap-3">

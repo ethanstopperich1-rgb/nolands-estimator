@@ -14,6 +14,7 @@
  */
 
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ArrowRight, Lock, User } from "lucide-react";
 import { Wordmark } from "@/components/Wordmark";
@@ -212,13 +213,13 @@ function LoginForm() {
           style={{ color: "var(--vx-muted)" }}
         >
           Staff credentials only. Customers reach the public estimator at{" "}
-          <a
+          <Link
             href="/"
             className="underline"
             style={{ color: "var(--vx-ink-soft)" }}
           >
             pitch.voxaris.io
-          </a>
+          </Link>
           .
         </p>
       </div>
