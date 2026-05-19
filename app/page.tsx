@@ -345,6 +345,20 @@ function VoxarisFlow() {
   const [result, setResult] = useState<V3Response | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loadingElapsed, setLoadingElapsed] = useState(0);
+  // Stash of the data the hero form POSTed to /api/leads, kept around
+  // so the result screen can RETRY the lead capture if the initial
+  // submit failed (network blip, server hiccup, etc.). Prior version
+  // just showed "Refresh and resubmit" as a dead-end hint with no
+  // actionable retry path — customer dropped off.
+  const [pendingLeadCapture, setPendingLeadCapture] = useState<{
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+    lat: number;
+    lng: number;
+    officeSlug: string;
+  } | null>(null);
 
   // Loading ticker
   useEffect(() => {
@@ -464,11 +478,12 @@ function VoxarisFlow() {
     <>
       {step === "hero" && (
         <HeroScreen
-          onAddressResolved={(addr, leadId) => {
+          onAddressResolved={(addr, leadId, capturePayload) => {
             setResolved(addr);
             setLeadPublicId(leadId ?? null);
             setPinLat(addr.lat);
             setPinLng(addr.lng);
+            setPendingLeadCapture(capturePayload);
             setStep("pin");
           }}
         />
@@ -494,6 +509,8 @@ function VoxarisFlow() {
           result={result}
           resolved={resolved}
           leadPublicId={leadPublicId}
+          onLeadRecaptured={(id) => setLeadPublicId(id)}
+          pendingLeadCapture={pendingLeadCapture}
           onRePin={() => setStep("pin")}
           onStartOver={startOver}
         />
@@ -522,10 +539,24 @@ function formatPhone(raw: string): string {
 
 // ─── Hero (Voxaris brand) ───────────────────────────────────────────────
 
+export interface LeadCapturePayload {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  lat: number;
+  lng: number;
+  officeSlug: string;
+}
+
 function HeroScreen({
   onAddressResolved,
 }: {
-  onAddressResolved: (addr: AddressResolved, leadId: string | null) => void;
+  onAddressResolved: (
+    addr: AddressResolved,
+    leadId: string | null,
+    capturePayload: LeadCapturePayload,
+  ) => void;
 }) {
   const addrRef = useRef<HTMLInputElement>(null);
   const [resolvedAddr, setResolvedAddr] = useState<AddressResolved | null>(null);
@@ -656,7 +687,20 @@ function HeroScreen({
       } catch {
         /* Lead capture failure must not block the estimate. */
       }
-      onAddressResolved(resolvedAddr, leadPublicId);
+      // Pass the form data through so the result screen can RETRY the
+      // capture if leadPublicId came back null (network blip, server
+      // hiccup, BotID false-positive, etc.). recaptchaToken is single-
+      // use and we don't re-issue here — retry path will mint a new
+      // token on demand.
+      onAddressResolved(resolvedAddr, leadPublicId, {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        address: resolvedAddr.formatted,
+        lat: resolvedAddr.lat,
+        lng: resolvedAddr.lng,
+        officeSlug,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -1250,27 +1294,31 @@ function ResultScreen({
   result,
   resolved,
   leadPublicId,
+  onLeadRecaptured,
+  pendingLeadCapture,
   onRePin,
   onStartOver,
 }: {
   result: V3Response;
   resolved: AddressResolved;
   leadPublicId: string | null;
+  /** Called after a successful retry submission so the parent flow
+   *  can update its leadPublicId state and re-enable booking. */
+  onLeadRecaptured: (publicId: string) => void;
+  /** Form data captured on the hero submit, kept around so the result
+   *  screen can retry /api/leads when the initial submit didn't return
+   *  a publicId. Null in legacy flows (e.g. dev where the user pasted
+   *  a URL straight to the result step). */
+  pendingLeadCapture: LeadCapturePayload | null;
   onRePin: () => void;
   onStartOver: () => void;
 }) {
-  const { solar, paintedImageBase64, objects, facets, derived, geminiEdges, edges } = result;
+  const { solar, paintedImageBase64, objects, facets, derived } = result;
   const sqft = solar.sqft;
   const pitch = solar.pitchDegrees;
   const pitchOn12 = pitch != null && pitch > 0
     ? `${Math.max(1, Math.round(Math.tan((pitch * Math.PI) / 180) * 12))}/12`
     : null;
-
-  // Edges are rep-only data and the Solar classifier on its own
-  // (without Gemini line passes) misfires on simple gables, returning
-  // patterns like 0/0/562/642. Not shown on the customer page.
-  void geminiEdges;
-  void edges;
 
   // Material-aware customer pricing: read Gemini's detected material
   // and scale tier rates so a concrete-tile or metal roof gets quoted
@@ -1432,6 +1480,51 @@ function ResultScreen({
     }
   }
 
+  // Retry lead-capture from the result screen. Fires when the initial
+  // hero submit returned no publicId (network blip, server hiccup,
+  // BotID false-positive). Surfaced as a single visible button in the
+  // Rep CTA card instead of the prior dead-end "Refresh and resubmit"
+  // hint. Reuses the form data stashed on the parent flow.
+  const [leadRetryState, setLeadRetryState] = useState<"idle" | "sending" | "error">("idle");
+  const [leadRetryError, setLeadRetryError] = useState<string | null>(null);
+  const canRetryLead = !leadPublicId && pendingLeadCapture != null;
+  async function retryLeadCapture(): Promise<void> {
+    if (!pendingLeadCapture || leadRetryState === "sending") return;
+    setLeadRetryState("sending");
+    setLeadRetryError(null);
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: pendingLeadCapture.name,
+          email: pendingLeadCapture.email,
+          phone: pendingLeadCapture.phone,
+          address: pendingLeadCapture.address,
+          lat: pendingLeadCapture.lat,
+          lng: pendingLeadCapture.lng,
+          source: "pitch.voxaris.io",
+          office: pendingLeadCapture.officeSlug,
+          marketingConsent: true,
+          voiceConsent: false,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Lead capture ${res.status}: ${text.slice(0, 200)}`);
+      }
+      const data = (await res.json()) as { leadId?: string };
+      if (typeof data.leadId !== "string") {
+        throw new Error("Lead capture returned no ID");
+      }
+      onLeadRecaptured(data.leadId);
+      setLeadRetryState("idle");
+    } catch (err) {
+      setLeadRetryError(err instanceof Error ? err.message : String(err));
+      setLeadRetryState("error");
+    }
+  }
+
   return (
     <div className="relative min-h-[100dvh] flex flex-col">
       <div className="ambient" />
@@ -1566,6 +1659,10 @@ function ResultScreen({
             setVoiceConsent={setVoiceConsent}
             leadPublicId={leadPublicId}
             onBook={bookInPersonEstimate}
+            canRetryLead={canRetryLead}
+            leadRetryState={leadRetryState}
+            leadRetryError={leadRetryError}
+            onRetryLead={retryLeadCapture}
           />
         </div>
 
@@ -2048,6 +2145,10 @@ function RepCTACard({
   setVoiceConsent,
   leadPublicId,
   onBook,
+  canRetryLead,
+  leadRetryState,
+  leadRetryError,
+  onRetryLead,
 }: {
   bookingState: BookingState;
   bookingError: string | null;
@@ -2055,6 +2156,13 @@ function RepCTACard({
   setVoiceConsent: (v: boolean) => void;
   leadPublicId: string | null;
   onBook: () => void;
+  /** True when leadPublicId is null AND we have stashed form data we
+   *  can re-POST. Triggers the visible "Reconnect" button instead of
+   *  the prior dead-end "Refresh and resubmit" hint. */
+  canRetryLead: boolean;
+  leadRetryState: "idle" | "sending" | "error";
+  leadRetryError: string | null;
+  onRetryLead: () => void;
 }): React.ReactElement {
   if (bookingState === "booked") {
     return (
@@ -2200,7 +2308,39 @@ function RepCTACard({
           Free measurement · Written quote · Your decision
         </div>
 
-        {!leadPublicId && (
+        {!leadPublicId && canRetryLead && (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={onRetryLead}
+              disabled={leadRetryState === "sending"}
+              style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                letterSpacing: "0.02em",
+                color: "var(--vx-terra)",
+                background: "none",
+                border: `1px solid var(--vx-terra)`,
+                borderRadius: "6px",
+                padding: "8px 14px",
+                cursor: leadRetryState === "sending" ? "wait" : "pointer",
+              }}
+            >
+              {leadRetryState === "sending"
+                ? "Reconnecting…"
+                : "Reconnect to enable booking"}
+            </button>
+            {leadRetryState === "error" && leadRetryError && (
+              <p
+                className="mt-2"
+                style={{ fontSize: "11px", color: "#8a2c2c" }}
+              >
+                {leadRetryError}
+              </p>
+            )}
+          </div>
+        )}
+        {!leadPublicId && !canRetryLead && (
           <p
             className="mt-2 text-center"
             style={{
@@ -2295,15 +2435,23 @@ function DisclosureBand({
             </>
           ) : (
             <>
+              Tier prices above cover the full{" "}
+              {displaySqft != null && (
+                <>
+                  <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+                    {displaySqft.toLocaleString()}
+                  </span>{" "}
+                </>
+              )}
+              sqft of shingled roof, priced as{" "}
               <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                Priced as {materialLabel.toLowerCase()}
+                {materialLabel.toLowerCase()}
               </span>{" "}
               with{" "}
               <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
                 {wastePercent}%
               </span>{" "}
-              waste assumed. Final material selection happens on the
-              on-site visit.
+              waste assumed.
             </>
           )}
         </div>
