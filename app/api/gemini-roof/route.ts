@@ -1058,7 +1058,11 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // Bumped — global alpha scaled down to 0.70 (composite + GroundOverlay)
 // so the cyan tint reads less "too bright blue" on complex multi-facet
 // roofs. Cached composites at full 1.0 alpha re-roll under the dim.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-no-metal-awnings";
+// Bumped — customer pricing switched from `quotableSqft` (≥12° subset)
+// to the full headline `sqft`. Oak Park was under-quoted because the
+// low-slope split carved out 1,130 sqft incorrectly. Cached pre-bump
+// estimates would tier-price wrong on the customer page.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-full-sqft-pricing";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and

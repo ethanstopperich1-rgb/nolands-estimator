@@ -1337,10 +1337,10 @@ function ResultScreen({
 }) {
   const { solar, paintedImageBase64, objects, facets, derived } = result;
   const sqft = solar.sqft;
-  const pitch = solar.pitchDegrees;
-  const pitchOn12 = pitch != null && pitch > 0
-    ? `${Math.max(1, Math.round(Math.tan((pitch * Math.PI) / 180) * 12))}/12`
-    : null;
+  // pitchDegrees + pitchOn12 derivation removed from customer view —
+  // Solar's per-facet pitch was unreliable on complex roofs and the
+  // chip didn't help homeowners decide anything. Rep dashboard still
+  // surfaces pitch from `solar.pitchDegrees` directly.
 
   // Material-aware customer pricing: read Gemini's detected material
   // and scale tier rates so a concrete-tile or metal roof gets quoted
@@ -1383,15 +1383,16 @@ function ResultScreen({
   //      that survived the six-guard filter chain
   // The rep workbench has the detailed waste breakdown; this is the
   // customer-visible quote.
-  // Pricing-eligible sqft. We deliberately price on `quotableSqft` (the
-  // ≥ 12° asphalt-shingle portion) rather than the wider headline `sqft`
-  // so the tier dollars stay calibrated to asphalt costs even when the
-  // headline includes a low-slope addition or lanai cover. Falls back
-  // to the headline sqft on responses that predate the split (e.g.
-  // cached estimates rendered before the May 18 fix), or when the V3
-  // pipeline routed through the OSM correction (MEDIUM/LOW imagery) —
-  // both cases mean `quotableSqft === sqft` already.
-  const pricingSqft = result.solar.quotableSqft ?? sqft;
+  // Pricing-eligible sqft. We price on the FULL headline `sqft`, not
+  // the ≥12° "quotable" subset. Reason: Solar API's per-facet pitch
+  // estimate is unreliable on complex Florida roofs (8450 Oak Park
+  // showed a 1,130 sqft "low-slope" carve-out that was wrong, leading
+  // to under-quoted tier prices on a 5,487 sqft roof). The rep adjusts
+  // for actual flat sections on-site during the 20-minute walkthrough —
+  // that's where the lanai / pool-cage / TPO call belongs, not in a
+  // satellite-derived auto-split. `quotableSqft` stays in the V3
+  // response for rep-dashboard use, just not surfaced to the customer.
+  const pricingSqft = sqft;
   const tiers: TierPrice[] | null = useMemo(() => {
     if (pricingSqft == null) return null;
     const wastePercent = result.pricing?.recommendedWastePercent ?? 12;
@@ -1726,13 +1727,12 @@ function ResultScreen({
         </div>
 
         {/* Measurement chips. FACES E ("predominant compass") removed —
-            not useful to the customer. */}
+            not useful to the customer. Pitch chip ALSO removed — the
+            per-facet pitch data from Solar API was unreliable on
+            complex Florida roofs (8450 Oak Park showed a wrong
+            low-slope split), and a single rolled-up pitch number is a
+            measurement artifact the rep will verify on site anyway. */}
         <div className="mt-10 flex flex-wrap justify-center gap-3">
-          {pitch != null && (
-            <span className="chip">
-              Pitch <span className="chip-value">{pitchOn12 ?? `${Math.round(pitch)}°`}</span>
-            </span>
-          )}
           {(() => {
             // Display the higher of (Solar's resolved-segment count, Gemini's
             // visual count). Solar under-segments on MEDIUM imagery — Gemini
@@ -2495,16 +2495,17 @@ function DisclosureBand({
 }: {
   materialLabel: string;
   wastePercent: number;
+  /** @deprecated kept for back-compat; ignored at the customer
+   *  surface. Rep dashboard still reads it. */
   quotableSqft: number | null;
   displaySqft: number | null;
 }): React.ReactElement {
-  const hasLowSlopeGap =
-    quotableSqft != null &&
-    displaySqft != null &&
-    quotableSqft < displaySqft;
-  const lowSlopeSqft = hasLowSlopeGap
-    ? (displaySqft as number) - (quotableSqft as number)
-    : 0;
+  // Customer view always reports the full headline sqft. The
+  // satellite-derived "shingled vs flat" split was unreliable on
+  // complex Florida roofs (8450 Oak Park) and confused homeowners
+  // who saw a sqft on the page that didn't match the tier-price
+  // breakdown.
+  void quotableSqft; // silence the unused warning; field intentionally retained
   return (
     <div
       className="mt-8 mx-auto"
@@ -2527,43 +2528,27 @@ function DisclosureBand({
           code work). Confirmed by a licensed roofer.
         </div>
 
-        {/* Cell 2 — Tier coverage (display vs quotable sqft) */}
+        {/* Cell 2 — Tier coverage. Always reports the full headline
+            sqft; flat-section adjustments are a rep-side concern, not
+            a customer-page split. */}
         <div style={{ fontSize: "12px", lineHeight: 1.55, color: "var(--vx-ink-soft)" }}>
-          {hasLowSlopeGap ? (
+          Tier prices above cover the full{" "}
+          {displaySqft != null && (
             <>
-              Tier prices above cover the{" "}
               <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                {(quotableSqft as number).toLocaleString()}
+                {displaySqft.toLocaleString()}
               </span>{" "}
-              sqft of shingled roof. The remaining{" "}
-              <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                {lowSlopeSqft.toLocaleString()}
-              </span>{" "}
-              sqft is a near-flat section that needs a different
-              material (TPO membrane or similar) — we&apos;ll quote
-              that on site.
-            </>
-          ) : (
-            <>
-              Tier prices above cover the full{" "}
-              {displaySqft != null && (
-                <>
-                  <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                    {displaySqft.toLocaleString()}
-                  </span>{" "}
-                </>
-              )}
-              sqft of shingled roof, priced as{" "}
-              <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                {materialLabel.toLowerCase()}
-              </span>{" "}
-              with{" "}
-              <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-                {wastePercent}%
-              </span>{" "}
-              waste assumed.
             </>
           )}
+          sqft, priced as{" "}
+          <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+            {materialLabel.toLowerCase()}
+          </span>{" "}
+          with{" "}
+          <span className="tabular" style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
+            {wastePercent}%
+          </span>{" "}
+          waste assumed. Any flat-roof sections are adjusted on site.
         </div>
 
         {/* Cell 3 — Financing assumption */}
@@ -2572,12 +2557,6 @@ function DisclosureBand({
             Monthly est. assumes 15-year financing at 9.99% APR.
           </span>{" "}
           Actual terms depend on credit + your finance partner.
-          {hasLowSlopeGap && (
-            <>
-              {" "}Priced as {materialLabel.toLowerCase()},{" "}
-              <span className="tabular">{wastePercent}%</span> waste assumed.
-            </>
-          )}
         </div>
       </div>
     </div>
