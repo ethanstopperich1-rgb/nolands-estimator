@@ -2737,6 +2737,28 @@ function StormsBlock({
           >
             Source: NWS Local Storm Reports via Iowa Environmental Mesonet.
           </div>
+
+          {/* Storm-context closer (was previously rendered inside the
+              Property Record card, which read like a layout bug — moved
+              here so the hail / wind narrative lives WITH the data it
+              describes). */}
+          {(() => {
+            const stormCloser = buildStormNarrative(storms?.summary ?? null);
+            if (!stormCloser) return null;
+            return (
+              <div
+                className="mt-4 pt-3 font-serif italic text-center"
+                style={{
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                  color: "var(--vx-ink)",
+                  borderTop: "1px solid var(--vx-rule)",
+                }}
+              >
+                {stormCloser}
+              </div>
+            );
+          })()}
         </>
       ) : null}
     </div>
@@ -2914,17 +2936,17 @@ function RoofConditionSection({
  * to hide the closer entirely than ship a hollow "based on the data above"
  * filler line.
  */
-function buildWhyNowNarrative({
-  age,
-  effAge,
-  yearsOwned,
-  storms,
-}: {
-  age: number | null;
-  effAge: number | null;
-  yearsOwned: number | null;
-  storms: RecentStormsResponse["summary"] | null;
-}): string | null {
+/**
+ * Storm-context closer — renders at the bottom of the Severe Weather
+ * card. Split out of the original `buildWhyNowNarrative` so the hail /
+ * wind copy actually appears INSIDE the severe-weather block, not the
+ * property-record block (which is what was happening before — visually
+ * confusing because the closer was about storms but lived under
+ * "Property record"). Returns null when there's nothing storm-y enough
+ * to warrant a callout. */
+function buildStormNarrative(
+  storms: RecentStormsResponse["summary"] | null,
+): string | null {
   // 1. Recent hail — the highest-leverage talking point.
   if (storms && storms.hailCount > 0 && storms.maxHailInches != null) {
     const hailSize = storms.maxHailInches;
@@ -2938,6 +2960,23 @@ function buildWhyNowNarrative({
   if (storms && storms.windCount >= 3) {
     return `${storms.windCount} damaging-wind events were logged within 25 miles in the past year. Repeated high-wind exposure stresses fasteners and seal strips — small failures now become leaks at the next big storm.`;
   }
+  return null;
+}
+
+function buildWhyNowNarrative({
+  age,
+  effAge,
+  yearsOwned,
+  storms,
+}: {
+  age: number | null;
+  effAge: number | null;
+  yearsOwned: number | null;
+  storms: RecentStormsResponse["summary"] | null;
+}): string | null {
+  // Storm branches (1 + 2) have moved to buildStormNarrative + render
+  // inside the Severe Weather card. This function now only returns
+  // property-record-side closers (age + mixed age/storm).
 
   // 3. Old roof structure — the asphalt-shingle retirement signal.
   const effectiveAge = effAge ?? age;
