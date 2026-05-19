@@ -105,6 +105,10 @@ import {
   geminiMaterialToRateKey,
 } from "@/lib/pricing/calculate-waste";
 import { lookupParcel, type ParcelLookupResult } from "@/lib/parcel-lookup";
+import {
+  runVisualRoofEval,
+  type EvalResult as VisualRoofEvalResult,
+} from "@/lib/visual-roof-eval";
 
 export const runtime = "nodejs";
 // Paint-only mode budget: Pro Image is the only Gemini call now.
@@ -955,6 +959,43 @@ export interface GeminiRoofResponseV3 {
    *  response is fully usable without it; the customer "Why this roof
    *  needs attention" card just hides the parcel-derived bullets. */
   parcel: ParcelLookupResult | null;
+  /** Customer-facing roof condition assessment derived from
+   *  Gemini 2.5 Pro reading the top-down satellite tile + a heading-
+   *  corrected Street View pano of the same building. Surfaced in the
+   *  ParcelBlock to give the customer hedged "what our imagery
+   *  suggests" pain points before the rep walks the property.
+   *
+   *  LEGAL FRAMING RULE — customer-facing renderers MUST hedge every
+   *  observation as a system detection ("appears to be", "our system
+   *  detected", "typically indicates") and defer ground truth to the
+   *  rep on-site. NEVER render the raw enum tokens to customers; map
+   *  them through a copy table that retains the hedge. See
+   *  feedback_visual_condition_legal_framing memory.
+   *
+   *  Null on any of:
+   *    - Either image fetch failed / Pro call failed / parse failed
+   *    - Pro timed out (45s soft ceiling, fail-open to null)
+   *    - Identity gate tripped (no image came back identity="match")
+   *
+   *  Confidence gate is the renderer's job — `confidence: "low"`
+   *  outputs SHOULD render material (if known) but suppress
+   *  conditionObservations. */
+  visualRoofAssessment: {
+    /** Raw enum from Pro. Renderer maps to plain English. */
+    primaryMaterial: string;
+    /** Subset of the schema enum — renderer further filters down to
+     *  pain-point observations only (omits `color_uniformity_good`,
+     *  `tree_overhang_heavy`, `no_visible_issues` from customer view). */
+    conditionObservations: string[];
+    confidence: "high" | "medium" | "low";
+    /** Free-text from Pro — rep-facing only. Not for customer copy. */
+    observationNotes: string | null;
+    /** True when Street View was within the 30m guardrail and Pro
+     *  flagged at least one image identity="match". Used to render
+     *  "verified from a [date] street-level photo" disclosure. */
+    streetViewVerified: boolean;
+    streetViewDate: string | null;
+  } | null;
   modelVersion: string;
   computedAt: string;
 }
@@ -1017,7 +1058,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // Bumped — global alpha scaled down to 0.70 (composite + GroundOverlay)
 // so the cyan tint reads less "too bright blue" on complex multi-facet
 // roofs. Cached composites at full 1.0 alpha re-roll under the dim.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-low-pitch-override";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-visual-assessment";
 
 /** Cheap text-only model used solely for object detection alongside
  *  the painted-image call. Pro Image is expensive ($0.075/call) and
@@ -1612,17 +1653,99 @@ async function handleV3Pinned(
   // when Solar's roofSegmentStats.length is in [2, 6]. Never on
   // complex multi-wing estates.
   const solarSegmentsForHint: number | null = null;
-  // Two-call parallel fan-out. Prior versions also fired callGeminiLines
-  // on raw + painted, which produced rep-only edge LFs flagged as
-  // unreliable in the route header AND pushed total wall clock past
-  // the 90s function ceiling on complex roofs (Vercel logs showed the
-  // raw-lines call timing out at 30s). Cutting both line calls + the
+  // Three-call parallel fan-out (paint + flash rich-data + visual
+  // roof assessment). Prior versions also fired callGeminiLines on raw
+  // + painted, which produced rep-only edge LFs flagged as unreliable
+  // in the route header AND pushed total wall clock past the 90s
+  // function ceiling on complex roofs (Vercel logs showed the raw-
+  // lines call timing out at 30s). Cutting both line calls + the
   // second-pass painted rich-data call brings the pipeline from
-  // 70-120s back to 30-55s.
-  const [paintedResult, richResult] = await Promise.allSettled([
+  // 70-120s back to 30-55s, leaving headroom to fold the visual roof
+  // assessment into the same parallel block.
+  //
+  // Visual roof assessment (gemini-2.5-pro × top-down + Street View)
+  // is fail-open with a hard 45s ceiling — it's a customer-facing
+  // pain-point surface, NOT a measurement input. Any failure path
+  // (timeout, network, parse, identity mismatch) → null → ParcelBlock
+  // omits the condition section. Uses tile.rawBase64 because the
+  // shadow-lifted variant Pro Image / Flash receive flattens the very
+  // signal (granule shading, streaking) the condition assessor needs.
+  const VISUAL_ASSESSMENT_TIMEOUT_MS = 45_000;
+  const visualEvalPromise: Promise<VisualRoofEvalResult | null> = Promise.race([
+    runVisualRoofEval({
+      lat,
+      lng,
+      label: `pin=${lat.toFixed(5)},${lng.toFixed(5)}`,
+      geminiKey,
+      googleKey,
+      topDownBytes: Buffer.from(tile.rawBase64, "base64"),
+    }).catch((err) => {
+      console.warn(
+        "[gemini-roof v3] visual_assessment_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+      return null;
+    }),
+    new Promise<null>((resolve) =>
+      setTimeout(() => {
+        console.warn(
+          `[gemini-roof v3] visual_assessment_timeout after ${VISUAL_ASSESSMENT_TIMEOUT_MS}ms`,
+        );
+        resolve(null);
+      }, VISUAL_ASSESSMENT_TIMEOUT_MS),
+    ),
+  ]);
+  void trackAiSpend(
+    AI_CALL_COST_USD.gemini_pro_visual_assessment,
+    `gemini-roof-v3-visual lat=${lat.toFixed(4)} lng=${lng.toFixed(4)}`,
+  );
+
+  const [paintedResult, richResult, visualResult] = await Promise.allSettled([
     callGeminiMultimodal(tile.base64, geminiKey, solarSegmentsForHint),
     callGeminiRichData(tile.base64, geminiKey),
+    visualEvalPromise,
   ]);
+
+  // ─── Visual roof assessment → identity gate → slim shape for response ──
+  // Trip null when:
+  //   - call failed / timed out (Promise.race resolved to null above)
+  //   - Pro returned but JSON parse failed
+  //   - identity gate: no image flagged as "match" — Pro saw a
+  //     different building or both views were obstructed. Surfacing
+  //     condition copy under either case would describe the wrong
+  //     roof, which violates the legal-framing rule even with hedging.
+  let visualRoofAssessment: GeminiRoofResponseV3["visualRoofAssessment"] = null;
+  if (visualResult.status === "fulfilled" && visualResult.value) {
+    const ev = visualResult.value;
+    const parsed = ev.pro.parsed;
+    if (parsed) {
+      const anyImageMatched = parsed.images.some((i) => i.identity === "match");
+      if (anyImageMatched) {
+        const conf = (parsed.confidence ?? "low") as "high" | "medium" | "low";
+        visualRoofAssessment = {
+          primaryMaterial: parsed.primaryMaterial ?? "unknown",
+          conditionObservations: parsed.conditionObservations ?? [],
+          confidence: conf,
+          observationNotes: parsed.observationNotes ?? null,
+          streetViewVerified: !ev.pano.skipped,
+          streetViewDate: ev.pano.date,
+        };
+      } else {
+        console.log(
+          `[gemini-roof v3] visual_assessment_identity_gated images=${parsed.images
+            .map((i) => `${i.index}:${i.identity}`)
+            .join(",")}`,
+        );
+      }
+    }
+  } else if (visualResult.status === "rejected") {
+    console.warn(
+      "[gemini-roof v3] visual_assessment_settled_rejected",
+      visualResult.reason instanceof Error
+        ? visualResult.reason.message
+        : String(visualResult.reason),
+    );
+  }
 
   if (paintedResult.status === "fulfilled") {
     paintedImageBase64 = paintedResult.value.paintedImageBase64;
@@ -2500,6 +2623,7 @@ async function handleV3Pinned(
       penetrationAdderLines: penetrationAdders.lines,
     },
     parcel,
+    visualRoofAssessment,
     modelVersion: GEMINI_MODEL,
     computedAt: new Date().toISOString(),
   };

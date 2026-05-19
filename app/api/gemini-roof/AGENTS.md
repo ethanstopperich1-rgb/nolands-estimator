@@ -147,6 +147,13 @@ that subdir's AGENTS.md).
 
 - `gemini-3-pro-image-preview` — paint pass (decorative cyan)
 - `gemini-2.5-flash` — objects, lines, rich data (truth, structured JSON)
+- `gemini-2.5-pro` — visual roof assessment (customer-facing material +
+  hedged condition observations from `lib/visual-roof-eval.ts`). Reads
+  the top-down RAW tile + a heading-corrected Street View pano; identity-
+  gated before any customer copy is rendered. **Customer renderer MUST
+  hedge every observation** ("appears to be", "possible", "what looks
+  like") — see `feedback_visual_condition_legal_framing` in
+  ~/.claude/projects/.../memory.
 
 **Pro Image and Flash have DIFFERENT config rules** (see comments at
 lines 17-37 of route.ts):

@@ -197,6 +197,18 @@ interface V3Response {
     dorUseCode: string;
     assessmentYear: number | null;
   } | null;
+  /** Customer-facing roof condition signal — Pro reading the top-down
+   *  + a Street View pano of the same building. Null on any failure or
+   *  identity-gate trip. Renderer MUST hedge ("appears to be") and
+   *  defer to rep on-site (legal framing — see V3 route comment). */
+  visualRoofAssessment?: {
+    primaryMaterial: string;
+    conditionObservations: string[];
+    confidence: "high" | "medium" | "low";
+    observationNotes: string | null;
+    streetViewVerified: boolean;
+    streetViewDate: string | null;
+  } | null;
   modelVersion?: string;
   computedAt?: string;
 }
@@ -1403,6 +1415,7 @@ function ResultScreen({
   // fold a moment later. Parcel data ships INSIDE the V3 response (no
   // extra fetch); storms come from /api/storms/recent.
   const parcel = result.parcel;
+  const visualRoofAssessment = result.visualRoofAssessment ?? null;
   const [storms, setStorms] = useState<RecentStormsResponse | null>(null);
   // Tracks whether the storms fetch is in flight. Used by StormsBlock
   // to show a 3-line skeleton until the IEM mirror responds, so the
@@ -1642,7 +1655,11 @@ function ResultScreen({
           {/* BOTTOM-RIGHT — property record (parcel data). Replaces the
               prior Rep CTA quadrant; the CTA moved to a full-width
               band below the disclosure for stronger visual weight. */}
-          <ParcelBlock parcel={parcel} storms={storms} />
+          <ParcelBlock
+            parcel={parcel}
+            storms={storms}
+            visualRoofAssessment={visualRoofAssessment}
+          />
         </div>
 
         {/* Wide Rep CTA — sits directly under the 2×2 grid as the
@@ -1882,13 +1899,79 @@ function ImageryQualityBadge({
 // caption also surfaces the actual reason so reps debugging from the
 // rep workbench know whether to look it up manually.
 
+/** Map Pro's enum primaryMaterial → plain-English label. Returns null
+ *  for tokens that shouldn't surface to the customer (unknown / mixed
+ *  → rep verifies). */
+function describeMaterial(token: string): string | null {
+  switch (token) {
+    case "asphalt_3tab":
+      return "3-tab asphalt shingle";
+    case "asphalt_architectural":
+      return "Architectural asphalt shingle";
+    case "concrete_tile":
+      return "Concrete tile";
+    case "clay_tile":
+      return "Clay tile";
+    case "metal_standing_seam":
+      return "Standing-seam metal";
+    case "flat_membrane":
+      return "Flat membrane (TPO/EPDM)";
+    case "mixed":
+    case "unknown":
+    default:
+      return null;
+  }
+}
+
+/** Map Pro's enum conditionObservation → hedged customer copy.
+ *
+ *  LEGAL FRAMING — see `feedback_visual_condition_legal_framing` memory.
+ *  Every line MUST read as a system detection ("appears", "possible",
+ *  "what looks like"), never as a factual claim. The implication clause
+ *  ("typically a sign of…") describes a general industry fact, which is
+ *  safe; the observation clause is the part Pro could be wrong about
+ *  and must therefore stay hedged.
+ *
+ *  Returns null for non-pain-point enums that would dilute the
+ *  conversion goal (color_uniformity_good, tree_overhang_heavy,
+ *  no_visible_issues). Those still live in the API response for the
+ *  rep workbench. */
+function describeObservation(token: string): string | null {
+  switch (token) {
+    case "dark_streaking":
+      return "Possible algae streaking observed — typically associated with roofs 8+ years old.";
+    case "granule_loss":
+      return "Possible granule loss in patches — usually a sign the protective layer is wearing down.";
+    case "missing_shingles":
+      return "What looks like missing shingles in places — typically a leak-risk indicator.";
+    case "patches_or_repairs":
+      return "Prior patch repairs appear visible — partial fixes usually don't restore the original system warranty.";
+    case "tarp_visible":
+      return "What appears to be a tarp covering part of the roof — usually indicates active or recent damage.";
+    case "ridge_damage":
+      return "Possible damage along the ridge cap — a common water-intrusion path.";
+    case "moss_or_vegetation":
+      return "Possible moss or vegetation growth — typically traps moisture against the deck and accelerates wear.";
+    case "color_uniformity_good":
+    case "tree_overhang_heavy":
+    case "no_visible_issues":
+    default:
+      return null;
+  }
+}
+
 function ParcelBlock({
   parcel,
   storms,
+  visualRoofAssessment,
 }: {
   parcel: V3Response["parcel"];
   /** Storms data feeds the optional closing narrative paragraph. */
   storms: RecentStormsResponse | null;
+  /** Hedged AI roof read — surfaces as a "Roof — what our imagery
+   *  suggests" sub-section. Null when V3 dropped it (identity gate
+   *  tripped, Pro failed, etc). */
+  visualRoofAssessment: V3Response["visualRoofAssessment"];
 }): React.ReactElement {
   const currentYear = new Date().getFullYear();
   const age =
@@ -2049,6 +2132,7 @@ function ParcelBlock({
               />
             )}
           </dl>
+          <RoofConditionSection assessment={visualRoofAssessment} />
           <div
             className="mt-3 font-serif italic text-center"
             style={{ fontSize: "11px", color: "var(--vx-muted)" }}
@@ -2071,6 +2155,10 @@ function ParcelBlock({
           className="flex-1 flex flex-col justify-center text-center"
           style={{ fontSize: "13px", lineHeight: 1.55 }}
         >
+          {/* Roof condition lives above the "no parcel data" copy so
+              even properties FDOR doesn't cover still get a visible
+              pain-point read when our system saw something. */}
+          <RoofConditionSection assessment={visualRoofAssessment} />
           <p
             className="font-serif"
             style={{
@@ -2663,6 +2751,129 @@ function WhyRow({
       >
         {value}
       </dd>
+    </div>
+  );
+}
+
+/**
+ * Customer-facing roof condition read from the V3 visual assessment.
+ *
+ * LEGAL FRAMING — see `feedback_visual_condition_legal_framing` memory.
+ * This component renders Gemini Pro's output as a SYSTEM DETECTION,
+ * never as fact about the roof:
+ *   - Header reads "What our imagery suggests" (hedged framing)
+ *   - Material line says "appears to be…"
+ *   - Each observation already has its own hedge ("Possible…",
+ *     "What looks like…") via describeObservation()
+ *   - Footer defers ground truth to the rep on-site
+ *
+ * Gates:
+ *   - Returns null if assessment is null (identity gate tripped /
+ *     Pro failed / V3 didn't include the field).
+ *   - At `confidence: "low"` shows the material line if any, but
+ *     SUPPRESSES observations (don't hand a customer pain points the
+ *     model itself flagged as uncertain).
+ *   - Filters non-pain-point enums (color_uniformity_good,
+ *     tree_overhang_heavy, no_visible_issues) — they live in the API
+ *     response for the rep view but undermine conversion here.
+ *   - Renders nothing if neither material nor any pain-point
+ *     observations survived the filters.
+ */
+function RoofConditionSection({
+  assessment,
+}: {
+  assessment: V3Response["visualRoofAssessment"];
+}): React.ReactElement | null {
+  if (!assessment) return null;
+
+  const materialLabel = describeMaterial(assessment.primaryMaterial);
+  const lowConfidence = assessment.confidence === "low";
+  const observationLines = lowConfidence
+    ? []
+    : assessment.conditionObservations
+        .map(describeObservation)
+        .filter((line): line is string => line != null);
+
+  // Don't render the section at all if there's nothing customer-safe
+  // to show. Empty space is better than the section header followed
+  // by zero content.
+  if (!materialLabel && observationLines.length === 0) return null;
+
+  // Format the Street View pano date as "Mar 2024" when present.
+  // Anchors the read in a real photo the customer could verify.
+  let streetViewDateLabel: string | null = null;
+  if (assessment.streetViewVerified && assessment.streetViewDate) {
+    const d = new Date(assessment.streetViewDate);
+    if (!Number.isNaN(d.getTime())) {
+      streetViewDateLabel = d.toLocaleDateString(undefined, {
+        month: "short",
+        year: "numeric",
+      });
+    }
+  }
+
+  return (
+    <div
+      className="mt-4 pt-3"
+      style={{ borderTop: "1px solid var(--vx-rule, rgba(0,0,0,0.08))" }}
+    >
+      <div
+        style={{
+          fontSize: "11px",
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "var(--vx-muted)",
+          fontWeight: 600,
+          marginBottom: 8,
+        }}
+      >
+        What our imagery suggests
+      </div>
+      {materialLabel && (
+        <p
+          className="font-serif"
+          style={{
+            fontSize: "14px",
+            color: "var(--vx-ink)",
+            margin: "0 0 8px",
+            lineHeight: 1.45,
+          }}
+        >
+          Existing roof appears to be{" "}
+          <span style={{ fontWeight: 600 }}>{materialLabel}</span>.
+        </p>
+      )}
+      {observationLines.length > 0 && (
+        <ul
+          style={{
+            margin: 0,
+            paddingLeft: 18,
+            fontSize: "13px",
+            color: "var(--vx-ink)",
+            lineHeight: 1.5,
+          }}
+        >
+          {observationLines.map((line, idx) => (
+            <li key={idx} style={{ marginBottom: 4 }}>
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p
+        className="font-serif italic"
+        style={{
+          fontSize: "11px",
+          color: "var(--vx-muted)",
+          margin: "10px 0 0",
+          lineHeight: 1.4,
+        }}
+      >
+        Computer-vision read from satellite
+        {streetViewDateLabel ? ` + a ${streetViewDateLabel} street-level photo` : ""}.
+        Final condition is assessed by your rep during the on-site
+        walkthrough.
+      </p>
     </div>
   );
 }

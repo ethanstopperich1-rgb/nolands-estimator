@@ -172,6 +172,10 @@ export async function trackAiSpend(usd: number, tag: string): Promise<void> {
 export const AI_CALL_COST_USD = {
   gemini_pro_image_paint: 0.18,
   gemini_flash_json: 0.01,
+  // 2-image gemini-2.5-pro call (top-down + Street View) used by the
+  // customer-facing roof condition surface. Conservative high-end —
+  // actual is ~$0.03 on typical token counts.
+  gemini_pro_visual_assessment: 0.05,
   solar_findclosest: 0.05,
   chromium_pdf_render: 0.02,
 } as const;

@@ -332,11 +332,18 @@ export async function runVisualRoofEval(args: {
   label: string;
   geminiKey: string;
   googleKey: string;
+  /** Optional pre-fetched RAW top-down PNG bytes. When provided, skips
+   *  the Static Maps fetch — used by the V3 hot path so we don't double-
+   *  bill the tile (V3 already fetched it). Must be untouched bytes;
+   *  shadow-lifted variants flatten the signal Pro needs to read. */
+  topDownBytes?: Buffer;
 }): Promise<EvalResult> {
   const t0 = Date.now();
 
   // 1. Top-down tile
-  const topDown = await fetchTopDownTile(args.lat, args.lng, args.googleKey);
+  const topDown = args.topDownBytes
+    ? { bytes: args.topDownBytes, mime: "image/png" as const }
+    : await fetchTopDownTile(args.lat, args.lng, args.googleKey);
 
   // 2. Street View metadata + guardrails
   const meta = await fetchStreetViewMetadata(
