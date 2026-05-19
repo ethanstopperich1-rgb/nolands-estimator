@@ -1351,6 +1351,14 @@ function ResultScreen({
   const [bookingState, setBookingState] = useState<"idle" | "sending" | "booked" | "error">("idle");
   const [bookingError, setBookingError] = useState<string | null>(null);
 
+  // Tier accordion: which tier card is currently expanded. Prior version
+  // gave each TierRow its own open state, so clicking a row only added
+  // to the expansion without closing others — causing the top-row cards
+  // (map / tier prices) to grow vertically as multiple tiers expanded
+  // and breaking the symmetric 2×2 grid. Single source of truth here
+  // gives accordion behavior: open one, close any other.
+  const [openTierId, setOpenTierId] = useState<string | null>("better");
+
   async function bookInPersonEstimate(): Promise<void> {
     if (!voiceConsent || !leadPublicId) return;
     setBookingState("sending");
@@ -1471,7 +1479,16 @@ function ResultScreen({
               <div className="eyebrow mb-3 text-center">Three ways to roof this home</div>
               <div className="flex flex-col" style={{ gap: "10px" }}>
                 {tiers.map((t) => (
-                  <TierRow key={t.tier.id} tier={t} />
+                  <TierRow
+                    key={t.tier.id}
+                    tier={t}
+                    isOpen={openTierId === t.tier.id}
+                    onToggle={() =>
+                      setOpenTierId((current) =>
+                        current === t.tier.id ? null : t.tier.id,
+                      )
+                    }
+                  />
                 ))}
               </div>
             </div>
@@ -2526,8 +2543,16 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
  *  the image file is missing. */
 // ─── Good / Better / Best tier row ──────────────────────────────────────
 
-function TierRow({ tier }: { tier: TierPrice }) {
-  const [open, setOpen] = useState(tier.tier.id === "better");
+function TierRow({
+  tier,
+  isOpen,
+  onToggle,
+}: {
+  tier: TierPrice;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const open = isOpen;
   const accentColor =
     tier.tier.accent === "premium"
       ? "var(--vx-terra-dark)"
@@ -2545,7 +2570,7 @@ function TierRow({ tier }: { tier: TierPrice }) {
     >
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={onToggle}
         style={{
           display: "flex",
           width: "100%",
