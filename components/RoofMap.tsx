@@ -5,22 +5,12 @@
  * polygon Gemini detected draped over the satellite imagery via a
  * GroundOverlay.
  *
- * Resilience notes:
- *
- *   - The container uses absolute positioning inside a `position:
- *     relative` parent. The `result-card` wrapper provides `position:
- *     relative` and the aspect-ratio sizing; `inset: 0` makes this
- *     element fill it deterministically, sidestepping the
- *     aspect-ratio + h-full child race that some browsers hit.
- *   - Loading state is visible (a faint "Loading map…" caption) so a
- *     blank dark square never appears even on slow connections.
- *   - Errors render a visible, customer-readable message instead of
- *     silently falling back to a static image with no explanation.
- *     Fallback PNG is shown only when one is available; otherwise the
- *     error caption stands alone.
- *   - `loadGoogle()` is a shared singleton — if the address-autocomplete
- *     already loaded Maps on the hero, this promise resolves
- *     synchronously.
+ * Always renders the map container. If the Google Maps JS API fails to
+ * load (key issue, referrer block, billing, etc.), we show the static
+ * composite image AS WELL AS a visible badge with the actual error
+ * message so we can diagnose. Prior versions hid the error behind a
+ * silent fallback img, which made the failure indistinguishable from
+ * "Pro Image had nothing to paint."
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -29,21 +19,12 @@ import { loadGoogle } from "@/lib/google";
 export interface RoofMapProps {
   centerLat: number;
   centerLng: number;
-  /** Static-Maps zoom the cyan polygon was produced at. The interactive
-   *  map opens at this zoom so the polygon matches the satellite frame
-   *  one-to-one on first render; the user can zoom out from there. */
   zoom: number;
-  /** Transparent-background PNG of the cyan polygon plus the lat/lng
-   *  bounds it should be georeferenced against. When null, the map
-   *  renders without an overlay. */
   overlay: {
     base64: string;
     bounds: { north: number; south: number; east: number; west: number };
   } | null;
-  /** Static composite image (real aerial + cyan). Used as a final
-   *  fallback when the Google Maps JS loader fails. */
   fallbackPngBase64: string | null;
-  /** Optional alt text for the fallback image / a11y description. */
   altText?: string;
 }
 
@@ -64,38 +45,51 @@ export default function RoofMap({
   useEffect(() => {
     let cancelled = false;
     let groundOverlay: google.maps.GroundOverlay | null = null;
+    let mapInstance: google.maps.Map | null = null;
     loadGoogle()
       .then((g) => {
         if (cancelled || !containerRef.current) return;
-        const map = new g.maps.Map(containerRef.current, {
-          center: { lat: centerLat, lng: centerLng },
-          zoom,
-          mapTypeId: "satellite",
-          tilt: 0,
-          rotateControl: false,
-          disableDefaultUI: true,
-          zoomControl: true,
-          gestureHandling: "greedy",
-          minZoom: 17,
-          maxZoom: 22,
-          keyboardShortcuts: false,
-          fullscreenControl: false,
-          mapTypeControl: false,
-          streetViewControl: false,
-        });
-        if (overlay) {
-          const bounds = new g.maps.LatLngBounds(
-            { lat: overlay.bounds.south, lng: overlay.bounds.west },
-            { lat: overlay.bounds.north, lng: overlay.bounds.east },
-          );
-          groundOverlay = new g.maps.GroundOverlay(
-            `data:image/png;base64,${overlay.base64}`,
-            bounds,
-            { opacity: 1.0, clickable: false },
-          );
-          groundOverlay.setMap(map);
+        try {
+          mapInstance = new g.maps.Map(containerRef.current, {
+            center: { lat: centerLat, lng: centerLng },
+            zoom,
+            mapTypeId: "satellite",
+            tilt: 0,
+            rotateControl: false,
+            disableDefaultUI: true,
+            zoomControl: true,
+            gestureHandling: "greedy",
+            minZoom: 17,
+            maxZoom: 22,
+            keyboardShortcuts: false,
+            fullscreenControl: false,
+            mapTypeControl: false,
+            streetViewControl: false,
+          });
+          if (overlay) {
+            const bounds = new g.maps.LatLngBounds(
+              { lat: overlay.bounds.south, lng: overlay.bounds.west },
+              { lat: overlay.bounds.north, lng: overlay.bounds.east },
+            );
+            groundOverlay = new g.maps.GroundOverlay(
+              `data:image/png;base64,${overlay.base64}`,
+              bounds,
+              { opacity: 1.0, clickable: false },
+            );
+            groundOverlay.setMap(mapInstance);
+          }
+          if (!cancelled) setState("ready");
+        } catch (mapBuildErr) {
+          const msg =
+            mapBuildErr instanceof Error
+              ? mapBuildErr.message
+              : String(mapBuildErr);
+          console.warn("[RoofMap] map_construct_failed", msg);
+          if (!cancelled) {
+            setErrMsg(`map ctor: ${msg}`);
+            setState("error");
+          }
         }
-        if (!cancelled) setState("ready");
       })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -111,42 +105,52 @@ export default function RoofMap({
     };
   }, [centerLat, centerLng, zoom, overlay]);
 
-  // Hard-failed path: show the static composite if we have one, otherwise
-  // a readable error caption. Never leave the slot blank.
+  // Failure path — render fallback img IF AVAILABLE, but ALSO show the
+  // error message visibly so the actual cause is diagnosable from a
+  // screenshot. Prior version hid the error behind the img and we
+  // couldn't tell why the map wasn't showing.
   if (state === "error") {
-    if (fallbackPngBase64) {
-      return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={`data:image/png;base64,${fallbackPngBase64}`}
-          alt={altText}
+    return (
+      <>
+        {fallbackPngBase64 && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={`data:image/png;base64,${fallbackPngBase64}`}
+            alt={altText}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        )}
+        <div
           style={{
             position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
+            left: 8,
+            right: 8,
+            bottom: 8,
+            padding: "8px 12px",
+            background: "rgba(15, 27, 45, 0.85)",
+            color: "#fff",
+            fontSize: 11,
+            lineHeight: 1.45,
+            borderRadius: 4,
+            fontFamily: "var(--vx-font-ui, system-ui, sans-serif)",
           }}
-        />
-      );
-    }
-    return (
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 24,
-          fontSize: 13,
-          color: "var(--vx-muted, #8A7E68)",
-          textAlign: "center",
-        }}
-      >
-        Map could not load.
-        {errMsg ? <div style={{ marginTop: 6, fontSize: 11 }}>{errMsg}</div> : null}
-      </div>
+        >
+          <div style={{ fontWeight: 600, letterSpacing: "0.05em" }}>
+            Interactive map could not load
+          </div>
+          {errMsg ? (
+            <div style={{ opacity: 0.85, marginTop: 2, fontSize: 10.5 }}>
+              {errMsg}
+            </div>
+          ) : null}
+        </div>
+      </>
     );
   }
 
