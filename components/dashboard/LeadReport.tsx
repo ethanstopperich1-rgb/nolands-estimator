@@ -324,16 +324,60 @@ export default function LeadReport({ lead }: { lead: Lead }) {
       {/* ── Painted overlay (hero) ────────────────────────────────── */}
       <Section title="Roof overlay" badge={paintedUrl ? "V3" : null}>
         {paintedUrl ? (
-          <div
-            className="overflow-hidden"
-            style={{ border: "1px solid var(--vx-rule)" }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={paintedUrl}
-              alt={`Painted roof for ${lead.address}`}
-              className="w-full h-auto block"
-            />
+          <div className="flex flex-col gap-3">
+            <div
+              className="overflow-hidden"
+              style={{ border: "1px solid var(--vx-rule)" }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={paintedUrl}
+                alt={`Painted roof for ${lead.address}`}
+                className="w-full h-auto block"
+              />
+            </div>
+            {/* Inline regenerate affordance — handles the case where
+                the stored image is missing the cyan overlay because
+                either (a) this lead pre-dates the composite logic, or
+                (b) Pro Image fell back to raw aerial at run time
+                (mask < 5% or > 35% of frame). Either way the rep can
+                re-roll V3 from here without leaving the page. Small
+                subtle link so it doesn't compete with the image for
+                attention when the cyan IS present. */}
+            <div className="flex items-center justify-between gap-3 text-[12px]">
+              <span style={{ color: "var(--vx-muted)" }}>
+                Missing the cyan overlay? Re-run the analysis to rebuild it.
+              </span>
+              <button
+                type="button"
+                onClick={regenerate}
+                disabled={genStatus === "running"}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  background: "transparent",
+                  color: "var(--vx-terra)",
+                  border: "1px solid var(--vx-terra)",
+                  borderRadius: 0,
+                }}
+              >
+                {genStatus === "running" ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Re-running…
+                  </>
+                ) : (
+                  <>Re-run V3</>
+                )}
+              </button>
+            </div>
+            {genStatus === "error" && genError ? (
+              <p
+                className="text-[12px]"
+                style={{ color: "var(--vx-terra-dark)" }}
+              >
+                {genError}
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="flex flex-col gap-3">

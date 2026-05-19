@@ -446,7 +446,17 @@ function LeadDrawer({
           </div>
           <div className="flex items-center gap-2">
             <Link
-              href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
+              // "See report" goes to the FULL-PAGE LEAD REPORT, not the
+              // estimate workbench. The lead report (LeadReport.tsx at
+              // /dashboard/leads/[publicId]) is the customer-style
+              // long-scroll view: painted overlay, headline sqft,
+              // customer-quoted tiers, storm history, property record
+              // — everything the homeowner saw plus the rep-only
+              // measurement panels. The estimate workbench is for
+              // editing numbers BEFORE a quote ships; it's the wrong
+              // surface when a rep just wants to skim what the
+              // customer saw and act on it.
+              href={`/dashboard/leads/${encodeURIComponent(lead.public_id)}`}
               className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-[12.5px] font-medium bg-[var(--vx-terra)] hover:bg-[var(--vx-terra-dark)] text-[var(--vx-cream)] transition-colors"
             >
               See report
