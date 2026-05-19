@@ -11,6 +11,7 @@ import {
   LEAD_WEBHOOK_SCHEMA_VERSION,
   publishLeadEvent,
 } from "@/lib/lead-webhook";
+import { buildHomeownerShareUrl } from "@/lib/share-url";
 import {
   createServiceRoleClient,
   resolveOfficeBySlug,
@@ -616,7 +617,14 @@ export async function POST(req: Request) {
     // the SMS-first lead flow Voxaris is testing pre-Voice-Trust: SMS
     // confirms → YES → Sydney calls → post-call SMS to homeowner +
     // rep notify SMS. Keep "BOOK" too for the legacy bot path.
-    const smsBody = `Hi ${firstName}, this is ${agentName} from ${officeName}. We got your estimate request for ${body.address}. ${estimateLine}Reply YES and Sydney (our AI assistant) will call you now to schedule a free inspection. Reply STOP to opt out.`;
+    // Homeowner-share URL — they can bookmark it, email it to their
+    // spouse, send to a contractor friend. Served by /r/[publicId],
+    // server-rendered from the persisted V3 blob (no fresh pipeline
+    // call). Open Graph + Twitter cards make the URL render as a
+    // rich preview in iMessage / WhatsApp / Twitter.
+    const shareOrigin = new URL(req.url).origin;
+    const shareUrl = buildHomeownerShareUrl(leadId, shareOrigin);
+    const smsBody = `Hi ${firstName}, this is ${agentName} from ${officeName}. We got your estimate request for ${body.address}. ${estimateLine}Your full report: ${shareUrl} — keep it for your records. Reply YES and Sydney (our AI assistant) will call you now to schedule a free inspection. Reply STOP to opt out.`;
 
     // Run both writes in parallel and don't await — keep the API
     // response fast.
