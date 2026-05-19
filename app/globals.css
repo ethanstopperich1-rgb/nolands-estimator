@@ -68,25 +68,12 @@ body {
    Scoped under `.voxaris` so it covers the customer estimator, public
    pages, future white-label subdomains — but never the dashboard. */
 
-/* Self-hosted brand fonts. Drop files at /public/fonts/DragonEF.otf and
-   /public/fonts/Ambit-SemiBold.ttf to activate. While files are absent,
-   the font-family stack below falls through to next/font Cormorant +
-   Hanken Grotesk so the brand fonts gracefully degrade and the page
-   remains laid out correctly. */
-@font-face {
-  font-family: "DragonEF";
-  src: url("/fonts/DragonEF.otf") format("opentype");
-  font-weight: 400 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Ambit";
-  src: url("/fonts/Ambit-SemiBold.ttf") format("truetype");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
+/* Self-hosted brand fonts are loaded via next/font/local in app/layout.tsx
+   so Next.js generates a metric-adjusted fallback family at build time.
+   That eliminates the layout shift that used to occur when the brand
+   font finished downloading (hero text reflowed vertical→horizontal on
+   first page load). Reference via the CSS variables in the type stack
+   below: var(--font-dragon) and var(--font-ambit). */
 
 .voxaris {
   /* Color — locked to Voxaris Brand v1.0 */
@@ -99,9 +86,12 @@ body {
   --vx-terra-dark: #A8542E;
   --vx-rule:       rgba(15, 27, 45, 0.18);
   --vx-rule-soft:  rgba(15, 27, 45, 0.08);
-  /* Type — DragonEF display, Ambit SemiBold UI, with graceful fallback. */
-  --vx-font-display: "DragonEF", var(--font-cormorant), Georgia, serif;
-  --vx-font-ui:      "Ambit", var(--font-hanken), "Helvetica Neue", system-ui, sans-serif;
+  /* Type — DragonEF display, Ambit SemiBold UI, with graceful fallback.
+     Both brand families are loaded via next/font/local (see layout.tsx)
+     so the fallback is metric-adjusted and the eventual swap doesn't
+     reflow the page. */
+  --vx-font-display: var(--font-dragon), var(--font-cormorant), Georgia, serif;
+  --vx-font-ui:      var(--font-ambit), var(--font-hanken), "Helvetica Neue", system-ui, sans-serif;
   /* Radius — sharp by default; cards 2px */
   --vx-radius-btn:   0;
   --vx-radius-card:  2px;

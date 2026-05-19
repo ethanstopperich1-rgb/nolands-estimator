@@ -8,6 +8,7 @@ import {
   Cormorant_Garamond,
   Hanken_Grotesk,
 } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { GradientBackground } from "@/components/ui/gradient-background-4";
 import InternalHeader from "@/components/InternalHeader";
@@ -60,6 +61,34 @@ const hanken = Hanken_Grotesk({
   weight: ["300", "400", "500", "600", "700"],
 });
 
+// Self-hosted brand fonts via next/font/local. The critical difference vs
+// the prior raw @font-face declarations: next/font measures these files
+// at build time and generates a metric-adjusted FALLBACK font family
+// (ascent, descent, line-gap, size-adjust). The fallback then renders
+// the page at exactly the right width/height before the real font
+// downloads — when the swap happens, no layout shift. Fixes the
+// "vertical → horizontal" hero reflow on first page load.
+//
+// adjustFontFallback picks the base metric source. Times for the serif
+// display (DragonEF reads as a high-contrast Garamond/Didone), Arial for
+// the geometric sans-serif (Ambit).
+const dragonEF = localFont({
+  src: "../public/fonts/DragonEF.otf",
+  variable: "--font-dragon",
+  display: "swap",
+  weight: "400 500",
+  style: "normal",
+  adjustFontFallback: "Times New Roman",
+});
+const ambit = localFont({
+  src: "../public/fonts/Ambit-SemiBold.ttf",
+  variable: "--font-ambit",
+  display: "swap",
+  weight: "600",
+  style: "normal",
+  adjustFontFallback: "Arial",
+});
+
 // metadataBase resolves relative URLs in OG / Twitter card images against a
 // real origin so shared links (Slack, iMessage, X) load the social card from
 // production instead of the build-host's localhost fallback. Falls through
@@ -89,7 +118,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable}`}
+      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable} ${dragonEF.variable} ${ambit.variable}`}
     >
       <body className="min-h-[100dvh] antialiased relative">
         <GradientBackground />
