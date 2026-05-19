@@ -111,7 +111,7 @@ export function buildOrganizationJsonLd(): Record<string, unknown> {
       "Residential roofing estimates",
       "Asphalt shingle roofing",
       "Roof measurement from satellite imagery",
-      "Florida roofing insurance discounts",
+      "Florida roofing policy discounts",
       "Hail and wind damage assessment",
       "Roof material classification",
       "Severe weather history reporting",
@@ -279,16 +279,16 @@ export function buildFaqJsonLd(): Record<string, unknown> {
         "synthetic underlayment, ice and water shield in valleys and at " +
         "penetrations, pre-finished aluminum drip edge, hip and ridge " +
         "cap shingles, and a 130 mph wind warranty. Fortified is impact-" +
-        "rated and qualifies for Florida insurance discounts. All tiers " +
+        "rated and qualifies for Florida premium discounts. All tiers " +
         "include tear-off, ridge cap, flashing, labor, and haul-away.",
     },
     {
       q: "Why three tiers instead of one quote?",
       a:
-        "Florida insurance carriers offer real discounts on impact-rated " +
+        "Florida providers offer real discounts on impact-rated " +
         "roofs. The three tiers reflect actual category breaks between " +
         "code-minimum, premium architectural, and impact-rated — letting " +
-        "you weigh up-front cost against insurance savings instead of " +
+        "you weigh up-front cost against policy premium savings instead of " +
         "negotiating a single number. Most Florida homeowners pick " +
         "Standard.",
     },
@@ -429,7 +429,7 @@ export function buildServiceJsonLd(): Record<string, unknown> {
             "@type": "Service",
             name: "Fortified reroof",
             description:
-              "Impact-rated installation qualifying for Florida insurance " +
+              "Impact-rated installation qualifying for Florida policy " +
               "discounts.",
           },
         },

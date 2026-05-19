@@ -226,7 +226,7 @@ Currently a stub. To enable:
 - **Vercel + `@sparticuz/chromium-min`** — works on Vercel functions, fits the 250MB serverless limit, requires installing `puppeteer-core`. Cleanest path if you stay on Vercel. ~30-60s per export.
 - **Browserless.io** — managed Chrome-as-a-service, ~$50/mo for a usable plan. Zero deploy effort but adds a vendor.
 - **Modal Playwright app** — deploy a sibling Modal app for Playwright, same infra as the LiDAR service. Cohesive but two Modal apps to maintain.
-- **Skip the feature for now.** It's rep-on-demand for insurance claim packets — not blocking for normal operation.
+- **Skip the feature for now.** It's rep-on-demand for claim packets — not blocking for normal operation.
 
 I'd lean toward **Vercel + @sparticuz/chromium-min** unless you already use Browserless somewhere else. Implementation outline is in `lib/puppeteer-orbit.ts`.
 

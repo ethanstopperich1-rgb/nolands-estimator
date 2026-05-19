@@ -1,4 +1,4 @@
-# Perplexity Deep Research Brief — Xactimate Integration & Insurance-Roofing Tools
+# Perplexity Deep Research Brief — Xactimate Integration & Claim-Side Roofing Tools
 
 > Paste this into **Perplexity Deep Research** (the heavier reasoning mode that synthesizes 50+ sources). Run as one query. The output is what we'll use to scope our Xactimate-compatibility roadmap.
 
@@ -6,9 +6,9 @@
 
 ## My company
 
-I'm building **Voxaris Pitch** — a roofing estimator product. Reps type an address → AI measures the roof from satellite, vision-analyzes damage, generates a tiered proposal with line items in **Xactimate-compatible format** (RFG ARCH, RFG SHGLR, RFG IWS, RFG VAL, etc.). PDF export today; insurance-claim workflow is the next big push.
+I'm building **Voxaris Pitch** — a roofing estimator product. Reps type an address → AI measures the roof from satellite, vision-analyzes damage, generates a tiered proposal with line items in **Xactimate-compatible format** (RFG ARCH, RFG SHGLR, RFG IWS, RFG VAL, etc.). PDF export today; claim-side workflow is the next big push.
 
-I want to ship Xactimate XML export so contractors can hand a `.xml` file directly to insurance adjusters, who import it into their Xactimate desktop. End-state: Pitch becomes the front-end measurement + estimating tool, Xactimate stays the back-end claims processor.
+I want to ship Xactimate XML export so contractors can hand a `.xml` file directly to claim adjusters, who import it into their Xactimate desktop. End-state: Pitch becomes the front-end measurement + estimating tool, Xactimate stays the back-end claims processor (their own platform).
 
 I have a 2016 reverse-engineered XACTDOC reference (DanTutt/XML_Project on GitHub) but the schema may have evolved.
 
@@ -49,7 +49,7 @@ For each of these, what exactly do they offer and at what price?
 
 What's the **actual gap** in the market right now? What does no one offer?
 
-### 4. Insurance carrier submission workflows (US, 2026)
+### 4. Provider submission workflows (US, 2026)
 
 - How do roofers actually submit claims to **State Farm, Allstate, USAA, Farmers, Citizens, Travelers, Liberty Mutual, Progressive** today? Email PDF? Carrier portal? EagleView? Xactimate Cloud?
 - Does **each carrier accept Xactimate XML** as the standard format, or do they have their own proprietary intake systems?
@@ -59,7 +59,7 @@ What's the **actual gap** in the market right now? What does no one offer?
 
 ### 5. Recent regulatory / legal landscape (2024–2026)
 
-- **Florida HB 837 / HB 7065** — what changed for roof claims after the AOB reform? Is this still bottle-necking insurance roofing in FL?
+- **Florida HB 837 / HB 7065** — what changed for roof claims after the AOB reform? Is this still bottle-necking claim-side roofing in FL?
 - **Texas hail litigation reform** — current state.
 - Other states (CO, OK, NE, KS — hail alley) — recent changes.
 - **AI / vision-based estimates** — any state-level rules requiring human-signed estimates? CARF, NACBI, or other industry certifications relevant?
@@ -73,7 +73,7 @@ What's the **actual gap** in the market right now? What does no one offer?
 - **CompanyCam** — pricing, where it shines.
 - What are the **biggest cost / time pain points** roofing contractors complain about in 2026? What do they wish their estimating tool did?
 
-### 7. AI / vision in insurance roofing — current state
+### 7. AI / vision in claim-side roofing — current state
 
 - Who's using **AI for damage detection** in claim workflows?
 - Is **drone imagery** (from contractor or carrier side) becoming standard for hail claims? Which providers?
@@ -83,7 +83,7 @@ What's the **actual gap** in the market right now? What does no one offer?
 ### 8. Photo documentation standards for claims
 
 - What's the **typical photo packet** for a roof damage claim — count, angles, metadata required?
-- Do insurance carriers require **EXIF preservation, GPS tagging, timestamps**?
+- Do providers require **EXIF preservation, GPS tagging, timestamps**?
 - Are there **photo-tagging standards** in the industry (e.g. front-elevation, north-slope, hail-impact close-up)?
 - What's the **minimum viable photo packet** that satisfies the typical adjuster?
 
@@ -105,7 +105,7 @@ For each of the 9 sections:
 3. **What's confirmed vs speculation** — flag clearly
 4. **Implication for Voxaris Pitch** — one sentence on what we should do about it
 
-End with a **prioritized 90-day roadmap** for the insurance / Xactimate angle, ranked by ROI vs effort.
+End with a **prioritized 90-day roadmap** for the claim / Xactimate angle, ranked by ROI vs effort.
 
 ---
 

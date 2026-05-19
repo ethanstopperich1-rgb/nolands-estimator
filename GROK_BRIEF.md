@@ -22,7 +22,7 @@ For each property address we need:
 3. **Roof material identification** — asphalt 3-tab vs architectural vs metal vs tile (drives $/sqft 2–6×)
 4. **Pitch (slope)** — affects waste factor, labor surcharge, safety risk
 5. **Penetrations** — chimneys, skylights, vents, satellite dishes (each adds line items)
-6. **Damage signals** — missing shingles, moss, discoloration, tarps, ponding (visual condition for insurance work)
+6. **Damage signals** — missing shingles, moss, discoloration, tarps, ponding (visual condition for claim work)
 7. **Ground / context** — # stories, attached structures, complexity rating
 8. **Property metadata** — year built, lot size, beds/baths
 
@@ -62,7 +62,7 @@ User can drag vertices to override any of these. Final polygon drives sqft, peri
 
 1. **Per-facet polygons are still rough.** Solar gives bboxes (axis-aligned). Roboflow gives ONE polygon for the whole roof, no per-facet breakdown. Cesium 3D mesh CAN segment facets via slope discontinuity but our extraction is one polygon. **We need per-facet polygons with consistent vertex labeling across sources.**
 
-2. **Damage detection is shallow.** Claude vision is OK at "missing shingles / moss / tarp visible" but can't quantify (% coverage, severity). For insurance claims this matters a lot.
+2. **Damage detection is shallow.** Claude vision is OK at "missing shingles / moss / tarp visible" but can't quantify (% coverage, severity). For claims this matters a lot.
 
 3. **Penetration sizing is a guess.** Claude estimates `approxSizeFt` but it's eyeball-level on a 0.15m-resolution tile. Pipe boots vs vent stacks vs chimneys all look similar.
 

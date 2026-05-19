@@ -47,7 +47,6 @@ const TARGETS: Target[] = [
   { slug: "ev-home", url: "https://www.eagleview.com/" },
   { slug: "ev-pricing", url: "https://www.eagleview.com/pricing/" },
   { slug: "ev-residential", url: "https://www.eagleview.com/industries/residential/" },
-  { slug: "ev-insurance", url: "https://www.eagleview.com/industries/insurance/" },
   { slug: "ev-press", url: "https://www.eagleview.com/press-releases/" },
   { slug: "ev-leadership", url: "https://www.eagleview.com/leadership/" },
   { slug: "ev-news", url: "https://www.eagleview.com/news/" },

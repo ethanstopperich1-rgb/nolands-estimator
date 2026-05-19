@@ -1,4 +1,4 @@
-# Voxaris Pitch — Insurance Strategy (post deep-research, May 2026)
+# Voxaris Pitch — Claims Strategy (post deep-research, May 2026)
 
 ## Critical findings from deep research
 
@@ -13,7 +13,7 @@
 
 3. **Verisk Partner Program is open to startups.** Roofr (a competitor)
    shipped their `$10 ESX add-on` April 2026 after going through it.
-   Requirements: NDA, data security compliance, insurance certificates,
+   Requirements: NDA, data security compliance, coverage certificates,
    shared client references. **No public cost.** Estimated 3–6 month
    timeline.
 
@@ -54,14 +54,14 @@
 - Continue Verisk certification (security review, references)
 - AI countermeasure positioning — State Farm's adjuster-side AI is creating
   contractor demand for AI-backed counter-estimates. Pitch *is* the answer.
-- **Pricing experiment**: $25-50 per insurance estimate vs Roofr's $10. We
+- **Pricing experiment**: $25-50 per claim estimate vs Roofr's $10. We
   bundle the AI + measurement + photo packet — premium-positioned because
   it's the complete claim, not just the ESX file.
 
 ### Days 60–90
 - Verisk certification likely lands
 - Ship ESX export
-- Launch **Insurance Mode** as a paid tier
+- Launch **Claim Mode** as a paid tier
 
 ## Compliance / regulatory awareness
 
@@ -101,7 +101,7 @@ economics, half the SaaS spend).
 
 - [Verisk Strategic Alliances](https://www.verisk.com/company/strategic-alliances/)
 - [RoofingSoftwareGuide — Xactimate Roofing Guide](https://roofingsoftwareguide.com/guides/xactimate-roofing-guide/)
-- [Roofr × Verisk PR (April 2026)](https://www.prnewswire.com/news-releases/roofr-verisk-team-up-to-help-contractors-submit-faster-more-accurate-insurance-estimates-302743334.html)
-- [EagleView × Verisk JV](https://www.eagleview.com/eagleview/eagleview-and-verisk-join-forces-to-streamline-property-insurance-claims/)
+- Roofr × Verisk press release (April 2026) — search PRNewswire for "Roofr Verisk team up faster more accurate estimates"
+- EagleView × Verisk JV announcement — search eagleview.com press releases for "Verisk join forces"
 - [r/xactimate — All Hands On Deck](https://www.reddit.com/r/xactimate/comments/1jd808s/allhandsondeck/)
-- [HOVER Pricing](https://hover.to/insurance/)
+- HOVER pricing page — hover.to (claim-side pricing tab)

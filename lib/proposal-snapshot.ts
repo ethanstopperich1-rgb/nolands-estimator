@@ -22,7 +22,7 @@ export interface ProposalSummary {
   total: number | null;
   totalLow: number | null;
   totalHigh: number | null;
-  isInsuranceClaim: boolean;
+  isClaimWork: boolean;
   hasPhotos: boolean;
   photoCount: number;
   staff: string | null;
@@ -50,7 +50,7 @@ export function summarizeProposalSnapshot(snapshot: Json | null): ProposalSummar
     total: null,
     totalLow: null,
     totalHigh: null,
-    isInsuranceClaim: false,
+    isClaimWork: false,
     hasPhotos: false,
     photoCount: 0,
     staff: null,
@@ -93,7 +93,7 @@ export function summarizeProposalSnapshot(snapshot: Json | null): ProposalSummar
       total: totalLow,
       totalLow,
       totalHigh,
-      isInsuranceClaim: snapshot.isInsuranceClaim === true,
+      isClaimWork: snapshot.isClaimWork === true,
       hasPhotos: photos.length > 0,
       photoCount: photos.length,
       staff: asString(snapshot.staff),
@@ -123,7 +123,7 @@ export function summarizeProposalSnapshot(snapshot: Json | null): ProposalSummar
     total: asNumber(snapshot.total),
     totalLow: asNumber(snapshot.baseLow),
     totalHigh: asNumber(snapshot.baseHigh),
-    isInsuranceClaim: snapshot.isInsuranceClaim === true,
+    isClaimWork: snapshot.isClaimWork === true,
     hasPhotos: photos.length > 0,
     photoCount: photos.length,
     staff: asString(snapshot.staff),

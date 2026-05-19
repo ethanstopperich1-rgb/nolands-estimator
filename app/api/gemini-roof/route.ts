@@ -1360,7 +1360,7 @@ async function persistEstimateToLead(
   let paintedUrl: string | null = null;
   if (result.paintedImageBase64) {
     // Validate PNG magic-bytes + size cap even though the base64 here
-    // is server-produced. Cheap insurance against a future code path
+    // is server-produced. A cheap safety net against a future code path
     // where this base64 turns out to be client-influenced.
     const validated = validatePaintedPngBase64(result.paintedImageBase64);
     if (!validated.ok) {

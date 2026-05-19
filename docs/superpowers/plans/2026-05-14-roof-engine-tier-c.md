@@ -188,7 +188,7 @@ export interface PricingInputs {
   serviceType: ServiceType;
   addOns: AddOn[];
   wasteOverridePct?: number;
-  isInsuranceClaim?: boolean;
+  isClaimWork?: boolean;
 }
 
 export type LineItemUnit = "SQ" | "LF" | "EA" | "SF" | "%";
@@ -255,7 +255,7 @@ export interface EstimateV2 {
   roofData: RoofData;
   pricingInputs: PricingInputs;
   priced: PricedEstimate;
-  isInsuranceClaim?: boolean;
+  isClaimWork?: boolean;
   photos?: PhotoMeta[];
   claim?: ClaimContext;
 }
@@ -2568,7 +2568,7 @@ export function summarizeProposalSnapshot(snapshot: Json | null): ProposalSummar
     addOnCount: 0, addOnLabels: [],
     lineItemCount: 0,
     total: null, totalLow: null, totalHigh: null,
-    isInsuranceClaim: false,
+    isClaimWork: false,
     hasPhotos: false, photoCount: 0,
     staff: null, notes: null,
   };
@@ -2607,7 +2607,7 @@ export function summarizeProposalSnapshot(snapshot: Json | null): ProposalSummar
       total: priced ? asNumber(priced.totalLow) : null,
       totalLow: priced ? asNumber(priced.totalLow) : null,
       totalHigh: priced ? asNumber(priced.totalHigh) : null,
-      isInsuranceClaim: snapshot.isInsuranceClaim === true,
+      isClaimWork: snapshot.isClaimWork === true,
       hasPhotos: photos.length > 0,
       photoCount: photos.length,
       staff: asString(snapshot.staff),
@@ -2638,7 +2638,7 @@ export function summarizeProposalSnapshot(snapshot: Json | null): ProposalSummar
     total: asNumber(snapshot.total),
     totalLow: asNumber(snapshot.baseLow),
     totalHigh: asNumber(snapshot.baseHigh),
-    isInsuranceClaim: snapshot.isInsuranceClaim === true,
+    isClaimWork: snapshot.isClaimWork === true,
     hasPhotos: photos.length > 0,
     photoCount: photos.length,
     staff: asString(snapshot.staff),
@@ -3045,7 +3045,7 @@ const pricingInputs: PricingInputs = {
   serviceType: assumptions.serviceType ?? "reroof-tearoff",
   addOns,
   wasteOverridePct: undefined, // rep can override via waste table; wire below
-  isInsuranceClaim: isInsuranceClaim ?? false,
+  isClaimWork: isClaimWork ?? false,
 };
 const priced = roofData ? priceRoofData(roofData, pricingInputs) : null;
 ```
@@ -3082,7 +3082,7 @@ const v2: EstimateV2 = {
   roofData: roofData!,
   pricingInputs,
   priced: priced!,
-  isInsuranceClaim,
+  isClaimWork,
   photos,
 };
 saveEstimateV2(v2);
@@ -3332,7 +3332,7 @@ const pricingInputs: PricingInputs = {
   laborMultiplier: 1.0,
   serviceType: "reroof-tearoff",
   addOns: QUOTE_ADDONS.filter((a) => a.enabled),
-  isInsuranceClaim: false,
+  isClaimWork: false,
 };
 
 function bestMaterialFromVision(d: RoofData | null): Material | null {
@@ -3371,7 +3371,7 @@ const v2Snapshot: EstimateV2 = {
   roofData: roofData!,
   pricingInputs,
   priced: priced!,
-  isInsuranceClaim: false,
+  isClaimWork: false,
 };
 // POST to /api/proposals with v2Snapshot as the snapshot body
 ```

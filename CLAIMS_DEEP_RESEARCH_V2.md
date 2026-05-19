@@ -1,7 +1,7 @@
-# Deep Research Report v2 — Voxaris Pitch · Insurance & Xactimate Landscape
+# Deep Research Report v2 — Voxaris Pitch · Claims & Xactimate Landscape
 
 > Saved verbatim from Perplexity Deep Research (May 2026). Cross-references the
-> earlier `INSURANCE_STRATEGY.md` — major facts that change our product
+> earlier `CLAIMS_STRATEGY.md` — major facts that change our product
 > decisions are flagged as **DECISION**.
 
 ## Decisions this report drives
@@ -17,9 +17,9 @@
 
 ## Headline market shape (confirmed)
 
-- Xactimate processes >90% of US property insurance claims
+- Xactimate processes >90% of US property coverage claims
 - Symbility (CoreLogic) is ~10%, adjuster-side only — not a primary integration target
-- Average insurance roofing stack costs $6,000–$9,000/yr in fragmented SaaS
+- Average claim-side roofing stack costs $6,000–$9,000/yr in fragmented SaaS
 - Clean Xactimate submission cuts settlement 6–8 weeks → 2–3 weeks
 - Initial carrier scope underpays by 35–50% on average — supplement is where revenue lives
 

@@ -206,7 +206,7 @@ function checkStalePricing(opts: {
 const RULES: Array<{ rule: SupplementRule; check: Check }> = [
   // ──────────────────────────────────────────────────────────────────
   // O&P (Overhead & Profit) — the #1 most-frequently-missed line in
-  // North American claim scopes. Insurance is contractually required
+  // North American claim scopes. The carrier policy is contractually required
   // to pay 20% O&P on losses where 3+ trades are involved (which is
   // virtually every reroof — roofing + sheet metal + carpentry +
   // disposal). See: PLRB Position Paper 26, multiple state DOI

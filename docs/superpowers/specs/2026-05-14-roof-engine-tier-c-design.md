@@ -26,7 +26,7 @@
 - Continuous waste % from richer signals (deferred to Tier B/A where the signal exists).
 - Per-facet material refinement (deferred to Tier B obliques).
 - Modified bitumen / TPO membrane detection (no source signal in Tier C).
-- Customer-facing "I'm filing an insurance claim" toggle on `/quote` (out of scope; see §9).
+- Customer-facing "I'm filing an claim" toggle on `/quote` (out of scope; see §9).
 
 ---
 
@@ -403,7 +403,7 @@ export interface PricingInputs {
   serviceType: ServiceType;    // "new" | "reroof-tearoff" | "layover" | "repair"
   addOns: AddOn[];             // merged in (was separate in v1)
   wasteOverridePct?: number;   // overrides RoofData.totals.wastePct when set
-  isInsuranceClaim?: boolean;
+  isClaimWork?: boolean;
 }
 
 export interface PricedEstimate {
@@ -635,7 +635,7 @@ export interface EstimateV2 {
   /** Output of priceRoofData(roofData, pricingInputs). */
   priced: PricedEstimate;
 
-  isInsuranceClaim?: boolean;
+  isClaimWork?: boolean;
   photos?: PhotoMeta[];
   claim?: ClaimContext;
 }
@@ -706,7 +706,7 @@ The 8-12 hour Tier C scope is dominated by replacing the per-page Solar/vision/p
 
 - Rip out `/internal`'s Solar/vision/polygon orchestration. Replace with a single `runRoofPipeline({ address: confirmedLatLng })` call after the pin-confirmation step (which stays unchanged).
 - Replace `buildDetailedEstimate(assumptions, addOns, opts)` calls with `priceRoofData(roofData, pricingInputs)`.
-- Update the rep `PricingInputs` UI: material picker (vision-seeded), multipliers, serviceType, waste override, insurance toggle. Drop the bucketed pitch picker — pitch is now per-facet, displayed not selected.
+- Update the rep `PricingInputs` UI: material picker (vision-seeded), multipliers, serviceType, waste override, claim toggle. Drop the bucketed pitch picker — pitch is now per-facet, displayed not selected.
 - Add the rep "What we detected" panel (facets + objects + diagnostics) and per-facet pricing attribution view.
 - New saves write `version: 2`. Loader uses the v2 path; v1 records still load via the shim.
 - Run `npm run typecheck && npm run lint && npm run build`. Manually verify rep workflow against 8450 Oak Park Rd + one simple ranch + one rural Solar-404 address.
@@ -798,7 +798,7 @@ Explicitly **not** part of Tier C — these have their own tier specs or follow-
 - **Continuous waste % from richer signals** (α·valleyLf + β·facetCount + γ·dormerCount) — deferred to Tier B/A where multiview / dihedral signals exist. Tier C keeps the 7/11/14 buckets.
 - **Per-facet material refinement** — every facet gets the same vision-derived material in Tier C; per-facet variation lands in Tier B obliques.
 - **`modified-bitumen` / `tpo-membrane`** — no Tier C detection signal. Add to schema when a source for them lands (Tier B oblique seam analysis).
-- **Customer-facing insurance-claim toggle on `/quote`** — real customers in storm zones want this, but it's a follow-up. Today `/quote` pins `isInsuranceClaim: false`; the toggle (with Xactimate-format PDF, claim metadata capture) is a separate ticket.
+- **Customer-facing claim toggle on `/quote`** — real customers in storm zones want this, but it's a follow-up. Today `/quote` pins `isClaimWork: false`; the toggle (with Xactimate-format PDF, claim metadata capture) is a separate ticket.
 - **Pitch-correction regressor / ground-truth-roof workstream** — explicitly obsolete in the LiDAR future (per kickoff §"Don't build a pitch-correction model"). Tier C doesn't introduce it either; Solar's `pitchDegrees` is taken as truth.
 - **Backfill of historical Supabase proposals to v2** — keep them as v1 forever (or sunset after 90 days when retention allows).
 

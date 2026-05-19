@@ -167,8 +167,8 @@ Render a customer-facing 3D model of the roof: Google Photorealistic 3D Tiles as
 | Show RoofViewer when Tier A isn't available? | **No — only when `RoofData.source === "tier-a-lidar"` AND has 3D geometry.** Fall through to the existing MapView for Tier B/C. | Tier B/C have polylines at `heightM: 0`; rendering them in 3D would look broken. Wait until LiDAR provides real heights. |
 | Color ramp for facets? | **Cool blues for pitch <18.43° (low slope); warm reds for >38° steep; greens for typical 4-8/12.** Semi-transparent so 3D Tiles texture shows through. | Visual hierarchy: customers immediately see "steep parts" without needing to read the legend. |
 | Edge colors? | **Ridge=red, hip=orange, valley=blue, eave=green, rake=dashed green, step-wall=purple.** | Matches kickoff §"Visual layer stack" + adds step-wall (Tier B addition). |
-| Puppeteer export — when does it run? | **On demand from /internal "Export PDF stills" button. Not auto-run on save.** | Puppeteer is slow (~30-60s for 6 stills + a 5s GIF); don't block save. Reps trigger it when needed for insurance claims. |
-| 360° orbit format? | **MP4 (H.264), 1080p, 8 seconds, 30fps.** Fallback to GIF if MP4 encoding fails. | Insurance claim packets prefer MP4. GIF is the universal fallback. |
+| Puppeteer export — when does it run? | **On demand from /internal "Export PDF stills" button. Not auto-run on save.** | Puppeteer is slow (~30-60s for 6 stills + a 5s GIF); don't block save. Reps trigger it when needed for claims. |
+| 360° orbit format? | **MP4 (H.264), 1080p, 8 seconds, 30fps.** Fallback to GIF if MP4 encoding fails. | Claim packets prefer MP4. GIF is the universal fallback. |
 
 #### Files to ship
 

@@ -10,8 +10,8 @@ This is a proprietary internal product owned by Voxaris (repo: `roofai-internal`
 
 - **One-shot estimate** — address autocomplete → instant roof size, pitch, material, complexity
 - **Tiered proposal generator** — Good / Better / Best with built-in financing math
-- **Live Xactimate-style line items** — for insurance work, full per-code breakdown
-- **Storm history radar** — flags insurance-eligible properties automatically
+- **Live Xactimate-style line items** — for claim work, full per-code breakdown
+- **Storm history radar** — flags claim-eligible properties automatically
 - **Pitch Vision** — material / age / damage / penetrations from satellite (V3 Gemini pipeline)
 - **Customer embed** — `embed.js` iframe widget for partner roofer sites
 - **AI outbound** — LiveKit voice agent (Sydney) + Twilio SMS after TCPA consent

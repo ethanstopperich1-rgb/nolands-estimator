@@ -525,7 +525,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
     id: "best",
     name: "Fortified",
     tagline:
-      "Class 4 impact-rated. CertainTeed NorthGate — qualifies for FL insurance discounts.",
+      "Class 4 impact-rated. CertainTeed NorthGate — qualifies for FL premium discounts.",
     features: [
       "CertainTeed NorthGate Class 4 impact-resistant shingle",
       "Synthetic underlayment + ice & water across entire roof deck",
@@ -534,7 +534,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Designer hip & ridge cap (Presidential or equivalent)",
       "Wind warranty rated 130+ mph",
       "CertainTeed 5-Star transferable warranty (Triple Crown Champion installer)",
-      "Insurance hail / wind discount eligibility",
+      "Hail / wind discount eligibility",
     ],
     warranty: "Lifetime transferable · 25-year workmanship",
     ratePerSqft: 9.5,

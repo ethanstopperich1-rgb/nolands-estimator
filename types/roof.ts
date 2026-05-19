@@ -244,7 +244,7 @@ export interface PricingInputs {
   serviceType: ServiceType;
   addOns: AddOn[];
   wasteOverridePct?: number;
-  isInsuranceClaim?: boolean;
+  isClaimWork?: boolean;
 }
 
 export type LineItemUnit = "SQ" | "LF" | "EA" | "SF" | "%";
@@ -311,7 +311,7 @@ export interface EstimateV2 {
   roofData: RoofData;
   pricingInputs: PricingInputs;
   priced: PricedEstimate;
-  isInsuranceClaim?: boolean;
+  isClaimWork?: boolean;
   photos?: PhotoMeta[];
 }
 

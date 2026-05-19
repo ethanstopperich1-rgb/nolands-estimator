@@ -267,8 +267,8 @@ export interface Estimate {
   total: number;
   baseLow: number;
   baseHigh: number;
-  /** Optional — set when the rep marks this as an insurance claim */
-  isInsuranceClaim?: boolean;
+  /** Optional — set when the rep marks this as an claim */
+  isClaimWork?: boolean;
   /** Optional — Claude's vision analysis of the roof (when available) */
   vision?: RoofVision;
   /** Optional — Solar API geometry */
@@ -280,7 +280,7 @@ export interface Estimate {
   /** Optional — EagleView-style waste calculation table */
   waste?: WasteTable;
   /** Field-inspection photos uploaded by the rep, AI-tagged for damage,
-   *  EXIF-preserved for insurance claims. Persisted with the estimate. */
+   *  EXIF-preserved for claims. Persisted with the estimate. */
   photos?: PhotoMeta[];
   /** Optional — the polygon(s) actually used for measurement, after any
    *  rep edits. Persisted so reopening an estimate restores the exact roof

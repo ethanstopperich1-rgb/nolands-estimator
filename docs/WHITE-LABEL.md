@@ -28,7 +28,7 @@ Voxaris Pitch supports two complementary models. Pick **one per partner** — mi
 | `PITCH_WEBSITE` | Website URL on proposals |
 | `PITCH_PRIMARY_COLOR` | PDF header hex |
 | `PITCH_ACCENT_COLOR` | UI accent hex |
-| `PITCH_SHOW_XACTIMATE` | `true` for insurance line items |
+| `PITCH_SHOW_XACTIMATE` | `true` for claim line items |
 
 `ROOFAI_*` names are **deprecated aliases** for the same keys (repo legacy name).
 

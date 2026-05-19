@@ -1238,9 +1238,9 @@ function LeadDrawer({
                         <div className="text-[13px] font-mono tabular text-white/95 whitespace-nowrap">
                           {total}
                         </div>
-                        {s.isInsuranceClaim && (
+                        {s.isClaimWork && (
                           <div className="text-[10px] font-mono tabular text-amber uppercase tracking-wider mt-0.5">
-                            Insurance
+                            Claim
                           </div>
                         )}
                       </div>

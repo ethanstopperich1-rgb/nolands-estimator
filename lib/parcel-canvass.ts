@@ -163,7 +163,7 @@ export function scoreHotLead(baseScore: number, ctx: PermitContext): number {
   // so we don't mis-rank new construction as hot.
   //
   // Florida law also gates wind-mitigation discounts on roofs ≥10yr,
-  // and most insurance damage-claim windows on warranty-period roofs
+  // and most damage-claim windows on warranty-period roofs
   // route through the BUILDER, not a private roofer. New construction
   // = cold lead, almost always.
   if (ctx.yearBuilt != null) {
@@ -192,7 +192,7 @@ export function scoreHotLead(baseScore: number, ctx: PermitContext): number {
 
   // ─── Estimated Roof Age bonus (+25) ──────────────────────────────────
   // Year built > 20 yrs ago AND no recent permit. Older homes in FL =
-  // bigger insurance claims, more wear, worse warranties. The 10-yr
+  // bigger claims, more wear, worse warranties. The 10-yr
   // short-circuit above already excluded new construction, so here
   // we're only evaluating 10+yr homes.
   if (ctx.yearBuilt) {

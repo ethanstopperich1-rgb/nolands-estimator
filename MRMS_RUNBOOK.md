@@ -141,7 +141,7 @@ In `app/api/hail-mrms/route.ts`:
   ~0.6 mi just hits the same cell. >2 mi starts pulling in
   neighborhood-scale events the property may not have actually
   experienced.
-- `minInches` (default 0.5) — most insurance carriers require ≥ 0.75″
+- `minInches` (default 0.5) — most providers require ≥ 0.75″
   for hail-damage claims to be actionable. ≥ 1″ for shingle granule
   loss + bruising. Keep the default at 0.5″ so the rep can see the
   full picture, then filter in the UI for the slide.
@@ -171,7 +171,7 @@ no local install needed.
   of a ≥1″ hail event in the past 60 days" → output as CSV → upload to
   the door-knocking app. Complements the existing storm-correlation
   banner.
-- **Insurance claim packets**: PDF includes a citation line — "NOAA MRMS
+- **Claim packets**: PDF includes a citation line — "NOAA MRMS
   radar detected hail of N inches at this property's coordinates on
   YYYY-MM-DD" — adjuster-grade language without HailTrace's per-report
   fee.

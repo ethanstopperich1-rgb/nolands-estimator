@@ -51,7 +51,7 @@ const VALID_LOST_CATEGORIES = new Set([
   "not_interested",
   "competitor_won",
   "no_damage",
-  "insurance_denied",
+  "claim_denied",
   "price_too_high",
   "unreachable",
   "wrong_house",

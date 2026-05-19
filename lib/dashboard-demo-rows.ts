@@ -431,13 +431,13 @@ const CALL_SHAPES: Record<Outcome, CallShape> = {
     sttSecs: 64,
     ttsChars: 380,
     summaryFor: (n) =>
-      `${n} pushed on insurance claim handling after initial qualifying. Per FL § 627.7152 trip-wire rules, ` +
+      `${n} pushed on claim handling after initial qualifying. Per FL § 627.7152 trip-wire rules, ` +
       `Sydney transferred to specialist with caller summary. transfer_to_human fired with reason "sales".`,
     transcriptFor: ({ firstName: n, company }) =>
       [
         opener(company),
-        `${n}: Hi yeah, I had an adjuster out for hail damage and they lowballed me. I want someone to handle the claim and work directly with my insurance.`,
-        `Sydney: Got it. Insurance work — that's something our specialist walks through. Let me get you to someone who can help, one moment.`,
+        `${n}: Hi yeah, I had an adjuster out for hail damage and they lowballed me. I want someone to handle the claim and work directly with my provider.`,
+        `Sydney: Got it. Claim work — that's something our specialist walks through. Let me get you to someone who can help, one moment.`,
         `${n}: Okay, thanks.`,
         `Sydney: Sure thing — flagging this and connecting you now.`,
         `[transfer_to_human invoked — reason "sales", priority "normal"]`,

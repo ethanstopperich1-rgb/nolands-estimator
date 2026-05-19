@@ -913,7 +913,7 @@ function OutcomeLogger({ row }: { row: CanvassRow }) {
                 <option value="not_interested">Not interested</option>
                 <option value="competitor_won">Competitor won</option>
                 <option value="no_damage">No damage on inspection</option>
-                <option value="insurance_denied">Insurance denied</option>
+                <option value="claim_denied">Claim denied</option>
                 <option value="price_too_high">Price too high</option>
                 <option value="unreachable">Unreachable</option>
                 <option value="wrong_house">Wrong house / data error</option>

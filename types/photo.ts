@@ -63,7 +63,7 @@ export interface PhotoMeta {
   tags: PhotoTag[];
   /** AI summary in one sentence */
   caption?: string;
-  /** Whether the photo metadata appears valid for an insurance claim
+  /** Whether the photo metadata appears valid for an claim
    *  (has EXIF timestamp + GPS + recent date). Drives the green/amber
    *  "claim-ready" badge in the UI. */
   claimReady: boolean;

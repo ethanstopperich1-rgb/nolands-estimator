@@ -16,10 +16,10 @@
 
 | Competitor | Their wedge | Their weakness | Our wedge |
 | --- | --- | --- | --- |
-| **EagleView** | Insurance-grade measurements (98.77% acc), Xactimate integration, 20+ years of imagery archive | $15–87/report pay-as-you-go, 24–48h turnaround, opaque quote-only subscription, expensive at volume | Sub-30s painted estimate at the address, no per-report charge, customer self-serve flow, transparent pricing |
-| **Roofr** | All-in-one CRM + proposals + payments + Instant Estimator widget, transparent pricing | $13/report still adds up at volume, no Xactimate, "great pre-sale, weak post-sale," QuickBooks 2-way still missing, limited insurance restoration | Customer-facing self-serve estimate (their Instant Estimator is rep-facing), built-in storm intelligence, Voxaris V3 painted overlay is more confidence-inspiring than a number alone |
+| **EagleView** | Claim-grade measurements (98.77% acc), Xactimate integration, 20+ years of imagery archive | $15–87/report pay-as-you-go, 24–48h turnaround, opaque quote-only subscription, expensive at volume | Sub-30s painted estimate at the address, no per-report charge, customer self-serve flow, transparent pricing |
+| **Roofr** | All-in-one CRM + proposals + payments + Instant Estimator widget, transparent pricing | $13/report still adds up at volume, no Xactimate, "great pre-sale, weak post-sale," QuickBooks 2-way still missing, limited claim restoration | Customer-facing self-serve estimate (their Instant Estimator is rep-facing), built-in storm intelligence, Voxaris V3 painted overlay is more confidence-inspiring than a number alone |
 
-The blunt version: **EagleView owns insurance**, **Roofr owns retail SaaS**, and **Voxaris's wedge is the customer-facing self-serve estimate that closes in the first 5 minutes after a homeowner types their address**. Neither competitor sells that experience.
+The blunt version: **EagleView owns the claim-side market**, **Roofr owns retail SaaS**, and **Voxaris's wedge is the customer-facing self-serve estimate that closes in the first 5 minutes after a homeowner types their address**. Neither competitor sells that experience.
 
 ---
 
@@ -46,7 +46,7 @@ The blunt version: **EagleView owns insurance**, **Roofr owns retail SaaS**, and
 | **Bid Perfect™** | Entry-level cheap report, designed to "win the bid." Upsold to a Premium Roof Report after the contract is signed. | ~$15/report at the low end |
 | **Premium Roof Report** | The flagship — full pitch, material list, perimeter, drip edge, ridges, etc. | $25–50/report typical, up to $87 for complex roofs |
 | **QuickView** | Trimmed-down report for fast quotes | Cheaper than Premium |
-| **Inform / Assess** | Insurance-adjuster-focused workflow products | Lives inside EagleView One |
+| **Inform / Assess** | Adjuster-focused workflow products | Lives inside EagleView One |
 | **Residential / Commercial Reports** | Per-property flat-fee commercial; per-square residential | |
 
 ### Pricing (what they actually charge, derived from contractor reports)
@@ -62,7 +62,7 @@ The blunt version: **EagleView owns insurance**, **Roofr owns retail SaaS**, and
 
 EagleView One now ships **complete exterior 3D**: walls, windows, doors, roof penetrations. Toggle between roof and full-structure views. Aerial imagery overlaid on the 3D roof surface. **98.77%** claimed measurement accuracy. Subscription-only — no per-report unlock.
 
-Their narrative: *"foundational data for predictive maintenance, valuation modeling, risk analysis, and next-generation AI systems."* Translation: they're pivoting from a roof-measurement vendor to an underwriting / insurance-data platform. The roofing contractor is no longer their primary customer.
+Their narrative: *"foundational data for predictive maintenance, valuation modeling, risk analysis, and next-generation AI systems."* Translation: they're pivoting from a roof-measurement vendor to an underwriting / data platform. The roofing contractor is no longer their primary customer.
 
 ### Common contractor complaints (G2 / Capterra / App Store)
 
@@ -79,7 +79,7 @@ Their narrative: *"foundational data for predictive maintenance, valuation model
 - **No per-report fee** to the contractor — pricing is bundled with the platform subscription.
 - **Customer self-serve** — the homeowner gets their estimate in the same flow that captures the lead. EagleView only sells to the contractor.
 - **Newer homes** — Voxaris V3 hybrid (Solar + Voxaris vision + OSM footprint) works on properties EagleView's imagery archive hasn't indexed yet.
-- **Trade off honestly**: EagleView still has more granular insurance reports + Xactimate. That's their last fortress. We don't try to win the insurance restoration buyer — we win the retail-replacement buyer who's stuck waiting on EagleView turnaround.
+- **Trade off honestly**: EagleView still has more granular claim reports + Xactimate. That's their last fortress. We don't try to win the claim restoration buyer — we win the retail-replacement buyer who's stuck waiting on EagleView turnaround.
 
 ---
 
@@ -128,7 +128,7 @@ The legacy "Pro $99 / Premium $169" tiers were retired in March 2026 — anyone 
 2. **QuickBooks two-way sync is the #1 missing-feature complaint** on Capterra.
 3. **"Great pre-sale, weak post-sale"** — no production scheduling, crew management, inventory. Roofr is a sales tool, not an ops tool.
 4. **Flashing math is wrong** — system applies step/wall flashing to chimneys incorrectly per multiple G2 reviews.
-5. **No Xactimate** — they're explicitly not the insurance-restoration tool.
+5. **No Xactimate** — they're explicitly not the claim-restoration tool.
 6. **Mobile image upload limits** break the workflow for photo-heavy users.
 7. **Beta program glitches** — feature releases occasionally take down workflows.
 
@@ -163,7 +163,7 @@ The legacy "Pro $99 / Premium $169" tiers were retired in March 2026 — anyone 
 | **Voice agent / inbound calls** | ❌ | ❌ | **Sydney 24/7** |
 | **Xactimate integration** | ✅ flagship | ❌ | ❌ (not the target buyer) |
 | **CRM / proposals / payments** | Adjacent partners | Native, mature | Light — focus on demand capture |
-| **Insurance restoration fit** | ✅ best in class | ❌ explicit non-goal | ❌ explicit non-goal |
+| **Claim restoration fit** | ✅ best in class | ❌ explicit non-goal | ❌ explicit non-goal |
 | **Retail replacement fit** | OK but slow | ✅ strong | ✅ strong + faster + customer-facing |
 | **Public pricing transparency** | ❌ | ✅ since March 2026 | Should match Roofr's transparency to win the comparison |
 
