@@ -1429,32 +1429,44 @@ function ResultScreen({
           )}
         </div>
 
-        {/* Above-the-fold row — image LEFT, price + CTA RIGHT on lg+.
-            `items-center` keeps the two columns vertically balanced so
-            the painted image doesn't tower over the price card. The
-            grid auto-rows-fr makes them visually paired blocks. */}
-        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-10 items-center justify-items-center w-full">
-          {/* Interactive Google Map with cyan polygon as a GroundOverlay.
-              The customer can pan / zoom on the actual satellite to
-              confirm orientation — much more reassuring than the prior
-              static crop. Falls back to the server-side composite PNG
-              if the Maps loader errors (e.g. NEXT_PUBLIC_GOOGLE_MAPS_KEY
-              missing on a deploy). */}
+        {/* Above-the-fold row — image + storms LEFT, price + CTA RIGHT.
+            `items-start` so the two columns top-align (the left column
+            is now taller than the right because the recent-storms block
+            sits under the map). */}
+        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-8 lg:gap-10 items-start justify-items-center w-full">
+          {/* Left column: interactive Google Map with cyan polygon as a
+              GroundOverlay, AND the recent-severe-weather block stacked
+              underneath. Stacking storms under the map (instead of in
+              the prior "Why this roof needs attention" two-column card
+              below) evens out the visual weight against the tier-price
+              card on the right. */}
           <div
-            className="result-card overflow-hidden mx-auto w-full"
-            style={{ maxWidth: "480px", aspectRatio: "1 / 1" }}
+            className="flex flex-col gap-5 w-full mx-auto"
+            style={{ maxWidth: "480px" }}
           >
-            <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
-            <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
-            <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
-            <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
-            <RoofMap
-              centerLat={result.tile.centerLat}
-              centerLng={result.tile.centerLng}
-              zoom={result.tile.zoom}
-              overlay={result.cyanOverlay ?? null}
-              fallbackPngBase64={paintedImageBase64}
-            />
+            {/* Map card */}
+            <div
+              className="result-card overflow-hidden w-full"
+              style={{ aspectRatio: "1 / 1" }}
+            >
+              <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+              <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+              <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+              <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+              <RoofMap
+                centerLat={result.tile.centerLat}
+                centerLng={result.tile.centerLng}
+                zoom={result.tile.zoom}
+                overlay={result.cyanOverlay ?? null}
+                fallbackPngBase64={paintedImageBase64}
+              />
+            </div>
+
+            {/* Recent severe weather — directly under the map. Was in
+                WhyNowCard's right column; moved here so the left side of
+                the above-the-fold row matches the height of the tier
+                price card. */}
+            <StormsBlock storms={storms} loading={stormsLoading} />
           </div>
 
           {/* Right column: price + voice-consent CTA, stacked. */}
@@ -1703,7 +1715,7 @@ function ResultScreen({
             through recently (NWS Local Storm Reports via the Iowa State
             Mesonet, ~T+1h fresh, free). Card hides itself entirely when
             neither data source resolved — no "no data" placeholders. */}
-        <WhyNowCard parcel={parcel} storms={storms} stormsLoading={stormsLoading} />
+        <WhyNowCard parcel={parcel} storms={storms} />
 
         {/* Detail line under the price (full-width below the fold so it
             doesn't crowd the above-the-fold price card). */}
@@ -1822,64 +1834,44 @@ function ImageryQualityBadge({
 
 // ─── "Why this roof needs attention" card ──────────────────────────────
 //
-// Renders two evidence-based reasons the homeowner should be thinking
-// about their roof right now:
+// Renders evidence-based property facts pulled from the FL statewide
+// cadastral (ACT_YR_BLT, EFF_YR_BLT, last recorded sale). Aerial
+// imagery cannot answer "how old is this thing?" — the cadastral can,
+// from official county tax-roll data, for free.
 //
-//   1. PROPERTY FACTS — pulled from the FL statewide cadastral
-//      (ACT_YR_BLT, EFF_YR_BLT, last recorded sale). Aerial imagery
-//      cannot answer "how old is this thing?" — the cadastral can,
-//      from official county tax-roll data, for free.
+// Recent severe weather used to render here in a second column; it now
+// renders in its own card directly under the satellite map (see
+// `StormsBlock`) so the above-the-fold layout stays balanced against
+// the tier price card on the right. The italic-serif closing narrative
+// below still pulls from storm context for prose.
 //
-//   2. RECENT SEVERE WEATHER — pulled from the NWS Local Storm Reports
-//      mirrored by Iowa State Mesonet, last 12 months, 25mi radius.
-//      "Wind gusts to 61mph at the Port of Palm Beach in April" hits
-//      different than a generic "storm damage matters" disclaimer.
-//
-// Layout: card with two sections side-by-side on desktop, stacked on
-// mobile. Each section gracefully hides if its data didn't resolve.
-// Card hides entirely when both are null — no "no data" UI noise.
-//
-// The italic serif footer below the rows is the narrative payoff —
-// reads like a paragraph, not a stat sheet. That's where this whole
-// card earns its keep.
+// Card hides entirely when there's no parcel data — no "no data" UI noise.
 
 function WhyNowCard({
   parcel,
   storms,
-  stormsLoading,
 }: {
   parcel: V3Response["parcel"];
+  /** Still passed through so the italic-serif closer can reference
+   *  storm context in the narrative, even though storms render in
+   *  their own block elsewhere on the page. */
   storms: RecentStormsResponse | null;
-  /** True while /api/storms/recent is in flight. We render the parcel
-   *  column immediately and show a skeleton in the storms column so
-   *  the card doesn't pop in late and cause a layout jump as the
-   *  customer is reading the rest of the page. */
-  stormsLoading: boolean;
 }) {
-  // Bail out if neither data source resolved AND we're not still waiting
-  // on storms. Keeps the page calm when we're estimating for an
-  // out-of-state property, brand-new build, or genuinely nothing
-  // happened in the last 12 months around the address.
+  // Storms now render in a separate block under the satellite map, so
+  // this card only materializes for parcel data. The narrative closer
+  // below can still pull from storm context for prose.
   const hasParcel = parcel != null && parcel.yearBuilt != null;
-  const hasStorms = storms != null && storms.summary.total > 0;
-  if (!hasParcel && !hasStorms && !stormsLoading) return null;
+  if (!hasParcel) return null;
 
   const currentYear = new Date().getFullYear();
-  const age = hasParcel ? currentYear - (parcel.yearBuilt as number) : null;
+  const age = currentYear - (parcel.yearBuilt as number);
   const effAge =
-    hasParcel && parcel.effectiveYearBuilt && parcel.effectiveYearBuilt > 0
+    parcel.effectiveYearBuilt && parcel.effectiveYearBuilt > 0
       ? currentYear - parcel.effectiveYearBuilt
       : null;
-  const yearsOwned =
-    hasParcel && parcel.lastSale ? currentYear - parcel.lastSale.year : null;
-
-  // Recent-storm narrative pieces. We summarize at a level the customer
-  // actually recognizes ("3 wind events past year", "hail to 1.5"") and
-  // pull at most 3 most-significant events for the bullet list.
-  const sortedEvents = (storms?.events ?? [])
-    .slice()
-    .sort((a, b) => (b.magnitude ?? 0) - (a.magnitude ?? 0))
-    .slice(0, 3);
+  const yearsOwned = parcel.lastSale
+    ? currentYear - parcel.lastSale.year
+    : null;
 
   // The italic-serif closer. Builds dynamically off whatever data we
   // have so the card never looks like a fill-in-the-blank template.
@@ -1903,7 +1895,7 @@ function WhyNowCard({
         <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
         <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+        <div className="mx-auto" style={{ maxWidth: "440px" }}>
           {/* ── Property facts ── */}
           {hasParcel ? (
             <section>
@@ -1987,146 +1979,10 @@ function WhyNowCard({
             <section aria-hidden />
           )}
 
-          {/* ── Recent severe weather ── */}
-          {stormsLoading && !hasStorms ? (
-            // Skeleton while /api/storms/recent is in flight. Reserves
-            // the column's vertical space so the rest of the card
-            // doesn't jump when storms data arrives ~500-1500ms after
-            // the V3 result lands.
-            <section aria-busy="true" aria-label="Loading recent severe weather">
-              <div
-                className="font-serif italic mb-3"
-                style={{ fontSize: "13px", color: "var(--vx-terra)" }}
-              >
-                Severe weather, last 12 months
-              </div>
-              <div className="space-y-2.5">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    style={{
-                      height: 14,
-                      background:
-                        "linear-gradient(90deg, var(--vx-rule) 0%, var(--vx-rule) 40%, transparent 100%)",
-                      borderRadius: 3,
-                      opacity: 0.55,
-                      width: i === 2 ? "70%" : "100%",
-                    }}
-                  />
-                ))}
-                <div
-                  className="mt-3 font-serif italic"
-                  style={{ fontSize: "11px", color: "var(--vx-muted)" }}
-                >
-                  Reading the National Weather Service log…
-                </div>
-              </div>
-            </section>
-          ) : hasStorms ? (
-            <section>
-              <div
-                className="font-serif italic mb-3"
-                style={{ fontSize: "13px", color: "var(--vx-terra)" }}
-              >
-                Severe weather, last 12 months
-              </div>
-              <dl className="space-y-2">
-                <WhyRow
-                  label="Events within 25 mi"
-                  value={
-                    <span className="tabular">{storms!.summary.total}</span>
-                  }
-                />
-                {storms!.summary.hailCount > 0 && (
-                  <WhyRow
-                    label="Hail reports"
-                    value={
-                      <>
-                        <span className="tabular">{storms!.summary.hailCount}</span>
-                        {storms!.summary.maxHailInches != null && (
-                          <span
-                            className="font-serif italic ml-2"
-                            style={{ color: "var(--vx-ink-soft)" }}
-                          >
-                            up to {storms!.summary.maxHailInches.toFixed(2)}″
-                          </span>
-                        )}
-                      </>
-                    }
-                  />
-                )}
-                {storms!.summary.windCount > 0 && (
-                  <WhyRow
-                    label="Damaging-wind reports"
-                    value={
-                      <span className="tabular">{storms!.summary.windCount}</span>
-                    }
-                  />
-                )}
-                {storms!.summary.tornadoCount > 0 && (
-                  <WhyRow
-                    label="Tornado / funnel reports"
-                    value={
-                      <span className="tabular">
-                        {storms!.summary.tornadoCount}
-                      </span>
-                    }
-                  />
-                )}
-              </dl>
-
-              {sortedEvents.length > 0 && (
-                <ul
-                  className="mt-3 space-y-1"
-                  style={{
-                    fontSize: "12px",
-                    color: "var(--vx-ink-soft)",
-                  }}
-                >
-                  {sortedEvents.map((e, i) => (
-                    <li key={i} className="flex justify-between gap-3">
-                      <span style={{ textTransform: "capitalize" }}>
-                        {e.type}
-                        {e.magnitude != null && e.type === "hail" && (
-                          <span className="ml-1 tabular">
-                            {e.magnitude.toFixed(2)}″
-                          </span>
-                        )}
-                        {e.magnitude != null && e.type !== "hail" && (
-                          <span className="ml-1 tabular">
-                            {Math.round(e.magnitude)} mph
-                          </span>
-                        )}
-                      </span>
-                      <span
-                        className="font-serif italic"
-                        style={{ color: "var(--vx-muted)", whiteSpace: "nowrap" }}
-                      >
-                        {e.distanceMiles != null
-                          ? `${e.distanceMiles.toFixed(1)} mi`
-                          : "—"}{" "}
-                        ·{" "}
-                        {e.date
-                          ? new Date(e.date).toLocaleDateString(undefined, {
-                              month: "short",
-                              year: "numeric",
-                            })
-                          : "—"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div
-                className="mt-3 font-serif italic"
-                style={{ fontSize: "11px", color: "var(--vx-muted)" }}
-              >
-                Source: NWS Local Storm Reports via Iowa Environmental Mesonet.
-              </div>
-            </section>
-          ) : (
-            <section aria-hidden />
-          )}
+          {/* Storms column moved out of this card (now renders under the
+              satellite map at the top of the page so the left+right
+              above-the-fold columns balance visually). The narrative
+              closer below still pulls from storms data for the prose. */}
         </div>
 
         {/* Narrative closer — italic serif, full width under both columns.
@@ -2146,6 +2002,154 @@ function WhyNowCard({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Severe weather block (renders under the satellite map) ─────────────
+//
+// Extracted from WhyNowCard's right column so the above-the-fold layout
+// stays balanced — left side gets map + storms, right side gets the
+// tier price card. Hides itself when there's nothing meaningful to show
+// (no storms found AND we're not still waiting on the NWS fetch).
+
+function StormsBlock({
+  storms,
+  loading,
+}: {
+  storms: RecentStormsResponse | null;
+  loading: boolean;
+}) {
+  const hasStorms = storms != null && storms.summary.total > 0;
+  if (!hasStorms && !loading) return null;
+
+  const sortedEvents = (storms?.events ?? [])
+    .slice()
+    .sort((a, b) => (b.magnitude ?? 0) - (a.magnitude ?? 0))
+    .slice(0, 3);
+
+  return (
+    <div className="result-card relative w-full" style={{ padding: "22px 20px" }}>
+      <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+      <div className="eyebrow mb-3 text-center">Severe weather, last 12 months</div>
+
+      {loading && !hasStorms ? (
+        <div aria-busy="true" aria-label="Loading recent severe weather">
+          <div className="space-y-2.5">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                style={{
+                  height: 14,
+                  background:
+                    "linear-gradient(90deg, var(--vx-rule) 0%, var(--vx-rule) 40%, transparent 100%)",
+                  borderRadius: 3,
+                  opacity: 0.55,
+                  width: i === 2 ? "70%" : "100%",
+                }}
+              />
+            ))}
+            <div
+              className="mt-3 font-serif italic"
+              style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+            >
+              Reading the National Weather Service log…
+            </div>
+          </div>
+        </div>
+      ) : hasStorms ? (
+        <>
+          <dl className="space-y-2">
+            <WhyRow
+              label="Events within 25 mi"
+              value={<span className="tabular">{storms!.summary.total}</span>}
+            />
+            {storms!.summary.hailCount > 0 && (
+              <WhyRow
+                label="Hail reports"
+                value={
+                  <>
+                    <span className="tabular">{storms!.summary.hailCount}</span>
+                    {storms!.summary.maxHailInches != null && (
+                      <span
+                        className="font-serif italic ml-2"
+                        style={{ color: "var(--vx-ink-soft)" }}
+                      >
+                        up to {storms!.summary.maxHailInches.toFixed(2)}″
+                      </span>
+                    )}
+                  </>
+                }
+              />
+            )}
+            {storms!.summary.windCount > 0 && (
+              <WhyRow
+                label="Damaging-wind reports"
+                value={
+                  <span className="tabular">{storms!.summary.windCount}</span>
+                }
+              />
+            )}
+            {storms!.summary.tornadoCount > 0 && (
+              <WhyRow
+                label="Tornado / funnel reports"
+                value={
+                  <span className="tabular">{storms!.summary.tornadoCount}</span>
+                }
+              />
+            )}
+          </dl>
+
+          {sortedEvents.length > 0 && (
+            <ul
+              className="mt-3 space-y-1"
+              style={{ fontSize: "12px", color: "var(--vx-ink-soft)" }}
+            >
+              {sortedEvents.map((e, i) => (
+                <li key={i} className="flex justify-between gap-3">
+                  <span style={{ textTransform: "capitalize" }}>
+                    {e.type}
+                    {e.magnitude != null && e.type === "hail" && (
+                      <span className="ml-1 tabular">
+                        {e.magnitude.toFixed(2)}″
+                      </span>
+                    )}
+                    {e.magnitude != null && e.type !== "hail" && (
+                      <span className="ml-1 tabular">
+                        {Math.round(e.magnitude)} mph
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className="font-serif italic"
+                    style={{ color: "var(--vx-muted)", whiteSpace: "nowrap" }}
+                  >
+                    {e.distanceMiles != null
+                      ? `${e.distanceMiles.toFixed(1)} mi`
+                      : "—"}{" "}
+                    ·{" "}
+                    {e.date
+                      ? new Date(e.date).toLocaleDateString(undefined, {
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div
+            className="mt-3 font-serif italic text-center"
+            style={{ fontSize: "11px", color: "var(--vx-muted)" }}
+          >
+            Source: NWS Local Storm Reports via Iowa Environmental Mesonet.
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
