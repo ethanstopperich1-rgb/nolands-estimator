@@ -143,7 +143,7 @@ export default function RepOverview({
       </div>
       <div className="glass-panel overflow-hidden">
         {attention.length === 0 ? (
-          <div className="px-5 py-7 text-center text-[13px] text-white/55">
+          <div className="px-5 py-7 text-center text-mini text-white/55">
             Inbox zero. Nothing requires immediate follow-up — pull up your full lead list
             below or start a fresh estimate.
           </div>
@@ -166,10 +166,10 @@ export default function RepOverview({
                     ].join(" ")}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] text-white/92 font-medium truncate">
+                    <div className="text-mini text-white/92 font-medium truncate">
                       {item.name}
                       <span className="text-white/40 mx-1.5">·</span>
-                      <span className="text-[12px] text-white/65 font-normal">
+                      <span className="text-xs text-white/65 font-normal">
                         {item.reason}
                       </span>
                     </div>
@@ -194,7 +194,7 @@ export default function RepOverview({
         <span>My leads · {myLeads.length} active</span>
       </div>
       {myLeads.length === 0 ? (
-        <div className="glass-panel px-5 py-8 text-center text-[13px] text-white/55">
+        <div className="glass-panel px-5 py-8 text-center text-mini text-white/55">
           No leads assigned to you yet. New leads will land here as soon as Sydney books
           an inspection or a customer requests a quote.
         </div>
@@ -214,10 +214,10 @@ export default function RepOverview({
                     className="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-4 py-3 border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03] focus:bg-white/[0.05] focus:outline-none transition-colors"
                   >
                     <div className="min-w-0">
-                      <div className="text-[13px] text-white/92 font-medium truncate">
+                      <div className="text-mini text-white/92 font-medium truncate">
                         {l.name}
                       </div>
-                      <div className="text-[11px] text-white/50 font-mono tabular truncate mt-0.5 flex items-center gap-2">
+                      <div className="text-eyebrow text-white/50 font-mono tabular truncate mt-0.5 flex items-center gap-2">
                         <MapPin className="w-3 h-3 inline opacity-60" />
                         {l.address}
                         {l.phone && (
@@ -229,7 +229,7 @@ export default function RepOverview({
                         )}
                       </div>
                     </div>
-                    <div className="text-right font-mono tabular text-[12px] text-white/85 whitespace-nowrap">
+                    <div className="text-right font-mono tabular text-xs text-white/85 whitespace-nowrap">
                       {range}
                     </div>
                     <span className={`text-[10.5px] px-2 py-0.5 rounded-full border ${ss.className} font-mono tabular`}>

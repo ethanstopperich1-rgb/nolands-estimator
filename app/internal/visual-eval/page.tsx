@@ -96,9 +96,9 @@ function MenuView({ note }: { note?: string }) {
       </ul>
       <h2 style={{ fontSize: 16, marginTop: 24 }}>Ad-hoc address</h2>
       <form method="get" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <input name="lat" placeholder="lat" style={input} required />
-        <input name="lng" placeholder="lng" style={input} required />
-        <input name="label" placeholder="label (optional)" style={input} />
+        <input name="lat" placeholder="lat" aria-label="Latitude" style={input} required />
+        <input name="lng" placeholder="lng" aria-label="Longitude" style={input} required />
+        <input name="label" placeholder="label (optional)" aria-label="Label" style={input} />
         <button type="submit" style={button}>
           Run
         </button>

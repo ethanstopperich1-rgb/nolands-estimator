@@ -339,7 +339,7 @@ export default async function OverviewPage() {
           <h1 className="font-display text-[34px] sm:text-[40px] lg:text-[46px] tracking-[-0.022em] font-medium leading-[1.02] text-white/95">
             Pipeline overview
           </h1>
-          <p className="mt-1.5 text-[13px] text-white/55 italic font-serif">
+          <p className="mt-1.5 text-mini text-white/55 italic font-serif">
             {monthLabel()} · live across every office
           </p>
         </div>

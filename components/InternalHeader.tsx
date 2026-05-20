@@ -73,7 +73,7 @@ export default function InternalHeader() {
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 h-16 sm:h-20 flex items-center justify-between gap-3">
         <Link href="/" className="group flex items-center gap-2 min-w-0" aria-label="voxaris — home">
           <Wordmark size="md" tone="ink" />
-          <span className="hidden md:inline-block ml-1 chip text-[10px]">beta</span>
+          <span className="hidden md:inline-block ml-1 chip text-micro">beta</span>
         </Link>
 
         <NavHeader
@@ -84,9 +84,9 @@ export default function InternalHeader() {
           ]}
         />
 
-        <div className="flex items-center gap-3 text-[12px] text-slate-400">
+        <div className="flex items-center gap-3 text-xs text-slate-400">
           <span className="hidden md:inline-flex items-center gap-2">
-            <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-slate-500">Internal</span>
+            <span className="font-mono uppercase tracking-[0.14em] text-micro text-slate-500">Internal</span>
           </span>
         </div>
       </div>

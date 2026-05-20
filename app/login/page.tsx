@@ -209,7 +209,7 @@ function LoginForm() {
         </div>
 
         <p
-          className="mt-6 text-[11px] leading-relaxed text-center"
+          className="mt-6 text-eyebrow leading-relaxed text-center"
           style={{ color: "var(--vx-muted)" }}
         >
           Staff credentials only. Customers reach the public estimator at{" "}

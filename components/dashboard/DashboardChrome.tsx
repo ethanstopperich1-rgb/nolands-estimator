@@ -177,7 +177,7 @@ export default function DashboardChrome({
           />
           {roleTier(role) >= 2 && (
             <div className="mt-4 pt-4 border-t border-white/[0.06]">
-              <div className="text-[10px] font-mono tabular uppercase tracking-[0.18em] text-white/40 mb-2 px-1">
+              <div className="text-micro font-mono tabular uppercase tracking-[0.18em] text-white/40 mb-2 px-1">
                 Active office
               </div>
               <OfficeSwitcher
@@ -200,15 +200,15 @@ export default function DashboardChrome({
             ) : (
               <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full border border-white/[0.05]">
                 <span
-                  className="h-5 w-5 rounded-md border border-white/10 flex items-center justify-center text-[10px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                  className="h-5 w-5 rounded-md border border-white/10 flex items-center justify-center text-micro font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
                   style={{
                     background: `linear-gradient(135deg, ${activeOffice.brand}66, ${activeOffice.brand}33)`,
                   }}
                 >
                   {activeOffice.initial}
                 </span>
-                <span className="text-[13px] text-white/85 font-medium">{activeOffice.shortName}</span>
-                <span className="text-[10px] font-mono tabular text-white/40 uppercase tracking-wider ml-1">
+                <span className="text-mini text-white/85 font-medium">{activeOffice.shortName}</span>
+                <span className="text-micro font-mono tabular text-white/40 uppercase tracking-wider ml-1">
                   Office
                 </span>
               </div>
@@ -221,7 +221,7 @@ export default function DashboardChrome({
           </div>
 
           <div className="flex items-center gap-5">
-            <div className="text-[11px] text-white/45 font-mono tabular uppercase tracking-[0.16em] hidden xl:block">
+            <div className="text-eyebrow text-white/45 font-mono tabular uppercase tracking-[0.16em] hidden xl:block">
               {new Date().toLocaleDateString("en-US", {
                 weekday: "short",
                 month: "short",
@@ -235,12 +235,12 @@ export default function DashboardChrome({
                  *  role would be the "staff" code-fallback, which paired
                  *  with the admin@voxaris.io fallback email reads as
                  *  contradictory; better to hide it until auth is real. */}
-                <div className="text-[12px] text-white/70 font-mono tabular flex items-center gap-2 leading-none">
+                <div className="text-xs text-white/70 font-mono tabular flex items-center gap-2 leading-none">
                   <span>{userEmail ?? "admin@voxaris.io"}</span>
                   {userEmail && (
                     <>
                       <span className="text-white/25">·</span>
-                      <span className="text-[10px] text-white/45 uppercase tracking-[0.16em]">
+                      <span className="text-micro text-white/45 uppercase tracking-[0.16em]">
                         {role}
                       </span>
                     </>
@@ -249,7 +249,7 @@ export default function DashboardChrome({
                 <form action="/auth/signout" method="POST">
                   <button
                     type="submit"
-                    className="text-[11px] font-mono uppercase tracking-[0.14em] text-white/45 hover:text-white/85 transition-colors"
+                    className="text-eyebrow font-mono uppercase tracking-[0.14em] text-white/45 hover:text-white/85 transition-colors"
                   >
                     Sign out
                   </button>
@@ -269,7 +269,7 @@ export default function DashboardChrome({
          *  already shown in the sidebar header. 2026-05 audit
          *  collapsed it. */}
         <div className="border-t border-white/[0.06] px-4 sm:px-6 lg:px-8 py-3 mt-auto bg-[rgba(8,11,17,0.28)] backdrop-blur-xl">
-          <div className="max-w-[1400px] mx-auto flex items-center gap-3 text-[11px] font-mono tabular uppercase tracking-[0.14em] text-white/40">
+          <div className="max-w-[1400px] mx-auto flex items-center gap-3 text-eyebrow font-mono tabular uppercase tracking-[0.14em] text-white/40">
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_8px_rgba(95,227,176,0.5)] animate-pulse" />
               Sydney online
@@ -421,15 +421,15 @@ function OfficeSwitcher({
           className="flex items-center gap-2.5 px-3 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors"
         >
           <span
-            className="h-5 w-5 rounded-md border border-white/10 flex items-center justify-center text-[10px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+            className="h-5 w-5 rounded-md border border-white/10 flex items-center justify-center text-micro font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
             style={{
               background: `linear-gradient(135deg, ${activeOffice.brand}66, ${activeOffice.brand}33)`,
             }}
           >
             {activeOffice.initial}
           </span>
-          <span className="text-[13px] text-white/85 font-medium">{activeOffice.shortName}</span>
-          <span className="text-[10px] font-mono tabular text-white/40 uppercase tracking-wider ml-1">
+          <span className="text-mini text-white/85 font-medium">{activeOffice.shortName}</span>
+          <span className="text-micro font-mono tabular text-white/40 uppercase tracking-wider ml-1">
             Office
           </span>
           <svg
@@ -458,7 +458,7 @@ function OfficeSwitcher({
           }
         >
           {isTopbar && (
-            <div className="px-3 pt-2 pb-1.5 text-[10px] font-mono tabular uppercase tracking-[0.18em] text-white/40">
+            <div className="px-3 pt-2 pb-1.5 text-micro font-mono tabular uppercase tracking-[0.18em] text-white/40">
               Switch office
             </div>
           )}
@@ -486,7 +486,7 @@ function OfficeSwitcher({
                 ].join(" ")}
               >
                 <span
-                  className="h-7 w-7 rounded-lg border border-white/10 flex items-center justify-center text-[11px] font-bold text-white shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                  className="h-7 w-7 rounded-lg border border-white/10 flex items-center justify-center text-eyebrow font-bold text-white shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
                   style={{
                     background: `linear-gradient(135deg, ${o.brand}66, ${o.brand}33)`,
                   }}
@@ -494,10 +494,10 @@ function OfficeSwitcher({
                   {o.initial}
                 </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[13px] text-white/90 font-medium leading-tight truncate">
+                  <span className="block text-mini text-white/90 font-medium leading-tight truncate">
                     {o.name}
                   </span>
-                  <span className="block text-[11px] text-white/45 leading-tight mt-0.5 truncate">
+                  <span className="block text-eyebrow text-white/45 leading-tight mt-0.5 truncate">
                     {o.city}, {o.state}
                   </span>
                 </span>
@@ -522,7 +522,7 @@ function OfficeSwitcher({
         >
           <AlertTriangle className="w-4 h-4 text-rose-300 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] font-mono tabular text-rose-300/85 uppercase tracking-[0.16em]">
+            <div className="text-eyebrow font-mono tabular text-rose-300/85 uppercase tracking-[0.16em]">
               Switch failed
             </div>
             <div className="text-[12.5px] text-white/85 leading-snug mt-0.5">{errorToast}</div>
@@ -566,7 +566,7 @@ function SidebarContent({
         className="hidden lg:flex flex-col items-start gap-1.5 px-1"
       >
         <Wordmark size="md" tone="ink" />
-        <span className="text-[10px] uppercase tracking-[0.14em] text-white/40 pl-0.5 font-medium">
+        <span className="text-micro uppercase tracking-[0.14em] text-white/40 pl-0.5 font-medium">
           {isDemo ? "Demo Console" : isRepView ? "Rep Console" : "Operator Console"}
         </span>
       </Link>
@@ -654,16 +654,16 @@ function SidebarContent({
               <span className="absolute w-3 h-3 rounded-full bg-mint/40 animate-ping" />
               <span className="vx-sydney-dot relative w-1.5 h-1.5 rounded-full bg-mint shadow-[0_0_8px_rgba(95,227,176,0.6)]" />
             </div>
-            <span className="vx-sydney-name text-[12px] font-medium text-white/85">Sydney</span>
-            <span className="vx-sydney-status ml-auto text-[10px] font-mono tabular text-mint/85 uppercase tracking-wider">
+            <span className="vx-sydney-name text-xs font-medium text-white/85">Sydney</span>
+            <span className="vx-sydney-status ml-auto text-micro font-mono tabular text-mint/85 uppercase tracking-wider">
               Online
             </span>
           </div>
-          <div className="vx-sydney-body text-[11px] text-white/50 leading-relaxed">
+          <div className="vx-sydney-body text-eyebrow text-white/50 leading-relaxed">
             Inbound voice agent. Listening across every office, 24/7.
           </div>
         </div>
-        <div className="text-[10px] font-mono tabular text-white/30 uppercase tracking-[0.18em] text-center">
+        <div className="text-micro font-mono tabular text-white/30 uppercase tracking-[0.18em] text-center">
           v1.0 · Production
         </div>
       </div>

@@ -29,6 +29,26 @@
   --color-mint:  #5fe3b0;
   --color-amber: #f3b14b;
   --color-rose:  #ff7a8a;
+
+  /* ── Micro typography scale ──────────────────────────────────────────
+   * The dashboard glass-panel language uses three sub-text-xs sizes
+   * for monospace eyebrows, captions, and stat labels. Before these
+   * tokens existed, they lived as arbitrary `text-[10px]` / `[11px]`
+   * / `[13px]` values scattered across 170+ JSX sites. Centralizing
+   * them lets us tune the scale globally (a 1px change here lands
+   * everywhere) and surfaces them as proper Tailwind utilities:
+   *
+   *   --text-micro    →  text-micro     (10px — densest stat label)
+   *   --text-eyebrow  →  text-eyebrow   (11px — uppercase eyebrow)
+   *   --text-mini     →  text-mini      (13px — between xs and sm)
+   *
+   * Note: 12px = Tailwind's default `text-xs`, no custom token needed.
+   * Half-pixel sizes (`text-[10.5px]`, `text-[11.5px]`, etc.) are
+   * intentional sub-grid stops for specific surfaces — leave alone.
+   */
+  --text-micro: 10px;
+  --text-eyebrow: 11px;
+  --text-mini: 13px;
 }
 
 /* ─── Base ────────────────────────────────────────────────────────────── */

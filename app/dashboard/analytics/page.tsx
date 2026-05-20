@@ -228,7 +228,7 @@ export default async function AnalyticsPage() {
               key={row.label}
               className="grid grid-cols-[110px_1fr_70px] items-center gap-4"
             >
-              <div className="text-[12px] text-white/60 font-medium">{row.label}</div>
+              <div className="text-xs text-white/60 font-medium">{row.label}</div>
               <div className="h-8 rounded-xl bg-white/[0.025] border border-white/[0.05] overflow-hidden relative">
                 <div
                   className={[
@@ -343,7 +343,7 @@ export default async function AnalyticsPage() {
                   return (
                     <li
                       key={o.outcome}
-                      className="flex items-center justify-between gap-2 text-[12px]"
+                      className="flex items-center justify-between gap-2 text-xs"
                     >
                       <span className={`px-2.5 py-0.5 rounded-full border ${s.className}`}>
                         {s.label}

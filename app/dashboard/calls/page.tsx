@@ -111,7 +111,7 @@ export default async function CallsPage() {
             Every Sydney call, with transcript and event timeline. Newest first.
           </p>
         </div>
-        <div className="flex items-center gap-2.5 text-[11px] font-mono tabular text-white/55">
+        <div className="flex items-center gap-2.5 text-eyebrow font-mono tabular text-white/55">
           <span className="relative flex items-center justify-center">
             <span className="absolute w-2 h-2 rounded-full bg-mint/40 animate-ping" />
             <span className="relative w-1 h-1 rounded-full bg-mint shadow-[0_0_6px_rgba(95,227,176,0.55)]" />

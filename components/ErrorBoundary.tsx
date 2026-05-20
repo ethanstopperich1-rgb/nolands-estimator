@@ -37,10 +37,10 @@ export default class ErrorBoundary extends Component<
               <div className="font-display font-semibold tracking-tight text-[14px] text-rose">
                 Something didn&apos;t load
               </div>
-              <div className="text-[12px] text-slate-400 mt-1 leading-relaxed">
+              <div className="text-xs text-slate-400 mt-1 leading-relaxed">
                 Refresh to retry. Your other panels are unaffected.
               </div>
-              <button onClick={this.reset} className="glass-button-secondary mt-3 text-[12px] py-1.5 px-3">
+              <button onClick={this.reset} className="glass-button-secondary mt-3 text-xs py-1.5 px-3">
                 Try again
               </button>
             </div>

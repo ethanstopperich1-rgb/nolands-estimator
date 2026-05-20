@@ -251,7 +251,7 @@ export default function CanvassView({
           Storm events · 30d
         </div>
         {events.length === 0 ? (
-          <div className="glass-panel p-4 text-[12px] text-white/55">
+          <div className="glass-panel p-4 text-xs text-white/55">
             No detected events. Once storm-pulse fires, events appear here.
           </div>
         ) : (
@@ -280,12 +280,12 @@ export default function CanvassView({
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span
-                        className={`inline-flex items-center gap-1.5 text-[12px] font-medium ${active ? "text-cy-300" : "text-white"}`}
+                        className={`inline-flex items-center gap-1.5 text-xs font-medium ${active ? "text-cy-300" : "text-white"}`}
                       >
                         <CloudHail size={11} aria-hidden />
                         {e.region_name}
                       </span>
-                      <span className="font-mono tabular text-[11px] text-white/55">
+                      <span className="font-mono tabular text-eyebrow text-white/55">
                         {e.peak_inches.toFixed(2)}&quot;
                       </span>
                     </div>
@@ -304,7 +304,7 @@ export default function CanvassView({
                   onClick={() =>
                     setFilters((f) => ({ ...f, eventIds: new Set() }))
                   }
-                  className="w-full text-[11px] text-white/55 hover:text-white inline-flex items-center justify-center gap-1.5 py-1.5"
+                  className="w-full text-eyebrow text-white/55 hover:text-white inline-flex items-center justify-center gap-1.5 py-1.5"
                 >
                   <X size={11} /> Clear event filter
                 </button>
@@ -364,7 +364,7 @@ export default function CanvassView({
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-[12px]">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
             <label className="inline-flex items-center gap-2 text-white/65">
               <span className="text-[10.5px] uppercase tracking-wider text-white/45 font-mono">
                 Min hail
@@ -374,7 +374,7 @@ export default function CanvassView({
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, minHail: Number(e.target.value) }))
                 }
-                className="glass-input !py-1 !px-2 !text-[12px]"
+                className="glass-input !py-1 !px-2 !text-xs"
               >
                 {[0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((v) => (
                   <option key={v} value={v}>
@@ -392,7 +392,7 @@ export default function CanvassView({
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, maxDistance: Number(e.target.value) }))
                 }
-                className="glass-input !py-1 !px-2 !text-[12px]"
+                className="glass-input !py-1 !px-2 !text-xs"
               >
                 {[1, 2, 3, 5, 10, 20].map((v) => (
                   <option key={v} value={v}>
@@ -430,7 +430,7 @@ export default function CanvassView({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[11px] uppercase tracking-wider text-white/45 border-b border-white/[0.06]">
+                  <tr className="text-eyebrow uppercase tracking-wider text-white/45 border-b border-white/[0.06]">
                     <th className="px-3 py-2.5 w-10">
                       <BulkSelectHeader
                         rowIds={filtered.slice(0, 500).map((r) => r.id)}
@@ -517,7 +517,7 @@ export default function CanvassView({
                           )}
                         </td>
                         <td
-                          className="px-3 py-2.5 text-right font-mono tabular text-[12px] text-white/55 cursor-pointer"
+                          className="px-3 py-2.5 text-right font-mono tabular text-xs text-white/55 cursor-pointer"
                           onClick={() => setDrawerRow(r)}
                         >
                           {i + 1}
@@ -526,7 +526,7 @@ export default function CanvassView({
                           className="px-3 py-2.5 cursor-pointer"
                           onClick={() => setDrawerRow(r)}
                         >
-                          <div className="text-[13px] text-white/95 font-medium">
+                          <div className="text-mini text-white/95 font-medium">
                             {r.address_line ?? "—"}
                           </div>
                           <div className="text-[10.5px] text-white/45 font-mono tabular">
@@ -539,7 +539,7 @@ export default function CanvassView({
                         >
                           {ev ? `${ev.peak_inches.toFixed(2)}"` : "—"}
                           {ev && (
-                            <div className="text-[10px] text-white/45">
+                            <div className="text-micro text-white/45">
                               {ev.event_date}
                             </div>
                           )}
@@ -557,7 +557,7 @@ export default function CanvassView({
                           <PermitChip row={r} />
                         </td>
                         <td
-                          className="px-3 py-2.5 text-right font-mono tabular text-[13px] font-medium cursor-pointer"
+                          className="px-3 py-2.5 text-right font-mono tabular text-mini font-medium cursor-pointer"
                           onClick={() => setDrawerRow(r)}
                         >
                           <ScorePill score={r.score} />
@@ -569,7 +569,7 @@ export default function CanvassView({
               </table>
             </div>
             {filtered.length > 500 && (
-              <div className="text-[11px] text-white/45 font-mono tabular text-center py-2">
+              <div className="text-eyebrow text-white/45 font-mono tabular text-center py-2">
                 Showing top 500 of {filtered.length.toLocaleString()}. Tighten
                 filters or export CSV for the full list.
               </div>
@@ -670,7 +670,7 @@ function PresetChip({
       type="button"
       onClick={onClick}
       className={[
-        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium border transition-all active:scale-[0.97]",
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all active:scale-[0.97]",
         active
           ? "bg-cy-300/15 text-cy-300 border-cy-300/40 shadow-[inset_0_1px_0_rgba(103,220,255,0.15)]"
           : "bg-white/[0.04] text-white/70 border-white/[0.08] hover:border-white/20 hover:text-white",
@@ -822,7 +822,7 @@ function OutcomeLogger({ row }: { row: CanvassRow }) {
       <div className="text-[10.5px] uppercase tracking-wider text-white/45 mb-3 flex items-center justify-between">
         <span>Log outcome</span>
         {row.latest_outcome && (
-          <span className="text-cy-300 normal-case font-medium tracking-normal text-[11px]">
+          <span className="text-cy-300 normal-case font-medium tracking-normal text-eyebrow">
             {prettifyOutcome(row.latest_outcome)}
             {row.latest_outcome_at && (
               <span className="text-white/45 ml-2 font-mono tabular">
@@ -895,7 +895,7 @@ function OutcomeLogger({ row }: { row: CanvassRow }) {
                 placeholder="18500"
                 value={revenue}
                 onChange={(e) => setRevenue(e.target.value)}
-                className="glass-input !text-[13px]"
+                className="glass-input !text-mini"
               />
             </label>
           )}
@@ -907,7 +907,7 @@ function OutcomeLogger({ row }: { row: CanvassRow }) {
               <select
                 value={lostReason}
                 onChange={(e) => setLostReason(e.target.value)}
-                className="glass-input !text-[13px]"
+                className="glass-input !text-mini"
               >
                 <option value="">— pick one —</option>
                 <option value="not_interested">Not interested</option>
@@ -930,7 +930,7 @@ function OutcomeLogger({ row }: { row: CanvassRow }) {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className="glass-input !text-[13px] resize-none"
+              className="glass-input !text-mini resize-none"
               placeholder="What happened?"
             />
           </label>
@@ -938,7 +938,7 @@ function OutcomeLogger({ row }: { row: CanvassRow }) {
             type="button"
             onClick={submitFinal}
             disabled={pending}
-            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[12px] font-medium bg-cy-300/10 text-cy-300 border border-cy-300/30 hover:bg-cy-300/15 active:scale-[0.98] transition-all disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-cy-300/10 text-cy-300 border border-cy-300/30 hover:bg-cy-300/15 active:scale-[0.98] transition-all disabled:opacity-50"
           >
             {pending ? "Saving…" : `Save ${picked === "won" ? "win" : "loss"}`}
           </button>
@@ -949,7 +949,7 @@ function OutcomeLogger({ row }: { row: CanvassRow }) {
         <div className="text-[11.5px] text-rose-400/90 mt-2">{error}</div>
       )}
       {savedAt && !error && (
-        <div className="text-[11px] text-mint mt-2 inline-flex items-center gap-1">
+        <div className="text-eyebrow text-mint mt-2 inline-flex items-center gap-1">
           <CheckSquare size={11} /> Saved
         </div>
       )}
@@ -992,7 +992,7 @@ function OutcomeButton({
       type="button"
       onClick={() => onClick(outcome)}
       disabled={pending}
-      className={`inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-[12px] font-medium border transition-all active:scale-[0.98] disabled:opacity-50 ${palette}`}
+      className={`inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-medium border transition-all active:scale-[0.98] disabled:opacity-50 ${palette}`}
     >
       {label}
     </button>
@@ -1023,7 +1023,7 @@ function ConfidenceBadge({ level }: { level: "high" | "medium" | "low" }) {
   const v = map[level];
   return (
     <span
-      className={`text-[10px] font-mono tabular px-2 py-0.5 rounded-full border ${v.cls}`}
+      className={`text-micro font-mono tabular px-2 py-0.5 rounded-full border ${v.cls}`}
     >
       {v.label}
     </span>
@@ -1100,7 +1100,7 @@ function RowDrawer({
             <div className="text-[14px] text-white font-medium">
               {event.region_name}
             </div>
-            <div className="text-[12px] text-white/65 mt-1 font-mono tabular">
+            <div className="text-xs text-white/65 mt-1 font-mono tabular">
               {event.peak_inches.toFixed(2)}&quot; hail · {event.event_date} ·{" "}
               {event.hit_count} cells
             </div>
@@ -1112,25 +1112,25 @@ function RowDrawer({
             Permit status
           </div>
           {row.permit_checked_at == null ? (
-            <div className="text-[13px] text-white/65">
+            <div className="text-mini text-white/65">
               Portal not yet queried for this address.
             </div>
           ) : row.has_recent_roof_permit === false ? (
             <>
-              <div className="text-[13px] text-cy-300 font-medium inline-flex items-center gap-1.5">
+              <div className="text-mini text-cy-300 font-medium inline-flex items-center gap-1.5">
                 <Flame size={12} aria-hidden />
                 No roof permit on file
               </div>
-              <div className="text-[11px] text-white/45 mt-1 font-mono tabular">
+              <div className="text-eyebrow text-white/45 mt-1 font-mono tabular">
                 Last checked {fmtDateTime(row.permit_checked_at)}
               </div>
             </>
           ) : (
             <>
-              <div className="text-[13px] text-white">
+              <div className="text-mini text-white">
                 {row.last_permit_type ?? "Roof permit"} · {row.last_permit_date ?? "—"}
               </div>
-              <div className="text-[11px] text-white/45 mt-1 font-mono tabular">
+              <div className="text-eyebrow text-white/45 mt-1 font-mono tabular">
                 Last checked {fmtDateTime(row.permit_checked_at)}
               </div>
             </>
@@ -1157,13 +1157,13 @@ function RowDrawer({
                   source: {row.phone_source ?? "—"} · checked{" "}
                   {fmtDateTime(row.phone_checked_at)}
                 </div>
-                <div className="text-[10px] text-white/40 mt-1.5 leading-relaxed">
+                <div className="text-micro text-white/40 mt-1.5 leading-relaxed">
                   TCPA/DNC scrub before dialing. FL 8am-9pm window. No
                   auto-dialer without express written consent.
                 </div>
               </div>
             ) : (
-              <div className="text-[13px] text-white/55">
+              <div className="text-mini text-white/55">
                 No phone match returned by any source.
               </div>
             )}
@@ -1200,7 +1200,7 @@ function RowDrawer({
           </div>
         </section>
 
-        <section className="text-[11px] text-white/40 font-mono tabular">
+        <section className="text-eyebrow text-white/40 font-mono tabular">
           Status: {row.status} · Added {fmtDateTime(row.created_at)}
         </section>
       </aside>
@@ -1211,7 +1211,7 @@ function RowDrawer({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="glass-panel p-3">
-      <div className="text-[10px] uppercase tracking-wider text-white/45">
+      <div className="text-micro uppercase tracking-wider text-white/45">
         {label}
       </div>
       <div className="text-base font-mono tabular text-white/95 mt-1">
@@ -1342,7 +1342,7 @@ function BulkActionBar({
         <button
           type="button"
           onClick={onExport}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium bg-cy-300/10 text-cy-300 border border-cy-300/30 hover:bg-cy-300/15 active:scale-[0.97] transition-all"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-cy-300/10 text-cy-300 border border-cy-300/30 hover:bg-cy-300/15 active:scale-[0.97] transition-all"
         >
           <Download size={12} /> Export
         </button>
@@ -1350,7 +1350,7 @@ function BulkActionBar({
           type="button"
           disabled
           title="Phase 3 — queue outbound calls"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium bg-white/[0.04] text-white/40 border border-white/[0.06] cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-white/[0.04] text-white/40 border border-white/[0.06] cursor-not-allowed"
         >
           <PhoneOutgoing size={12} /> Send to Sydney
         </button>
@@ -1358,7 +1358,7 @@ function BulkActionBar({
           type="button"
           disabled
           title="Phase 3 — mark all contacted"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium bg-white/[0.04] text-white/40 border border-white/[0.06] cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-white/[0.04] text-white/40 border border-white/[0.06] cursor-not-allowed"
         >
           <CircleCheck size={12} /> Mark contacted
         </button>

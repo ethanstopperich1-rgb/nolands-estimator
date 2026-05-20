@@ -59,7 +59,7 @@ export default async function SettingsPage() {
         </div>
       )}
 
-      <aside className="glass-panel p-5 text-[12px] text-white/55 leading-relaxed">
+      <aside className="glass-panel p-5 text-xs text-white/55 leading-relaxed">
         <span className="text-white/75 font-medium">Note · </span>
         Editable after Supabase Auth lands. The migration will scope all writes to admin users and
         replace this page&apos;s service-role read with a JWT-aware server client. Until then this

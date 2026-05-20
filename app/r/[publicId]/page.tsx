@@ -28,10 +28,10 @@ import type { Metadata } from "next";
 import {
   createServiceRoleClient,
   supabaseServiceRoleConfigured,
-  type OfficeBranding,
 } from "@/lib/supabase";
 import { buildHomeownerShareUrl } from "@/lib/share-url";
 import { resolvePaintedUrl } from "@/lib/painted-url";
+import { t, parseLang, DEFAULT_LANG, type Lang } from "@/lib/i18n";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -58,6 +58,11 @@ interface SharedReport {
   } | null;
   observations: string[];
   generatedAt: string | null;
+  // Homeowner's preferred language — sourced from
+  // leads.preferred_language (set at /api/leads time from form
+  // toggle / Accept-Language). Drives the whole render. EN default
+  // on any pre-i18n lead row.
+  lang: Lang;
   office: {
     displayName: string;
     inboundNumber: string | null;
@@ -76,12 +81,17 @@ async function loadSharedReport(publicId: string): Promise<SharedReport | null> 
   const { data: lead, error } = await sb
     .from("leads")
     .select(
-      "public_id, name, address, estimate_low, estimate_high, estimated_sqft, material, roof_v3_json, office_id, created_at",
+      "public_id, name, address, estimate_low, estimate_high, estimated_sqft, material, roof_v3_json, office_id, created_at, preferred_language",
     )
     .eq("public_id", publicId)
     .maybeSingle();
 
   if (error || !lead) return null;
+
+  // Resolve the homeowner's language. parseLang() validates the
+  // column (some legacy rows or seed data may carry junk); falls
+  // back to DEFAULT_LANG ("en") on anything unrecognized.
+  const lang: Lang = parseLang(lead.preferred_language) ?? DEFAULT_LANG;
 
   const { data: officeRow } = await sb
     .from("offices")
@@ -205,6 +215,7 @@ async function loadSharedReport(publicId: string): Promise<SharedReport | null> 
     parcel,
     observations,
     generatedAt,
+    lang,
     office: {
       displayName: officeRow?.name ?? "Voxaris",
       inboundNumber: officeRow?.inbound_number ?? null,
@@ -224,16 +235,26 @@ export async function generateMetadata({
   const { publicId } = await params;
   const report = await loadSharedReport(publicId);
   if (!report) {
-    return { title: "Roof report", robots: { index: false, follow: false } };
+    // No lead → render the EN fallback title. We don't know the
+    // homeowner's lang at this point (no row to read), and EN is
+    // the safe default for SEO-blocked pages.
+    return {
+      title: t("share.meta.title_fallback", DEFAULT_LANG),
+      robots: { index: false, follow: false },
+    };
   }
 
+  const { lang } = report;
   const dollarRange =
     report.estimateLow != null && report.estimateHigh != null
       ? `$${report.estimateLow.toLocaleString()}–$${report.estimateHigh.toLocaleString()}`
-      : "your estimate";
+      : t("share.meta.range_fallback", lang);
 
-  const title = `${report.address} — Roof report`;
-  const description = `${report.office.displayName} measured this roof from satellite. Estimate range: ${dollarRange}.`;
+  const title = t("share.meta.title", lang, { address: report.address });
+  const description = t("share.meta.description", lang, {
+    officeName: report.office.displayName,
+    range: dollarRange,
+  });
   const url = buildHomeownerShareUrl(publicId);
 
   return {
@@ -266,6 +287,7 @@ export default async function HomeownerSharePage({
   const report = await loadSharedReport(publicId);
   if (!report) notFound();
 
+  const { lang } = report;
   const accent = report.office.brandColor
     ? `#${report.office.brandColor.replace(/^#/, "")}`
     : "#0F1B2D";
@@ -335,7 +357,9 @@ export default async function HomeownerSharePage({
                 textDecoration: "none",
               }}
             >
-              Call {report.office.inboundNumber}
+              {t("share.header.call_button", lang, {
+                phone: report.office.inboundNumber ?? "",
+              })}
             </a>
           )}
         </header>
@@ -353,7 +377,9 @@ export default async function HomeownerSharePage({
               marginBottom: 8,
             }}
           >
-            {report.homeownerFirstName}, here&apos;s your roof report
+            {t("share.eyebrow_lead", lang, {
+              firstName: report.homeownerFirstName,
+            })}
           </div>
           <h1
             className="font-serif"
@@ -389,8 +415,7 @@ export default async function HomeownerSharePage({
               fontStyle: "italic",
             }}
           >
-            Quick estimate range from satellite. Final price depends on
-            what we find on site.
+            {t("share.estimate_disclaimer", lang)}
           </div>
         </section>
 
@@ -400,41 +425,44 @@ export default async function HomeownerSharePage({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={report.paintedUrl}
-              alt="Roof outlined from satellite imagery"
+              alt={t("share.painted.alt", lang)}
               style={{ width: "100%", height: "auto", display: "block" }}
             />
           </section>
         )}
 
         {/* Roof spec */}
-        <section className="share-card mb-6 p-6 rounded-2xl bg-white shadow-sm">
+        <section className="share-card mb-6 p-6 rounded-xl bg-white shadow-sm">
           <h2
             className="font-serif"
             style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}
           >
-            Roof measurements
+            {t("card.measurements.title", lang)}
           </h2>
           <dl style={{ display: "grid", gap: 10 }}>
             {report.estimatedSqft != null && (
               <Row
-                label="Sqft (measured)"
+                label={t("share.measurements.sqft_measured", lang)}
                 value={`${report.estimatedSqft.toLocaleString()} sqft`}
               />
             )}
             {report.materialLabel && (
-              <Row label="Current material" value={titleCase(report.materialLabel)} />
+              <Row
+                label={t("share.measurements.current_material", lang)}
+                value={titleCase(report.materialLabel)}
+              />
             )}
           </dl>
         </section>
 
         {/* Tier prices */}
         {report.tiers && report.tiers.length > 0 && (
-          <section className="share-card mb-6 p-6 rounded-2xl bg-white shadow-sm">
+          <section className="share-card mb-6 p-6 rounded-xl bg-white shadow-sm">
             <h2
               className="font-serif"
               style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}
             >
-              Three replacement options
+              {t("share.tiers.title", lang)}
             </h2>
             <div
               style={{
@@ -443,9 +471,9 @@ export default async function HomeownerSharePage({
                 gap: 12,
               }}
             >
-              {report.tiers.map((t) => (
+              {report.tiers.map((tier) => (
                 <div
-                  key={t.name}
+                  key={tier.name}
                   style={{
                     padding: "14px 16px",
                     background: "rgba(15, 27, 45, 0.03)",
@@ -461,7 +489,7 @@ export default async function HomeownerSharePage({
                       opacity: 0.6,
                     }}
                   >
-                    {t.name}
+                    {tier.name}
                   </div>
                   <div
                     style={{
@@ -472,11 +500,13 @@ export default async function HomeownerSharePage({
                       marginTop: 4,
                     }}
                   >
-                    ${Math.round(t.price).toLocaleString()}
+                    ${Math.round(tier.price).toLocaleString()}
                   </div>
-                  {t.monthly != null && (
+                  {tier.monthly != null && (
                     <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
-                      est. ${Math.round(t.monthly).toLocaleString()}/mo
+                      {t("result.tier.monthly", lang, {
+                        amount: `$${Math.round(tier.monthly).toLocaleString()}`,
+                      })}
                     </div>
                   )}
                 </div>
@@ -487,21 +517,21 @@ export default async function HomeownerSharePage({
 
         {/* Severe weather */}
         {report.storms && (report.storms.totalEvents ?? 0) > 0 && (
-          <section className="share-card mb-6 p-6 rounded-2xl bg-white shadow-sm">
+          <section className="share-card mb-6 p-6 rounded-xl bg-white shadow-sm">
             <h2
               className="font-serif"
               style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}
             >
-              Severe weather, last 12 months
+              {t("card.severe_weather.title", lang)}
             </h2>
             <dl style={{ display: "grid", gap: 10 }}>
               <Row
-                label="Events within 25 mi"
+                label={t("share.storms.events_within_25mi", lang)}
                 value={report.storms.totalEvents?.toLocaleString() ?? "—"}
               />
               {report.storms.hailCount != null && report.storms.hailCount > 0 && (
                 <Row
-                  label="Hail reports"
+                  label={t("share.storms.hail_reports", lang)}
                   value={
                     report.storms.maxHailInches != null
                       ? `${report.storms.hailCount} (up to ${report.storms.maxHailInches.toFixed(2)}″)`
@@ -512,7 +542,7 @@ export default async function HomeownerSharePage({
               {report.storms.windCount != null &&
                 report.storms.windCount > 0 && (
                   <Row
-                    label="Damaging-wind reports"
+                    label={t("share.storms.wind_reports", lang)}
                     value={`${report.storms.windCount}`}
                   />
                 )}
@@ -525,29 +555,29 @@ export default async function HomeownerSharePage({
           (report.parcel.yearBuilt != null ||
             report.parcel.livingArea != null ||
             report.parcel.lotAcres != null) && (
-            <section className="share-card mb-6 p-6 rounded-2xl bg-white shadow-sm">
+            <section className="share-card mb-6 p-6 rounded-xl bg-white shadow-sm">
               <h2
                 className="font-serif"
                 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}
               >
-                Property record
+                {t("card.property_record.title", lang)}
               </h2>
               <dl style={{ display: "grid", gap: 10 }}>
                 {report.parcel.yearBuilt != null && (
                   <Row
-                    label="Year built"
+                    label={t("share.parcel.year_built", lang)}
                     value={`${report.parcel.yearBuilt}`}
                   />
                 )}
                 {report.parcel.livingArea != null && (
                   <Row
-                    label="Living area"
+                    label={t("share.parcel.living_area", lang)}
                     value={`${report.parcel.livingArea.toLocaleString()} sqft`}
                   />
                 )}
                 {report.parcel.lotAcres != null && (
                   <Row
-                    label="Lot size"
+                    label={t("share.parcel.lot_size", lang)}
                     value={`${report.parcel.lotAcres.toFixed(2)} acres`}
                   />
                 )}
@@ -557,12 +587,12 @@ export default async function HomeownerSharePage({
 
         {/* Visual observations (hedged for homeowner-readable surface) */}
         {report.observations.length > 0 && (
-          <section className="share-card mb-6 p-6 rounded-2xl bg-white shadow-sm">
+          <section className="share-card mb-6 p-6 rounded-xl bg-white shadow-sm">
             <h2
               className="font-serif"
               style={{ fontSize: 18, fontWeight: 600, marginBottom: 12 }}
             >
-              What we noticed from the imagery
+              {t("card.observations.title", lang)}
             </h2>
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {report.observations.map((o, i) => (
@@ -589,13 +619,13 @@ export default async function HomeownerSharePage({
             style={{ background: accent, color: "white" }}
           >
             <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 4 }}>
-              Ready for the real number?
+              {t("share.cta.kicker", lang)}
             </div>
             <h2
               className="font-serif"
               style={{ fontSize: 22, fontWeight: 600, marginBottom: 12 }}
             >
-              Lock in a free 20-minute walkthrough
+              {t("share.cta.headline", lang)}
             </h2>
             <a
               href={callHref}
@@ -608,7 +638,9 @@ export default async function HomeownerSharePage({
                 textDecoration: "none",
               }}
             >
-              Call {report.office.displayName}
+              {t("share.cta.call_button", lang, {
+                officeName: report.office.displayName,
+              })}
               <span aria-hidden>→</span>
             </a>
             <div
@@ -631,16 +663,20 @@ export default async function HomeownerSharePage({
         >
           {report.generatedAt && (
             <div>
-              Report generated{" "}
-              {new Date(report.generatedAt).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
+              {t("share.footer.generated", lang, {
+                date: new Date(report.generatedAt).toLocaleDateString(
+                  lang === "es" ? "es-US" : "en-US",
+                  {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  },
+                ),
               })}
             </div>
           )}
           <div className="mt-1">
-            Powered by{" "}
+            {t("share.footer.powered_by", lang)}{" "}
             <Link href="/" style={{ color: "inherit", fontWeight: 600 }}>
               Voxaris
             </Link>

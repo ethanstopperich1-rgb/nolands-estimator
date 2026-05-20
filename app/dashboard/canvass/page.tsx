@@ -152,7 +152,7 @@ export default async function CanvassPage({
             Filter, sort, export, knock.
           </p>
         </div>
-        <div className="flex items-center gap-3 text-[11px] font-mono tabular text-white/45">
+        <div className="flex items-center gap-3 text-eyebrow font-mono tabular text-white/45">
           <div className="flex items-center gap-1.5">
             <CloudHail size={12} className="text-cy-300" aria-hidden />
             {events.length} {events.length === 1 ? "event" : "events"} · 30d

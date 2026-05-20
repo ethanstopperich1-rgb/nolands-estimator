@@ -43,9 +43,9 @@ export default function DashboardLoading() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Radio className="w-3.5 h-3.5 text-mint animate-pulse" />
-                  <span className="text-[12px] font-medium text-white/90">Sydney</span>
+                  <span className="text-xs font-medium text-white/90">Sydney</span>
                 </div>
-                <span className="text-[10px] font-mono tabular text-mint/70 uppercase tracking-[0.14em]">
+                <span className="text-micro font-mono tabular text-mint/70 uppercase tracking-[0.14em]">
                   Connecting…
                 </span>
               </div>

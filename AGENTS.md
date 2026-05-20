@@ -421,8 +421,21 @@ build).
 ## Telephony (LiveKit + Twilio)
 
 Sydney (the AI voice receptionist) runs on **LiveKit Cloud + Twilio
-Elastic SIP Trunking**. The toll-free number `+1 888 786 9134` is the
-production number as of May 19, 2026.
+Elastic SIP Trunking**. Two numbers are involved:
+
+- **`+1 321 985 1104`** — Noland's main office line. The number
+  actually wired into Sydney via `agents/sydney/setup_sip.py`
+  (dispatch rule `nolands-sydney`). Also serves as Sydney's outbound
+  caller-ID (`SYDNEY_OUTBOUND_CALLER_ID=+13219851104`) so homeowners
+  see Noland's familiar number when Sydney calls back.
+- **`+1 888 786 9134`** — Voxaris marketing toll-free. NOT wired to
+  Sydney directly. Twilio Console-level forward to 321 (TwiML Bin
+  with `<Dial><Number>+13219851104</Number></Dial>`). Pure
+  marketing/branding asset, can be re-pointed to other contractor
+  numbers without touching Sydney code.
+
+See `agents/sydney/TELEPHONY_PROVISIONING.md` for the full Twilio +
+LK provisioning runbook.
 
 Outbound dispatch lives in `app/api/dispatch-outbound/route.ts`. The
 route uses `livekit-server-sdk`'s `SipClient.createSipParticipant` to
@@ -456,9 +469,17 @@ Optional toggles:
    the literal phrase "AI voice assistant" (FCC Feb 2024 ruling).
    `tests/tcpa-consent.test.ts` locks this — if those tests ever fail,
    stop dispatch immediately.
-2. **Twilio Toll-Free Verification** — status must be
+2. **AI-voice disclosure on the call itself** — Sydney's openers
+   (`agents/sydney/agent.py:OPENER_BUSINESS_HOURS`,
+   `OPENER_AFTER_HOURS`, `build_outbound_opener`) include the literal
+   phrase "AI" / "AI assistant" / "asistente de voz AI" in the FIRST
+   sentence. FCC Feb 2024 disclosure at consent ≠ exempt from
+   disclosure on the call. Test that locks it:
+   `agents/sydney/tests/test_sydney_units.py::test_inbound_openers_disclose_ai`
+   et al. See `agents/sydney/AGENTS.md` for the full invariant set.
+3. **Twilio Toll-Free Verification** — status must be
    `Twilio Approved` in `Trust Hub → Toll-Free Verification`.
-3. **Twilio Voice Trust** — number registered under `Voice Trust`
+4. **Twilio Voice Trust** — number registered under `Voice Trust`
    with SHAKEN/STIR attestation. Without it, outbound calls get
    marked `Spam Likely` on Verizon / AT&T / T-Mobile networks.
 

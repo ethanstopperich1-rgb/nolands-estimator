@@ -176,7 +176,7 @@ export function BoltStyleHero({
               <Wordmark size="md" tone="ink" />
             </div>
             {nav && <div className="hidden md:block">{nav}</div>}
-            <div className="hidden sm:flex items-center gap-2 text-[12px] font-mono uppercase tracking-[0.14em] text-slate-300">
+            <div className="hidden sm:flex items-center gap-2 text-xs font-mono uppercase tracking-[0.14em] text-slate-300">
               <ShieldCheck size={13} className="text-mint" />
               <span>Free · No-obligation</span>
             </div>
@@ -325,7 +325,7 @@ export function BoltStyleHero({
                   className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer rounded border border-white/20 bg-white/5 accent-cy-300"
                   aria-label="Consent to receive marketing communications"
                 />
-                <span className="text-[11px] leading-[1.55] text-slate-400 group-hover:text-slate-300 transition-colors">
+                <span className="text-eyebrow leading-[1.55] text-slate-400 group-hover:text-slate-300 transition-colors">
                   {marketingConsentText.replace(
                     "See our Privacy Policy at /privacy and Terms of Service at /terms.",
                     "",
@@ -359,7 +359,7 @@ export function BoltStyleHero({
                 time is 25-35s with cold start. Replaced with what's actually
                 true: estimates are non-binding and we don't sell data. */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-white/[0.06]">
-              <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-slate-300 hidden sm:flex items-center gap-2">
+              <div className="text-eyebrow font-mono uppercase tracking-[0.14em] text-slate-300 hidden sm:flex items-center gap-2">
                 <Zap size={11} className="text-cy-300" />
                 <span>Non-binding estimate · we never sell your info</span>
               </div>
@@ -417,7 +417,7 @@ export function BoltStyleHero({
               <div
                 role="status"
                 aria-live="polite"
-                className="px-4 py-2.5 border-t border-amber/30 bg-amber/[0.06] text-[12px] text-amber font-medium"
+                className="px-4 py-2.5 border-t border-amber/30 bg-amber/[0.06] text-xs text-amber font-medium"
               >
                 {validationHint}
               </div>
@@ -589,6 +589,7 @@ function AddressField({
       <div className="flex items-center gap-3 px-4 py-3.5">
         <Search size={16} className="text-slate-500 flex-shrink-0" />
         <input
+          aria-label="Property address"
           className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[15px] sm:text-[16px] text-white placeholder:text-slate-500"
           placeholder="123 Main St, your city, state"
           value={value}

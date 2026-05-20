@@ -160,7 +160,7 @@ export default function LeadsTable({
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-white/45 border-b border-white/[0.06]">
+              <tr className="text-eyebrow uppercase tracking-wider text-white/45 border-b border-white/[0.06]">
                 <th className="text-left font-medium px-4 py-3">Date</th>
                 <th className="text-left font-medium px-4 py-3">Name</th>
                 <th className="text-left font-medium px-4 py-3 hidden md:table-cell">Address</th>
@@ -300,7 +300,7 @@ function StatusChanger({
           startTransition(() => onChange(v));
         }}
         className={[
-          "appearance-none cursor-pointer text-[11px] px-2.5 py-1 pr-6 rounded-full border font-medium",
+          "appearance-none cursor-pointer text-eyebrow px-2.5 py-1 pr-6 rounded-full border font-medium",
           "focus:outline-none focus:ring-2 focus:ring-cy-300/40",
           style.className,
         ].join(" ")}
@@ -439,7 +439,7 @@ function LeadDrawer({
             <h2 className="text-lg font-semibold mt-2 tracking-tight">{lead.name}</h2>
             <div className="flex items-center gap-2 mt-1.5">
               <StatusChanger status={lead.status} onChange={onStatusChange} />
-              <span className="text-[11px] text-white/45 font-mono tabular">
+              <span className="text-eyebrow text-white/45 font-mono tabular">
                 {fmtDateTime(lead.created_at)}
               </span>
             </div>
@@ -568,7 +568,7 @@ function LeadDrawer({
                   <div className="text-[10.5px] uppercase tracking-wider text-white/45">
                     Roof analysis
                   </div>
-                  <span className="text-[10px] uppercase tracking-[0.18em] text-white/40">
+                  <span className="text-micro uppercase tracking-[0.18em] text-white/40">
                     Not generated
                   </span>
                 </div>
@@ -712,7 +712,7 @@ function LeadDrawer({
                    *  @sparticuz/chromium runtime were deleted with this
                    *  change. The "See report" header button still routes
                    *  to /dashboard/estimate for the full workbench view. */}
-                  <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
+                  <span className="text-micro uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
                     V3
                   </span>
                 </div>
@@ -751,7 +751,7 @@ function LeadDrawer({
                       )}
                     </button>
                     {genStatus === "error" && genError ? (
-                      <p className="text-[11px] text-[var(--vx-terra-dark)]">{genError}</p>
+                      <p className="text-eyebrow text-[var(--vx-terra-dark)]">{genError}</p>
                     ) : null}
                   </div>
                 )}
@@ -787,7 +787,7 @@ function LeadDrawer({
                   />
                 </div>
                 {correction?.applied ? (
-                  <p className="text-[11px] text-[var(--vx-terra)] mt-3 leading-relaxed">
+                  <p className="text-eyebrow text-[var(--vx-terra)] mt-3 leading-relaxed">
                     Headline corrected ·{" "}
                     {correction.gisSource?.toUpperCase()} footprint{" "}
                     {correction.gisFootprintSqft?.toLocaleString()} ft² ×
@@ -836,7 +836,7 @@ function LeadDrawer({
                     <div className="text-[10.5px] uppercase tracking-wider text-white/45">
                       Edge lengths
                     </div>
-                    <div className="text-[10px] uppercase tracking-[0.18em] text-white/40">
+                    <div className="text-micro uppercase tracking-[0.18em] text-white/40">
                       {gemEdges
                         ? `Voxaris V3 · ${gemEdges.linesCount ?? 0} lines`
                         : "Solar geometry"}
@@ -958,7 +958,7 @@ function LeadDrawer({
                     {Object.entries(objCounts).map(([t, n]) => (
                       <span
                         key={t}
-                        className="text-[11px] px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-white/85"
+                        className="text-eyebrow px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-white/85"
                       >
                         {t.replace(/_/g, " ")} ·{" "}
                         <span className="font-mono">{n}</span>
@@ -1036,7 +1036,7 @@ function LeadDrawer({
                   max={50}
                   value={stormRadius}
                   onChange={(e) => setStormRadius(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                  className="w-12 px-1.5 py-0.5 text-[12px] tabular text-center"
+                  className="w-12 px-1.5 py-0.5 text-xs tabular text-center"
                   style={{
                     background: "var(--vx-cream)",
                     border: "1px solid var(--vx-rule)",
@@ -1055,7 +1055,7 @@ function LeadDrawer({
                   max={365}
                   value={stormDays}
                   onChange={(e) => setStormDays(Math.max(1, Math.min(365, Number(e.target.value) || 1)))}
-                  className="w-14 px-1.5 py-0.5 text-[12px] tabular text-center"
+                  className="w-14 px-1.5 py-0.5 text-xs tabular text-center"
                   style={{
                     background: "var(--vx-cream)",
                     border: "1px solid var(--vx-rule)",
@@ -1067,7 +1067,7 @@ function LeadDrawer({
                 <span>days</span>
               </label>
               {storms !== null && storms.length > 0 ? (
-                <span className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
+                <span className="text-micro uppercase tracking-[0.18em] px-1.5 py-0.5 border border-[var(--vx-terra)]/40 text-[var(--vx-terra)]">
                   {storms.length} {storms.length === 1 ? "event" : "events"}
                 </span>
               ) : null}
@@ -1112,7 +1112,7 @@ function LeadDrawer({
                         <span className="text-[var(--vx-terra)] ml-1.5 font-medium">{mag}</span>
                       ) : null}
                     </span>
-                    <span className="text-[11px] uppercase tracking-[0.12em] text-[var(--vx-muted)] tabular">
+                    <span className="text-eyebrow uppercase tracking-[0.12em] text-[var(--vx-muted)] tabular">
                       {e.distanceMiles != null ? `${e.distanceMiles.toFixed(1)} mi` : ""}
                     </span>
                   </li>
@@ -1141,7 +1141,7 @@ function LeadDrawer({
                 <dt className="text-[10.5px] uppercase tracking-wider text-white/40 mb-1">
                   Disclosure text
                 </dt>
-                <dd className="text-[11px] text-white/70 leading-relaxed bg-white/[0.02] border border-white/[0.05] rounded p-2.5 font-mono">
+                <dd className="text-eyebrow text-white/70 leading-relaxed bg-white/[0.02] border border-white/[0.05] rounded p-2.5 font-mono">
                   {lead.tcpa_consent_text}
                 </dd>
               </div>
@@ -1172,11 +1172,11 @@ function LeadDrawer({
                       <div className="text-xs font-mono tabular text-white/85">
                         {fmtDateTime(c.started_at)}
                       </div>
-                      <div className="text-[11px] text-white/55 font-mono tabular">
+                      <div className="text-eyebrow text-white/55 font-mono tabular">
                         {fmtDuration(c.duration_sec)}
                       </div>
                     </div>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full border ${s.className}`}>
+                    <span className={`text-eyebrow px-2 py-0.5 rounded-full border ${s.className}`}>
                       {s.label}
                     </span>
                   </li>
@@ -1209,22 +1209,22 @@ function LeadDrawer({
                   <li key={p.id} className="glass-panel p-3.5">
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="min-w-0">
-                        <div className="text-[13px] font-medium text-white/92 truncate">
+                        <div className="text-mini font-medium text-white/92 truncate">
                           {fmtMaterial(s.material)}
                           {s.sqft && (
-                            <span className="text-white/55 font-mono tabular text-[12px]">
+                            <span className="text-white/55 font-mono tabular text-xs">
                               {" · "}
                               {s.sqft.toLocaleString()} sqft
                             </span>
                           )}
                           {s.pitch && (
-                            <span className="text-white/45 font-mono tabular text-[11px]">
+                            <span className="text-white/45 font-mono tabular text-eyebrow">
                               {" · "}
                               {s.pitch}
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-white/50 font-mono tabular mt-0.5">
+                        <div className="text-eyebrow text-white/50 font-mono tabular mt-0.5">
                           {fmtDateTime(p.created_at)}
                           {s.staff && (
                             <>
@@ -1235,11 +1235,11 @@ function LeadDrawer({
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-[13px] font-mono tabular text-white/95 whitespace-nowrap">
+                        <div className="text-mini font-mono tabular text-white/95 whitespace-nowrap">
                           {total}
                         </div>
                         {s.isClaimWork && (
-                          <div className="text-[10px] font-mono tabular text-amber uppercase tracking-wider mt-0.5">
+                          <div className="text-micro font-mono tabular text-amber uppercase tracking-wider mt-0.5">
                             Claim
                           </div>
                         )}
@@ -1251,23 +1251,23 @@ function LeadDrawer({
                         {s.addOnLabels.map((label) => (
                           <span
                             key={label}
-                            className="chip-accent text-[10px] !px-2 !py-0.5"
+                            className="chip-accent text-micro !px-2 !py-0.5"
                           >
                             {label}
                           </span>
                         ))}
                         {s.addOnCount > s.addOnLabels.length && (
-                          <span className="text-[11px] text-white/45 font-mono tabular">
+                          <span className="text-eyebrow text-white/45 font-mono tabular">
                             +{s.addOnCount - s.addOnLabels.length} add-ons
                           </span>
                         )}
                         {s.lineItemCount > 0 && (
-                          <span className="text-[11px] text-white/55 font-mono tabular">
+                          <span className="text-eyebrow text-white/55 font-mono tabular">
                             {s.lineItemCount} line items
                           </span>
                         )}
                         {s.hasPhotos && (
-                          <span className="text-[11px] text-white/55 font-mono tabular">
+                          <span className="text-eyebrow text-white/55 font-mono tabular">
                             {s.photoCount}{" "}
                             {s.photoCount === 1 ? "photo" : "photos"}
                           </span>
@@ -1275,7 +1275,7 @@ function LeadDrawer({
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between text-[11px] gap-3 flex-wrap">
+                    <div className="flex items-center justify-between text-eyebrow gap-3 flex-wrap">
                       <span className="text-white/40 font-mono tabular">
                         {p.public_id.slice(0, 16)}…
                       </span>
@@ -1336,10 +1336,10 @@ function DrawerStat({
       <div className="text-[9.5px] uppercase tracking-[0.14em] text-white/45 mb-1">
         {label}
       </div>
-      <div className="font-mono tabular text-white/95 text-[13px] leading-tight">
+      <div className="font-mono tabular text-white/95 text-mini leading-tight">
         {value}
         {unit ? (
-          <span className="text-white/45 text-[11px] ml-1">{unit}</span>
+          <span className="text-white/45 text-eyebrow ml-1">{unit}</span>
         ) : null}
       </div>
     </div>

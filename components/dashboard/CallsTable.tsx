@@ -87,7 +87,7 @@ export default function CallsTable({
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[11px] uppercase tracking-wider text-white/45 border-b border-white/[0.06]">
+              <tr className="text-eyebrow uppercase tracking-wider text-white/45 border-b border-white/[0.06]">
                 <th className="text-left font-medium px-4 py-3">Date</th>
                 <th className="text-left font-medium px-4 py-3">Caller</th>
                 <th className="text-right font-medium px-4 py-3">Duration</th>
@@ -132,7 +132,7 @@ export default function CallsTable({
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full border ${style.className}`}
+                        className={`inline-flex items-center text-eyebrow px-2 py-0.5 rounded-full border ${style.className}`}
                       >
                         {style.label}
                       </span>
@@ -151,7 +151,7 @@ export default function CallsTable({
         </div>
       </div>
 
-      <div className="text-[11px] text-white/40 font-mono tabular text-center">
+      <div className="text-eyebrow text-white/40 font-mono tabular text-center">
         Showing up to 50 most recent calls.
       </div>
 
@@ -205,11 +205,11 @@ function CallDrawer({
             </h2>
             <div className="flex items-center gap-2 mt-1.5">
               <span
-                className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded-full border ${style.className}`}
+                className={`inline-flex items-center text-eyebrow px-2 py-0.5 rounded-full border ${style.className}`}
               >
                 {style.label}
               </span>
-              <span className="text-[11px] text-white/45 font-mono tabular">
+              <span className="text-eyebrow text-white/45 font-mono tabular">
                 {fmtDateTime(call.started_at)}
               </span>
             </div>
@@ -249,7 +249,7 @@ function CallDrawer({
               {xferRows.map((row, i) => (
                 <li
                   key={`${row.at}-${i}`}
-                  className="text-[11px] font-mono border border-white/[0.06] rounded-lg p-3 bg-white/[0.02]"
+                  className="text-eyebrow font-mono border border-white/[0.06] rounded-lg p-3 bg-white/[0.02]"
                 >
                   <div className="text-white/45 mb-1">{fmtDateTime(row.at)}</div>
                   <pre className="text-[10.5px] text-cy-300/90 whitespace-pre-wrap break-all overflow-x-auto">
@@ -279,7 +279,7 @@ function CallDrawer({
                     <span className="text-cy-300 truncate">{e.type}</span>
                   </div>
                   {e.type.startsWith("tool_fired:") && (
-                    <div className="text-[11px] text-white/55 pl-0">{summarizeToolEvent(e)}</div>
+                    <div className="text-eyebrow text-white/55 pl-0">{summarizeToolEvent(e)}</div>
                   )}
                 </li>
               ))}
@@ -306,7 +306,7 @@ function CallDrawer({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="glass-panel p-3">
-      <div className="text-[10px] uppercase tracking-wider text-white/45">{label}</div>
+      <div className="text-micro uppercase tracking-wider text-white/45">{label}</div>
       <div className="text-base font-mono tabular text-white/90 mt-1">{value}</div>
     </div>
   );

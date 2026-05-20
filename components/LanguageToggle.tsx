@@ -75,7 +75,7 @@ export function LanguageToggle({
     <div
       role="group"
       aria-label="Language selection"
-      className="inline-flex items-center rounded-full overflow-hidden text-[11px] tracking-wider uppercase select-none"
+      className="inline-flex items-center rounded-full overflow-hidden text-eyebrow tracking-wider uppercase select-none"
       style={{
         border: `1px solid ${accentColor}`,
         fontWeight: 600,

@@ -80,7 +80,7 @@ export default function DemoBanner({ activeRole }: { activeRole: string }) {
             <div className="text-[10.5px] font-mono tabular uppercase tracking-[0.22em] text-amber leading-tight">
               Demo mode
             </div>
-            <div className="text-[12px] text-white/70 leading-snug">
+            <div className="text-xs text-white/70 leading-snug">
               Synthetic data · no real customer contacts shown
             </div>
           </div>
@@ -138,7 +138,7 @@ export default function DemoBanner({ activeRole }: { activeRole: string }) {
                     >
                       View as {r.label}
                     </div>
-                    <div className="text-[11px] text-white/55 leading-snug mt-0.5 truncate">
+                    <div className="text-eyebrow text-white/55 leading-snug mt-0.5 truncate">
                       {r.blurb}
                     </div>
                   </div>

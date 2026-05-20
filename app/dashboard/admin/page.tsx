@@ -144,7 +144,7 @@ export default async function AdminPage() {
               <h2 className="font-display text-[17px] font-semibold tracking-tight">
                 Create office
               </h2>
-              <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-white/45 -mt-0.5">
+              <div className="text-eyebrow font-mono uppercase tracking-[0.14em] text-white/45 -mt-0.5">
                 Provision a new RSS client
               </div>
             </div>
@@ -161,7 +161,7 @@ export default async function AdminPage() {
               <h2 className="font-display text-[17px] font-semibold tracking-tight">
                 Invite user
               </h2>
-              <div className="text-[11px] font-mono uppercase tracking-[0.14em] text-white/45 -mt-0.5">
+              <div className="text-eyebrow font-mono uppercase tracking-[0.14em] text-white/45 -mt-0.5">
                 Magic-link onboarding
               </div>
             </div>
@@ -175,12 +175,12 @@ export default async function AdminPage() {
           <h2 className="font-display text-[17px] font-semibold tracking-tight">
             Offices
           </h2>
-          <span className="text-[11px] font-mono uppercase tracking-[0.14em] text-white/45">
+          <span className="text-eyebrow font-mono uppercase tracking-[0.14em] text-white/45">
             {offices?.length ?? 0} total
           </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
+          <table className="w-full text-mini">
             <thead className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-white/45 border-b border-white/[0.04]">
               <tr>
                 <th className="text-left px-6 py-3 font-normal">Name</th>
@@ -221,7 +221,7 @@ export default async function AdminPage() {
               ))}
               {(offices ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-[13px] text-white/50">
+                  <td colSpan={6} className="px-6 py-8 text-center text-mini text-white/50">
                     No offices yet — create one above.
                   </td>
                 </tr>
@@ -236,12 +236,12 @@ export default async function AdminPage() {
           <h2 className="font-display text-[17px] font-semibold tracking-tight">
             Users
           </h2>
-          <span className="text-[11px] font-mono uppercase tracking-[0.14em] text-white/45">
+          <span className="text-eyebrow font-mono uppercase tracking-[0.14em] text-white/45">
             {users?.length ?? 0} total
           </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
+          <table className="w-full text-mini">
             <thead className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-white/45 border-b border-white/[0.04]">
               <tr>
                 <th className="text-left px-6 py-3 font-normal">Email</th>
@@ -282,7 +282,7 @@ export default async function AdminPage() {
               ))}
               {(users ?? []).length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-[13px] text-white/50">
+                  <td colSpan={4} className="px-6 py-8 text-center text-mini text-white/50">
                     No users yet — invite one above.
                   </td>
                 </tr>

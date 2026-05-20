@@ -16,8 +16,12 @@ estimates roofs.
   accounts needed for the agent itself).
   - LLM: `openai/gpt-4o-mini` primary, `openai/gpt-4.1-mini` fallback
   - STT: `deepgram/nova-3` multilingual primary, `deepgram/nova-2` fallback
-  - TTS: `cartesia/sonic-3` "Southern Woman" primary, `cartesia/sonic-2`
-    same-voice fallback, `rime/arcana` luna last-resort
+  - TTS: `rime/mistv3` voice="moraine" primary (matches Cassie + Deedy
+    for brand-voice consistency across all Voxaris agents),
+    `rime/arcana` luna fallback, `cartesia/sonic-3` Southern Woman
+    last-resort. **Don't add `phonemize_between_brackets` on mistv3** —
+    flag is unsupported on that model and poisons the FallbackTTS chain
+    (caused a silent-call regression on Deedy 2026-05-11).
 - **Turn detection:** LiveKit multilingual semantic model
 - **Noise cancellation:** ai-coustics QUAIL_VF_L (11.8% WER vs Krisp BVC 23.5%
   per LK docs, optimized for STT accuracy in noisy environments)
@@ -106,11 +110,28 @@ wired up).
 
 ## Voice
 
-Pinned to Cartesia's "Southern Woman" voice
-(`f9836c6e-a0bd-460e-9d3c-f7299fa60f94`). The Cartesia fallback (Sonic-2)
-uses the SAME voice ID so callers hear no voice drift on the degraded
-path. The Rime fallback is last-resort with audible voice drift —
-better than silence.
+**Primary: Rime mistv3 voice="moraine"** — the unified Voxaris agent
+voice. Identical speaker on Cassie (`Cassie-HICV`) and Deedy
+(`voxaris-vba/apps/agent`). Locked May 2026. Members and homeowners
+hear the same person across every Voxaris voice agent.
+
+Fallback chain (English):
+1. `rime/arcana` voice="luna" — same vendor, different model family.
+   Survives a mistv3-specific outage with minor voice drift.
+2. `cartesia/sonic-3` voice=Southern Woman
+   (`f9836c6e-a0bd-460e-9d3c-f7299fa60f94`) — last-resort fallback,
+   audible voice drift but ensures the call doesn't go silent.
+
+Spanish path uses a separate chain (see `agent.py` `_outbound_lang`
+branch): Cartesia ES voice via `SYDNEY_TTS_VOICE_ID_ES` env if set,
+else straight to `rime/arcana` luna.
+
+⚠️ **Don't add `phonemize_between_brackets` to the mistv3 config.**
+The flag is documented for `mist` and `mistv2` only — mistv3 doesn't
+honor it, AND the FallbackTTS fallbacks don't support phonemize either,
+so it poisons the entire chain. Cost Deedy a silent-call regression on
+2026-05-11. Handle pronunciation overrides persona-side in the system
+prompt instead.
 
 ## Safety / cost ceilings
 

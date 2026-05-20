@@ -87,7 +87,7 @@ export default function RepAssignDropdown({
     // dropdown to prevent layout shift.
     return (
       <div
-        className="inline-flex items-center gap-1.5 px-3 py-2 text-[12px]"
+        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs"
         style={{
           background: "var(--vx-cream)",
           border: "1px solid var(--vx-rule)",
@@ -118,7 +118,7 @@ export default function RepAssignDropdown({
         value={selected}
         onChange={handleChange}
         disabled={isPending}
-        className="text-[12px] tabular px-3 py-2 transition-colors disabled:opacity-50"
+        className="text-xs tabular px-3 py-2 transition-colors disabled:opacity-50"
         style={{
           background: "var(--vx-cream)",
           border: "1px solid var(--vx-rule)",
@@ -140,7 +140,7 @@ export default function RepAssignDropdown({
       </select>
       {errMsg ? (
         <p
-          className="text-[11px]"
+          className="text-eyebrow"
           style={{ color: "#8a2c2c", maxWidth: 220 }}
         >
           {errMsg}

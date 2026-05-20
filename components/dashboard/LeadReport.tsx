@@ -259,7 +259,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
       <header className="flex flex-col gap-3">
         <Link
           href="/dashboard/leads"
-          className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em] self-start hover:opacity-80 transition-opacity"
+          className="inline-flex items-center gap-1.5 text-eyebrow uppercase tracking-[0.16em] self-start hover:opacity-80 transition-opacity"
           style={{ color: "var(--vx-muted)", fontWeight: 600 }}
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -307,7 +307,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
             />
             <Link
               href={`/dashboard/estimate?leadId=${encodeURIComponent(lead.public_id)}`}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-mini font-medium transition-colors"
               style={{
                 background: "var(--vx-ink)",
                 color: "var(--vx-cream)",
@@ -344,7 +344,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
                 re-roll V3 from here without leaving the page. Small
                 subtle link so it doesn't compete with the image for
                 attention when the cyan IS present. */}
-            <div className="flex items-center justify-between gap-3 text-[12px]">
+            <div className="flex items-center justify-between gap-3 text-xs">
               <span style={{ color: "var(--vx-muted)" }}>
                 Missing the cyan overlay? Re-run the analysis to rebuild it.
               </span>
@@ -352,7 +352,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
                 type="button"
                 onClick={regenerate}
                 disabled={genStatus === "running"}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: "transparent",
                   color: "var(--vx-terra)",
@@ -372,7 +372,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
             </div>
             {genStatus === "error" && genError ? (
               <p
-                className="text-[12px]"
+                className="text-xs"
                 style={{ color: "var(--vx-terra-dark)" }}
               >
                 {genError}
@@ -391,7 +391,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
               type="button"
               onClick={regenerate}
               disabled={genStatus === "running"}
-              className="self-start inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="self-start inline-flex items-center gap-2 px-5 py-2.5 text-mini font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 background: "var(--vx-terra)",
                 color: "var(--vx-cream)",
@@ -435,7 +435,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
           </div>
           {quotableSqft != null && displaySqft != null && quotableSqft < displaySqft ? (
             <p
-              className="mt-3 text-[12px] font-serif italic"
+              className="mt-3 text-xs font-serif italic"
               style={{ color: "var(--vx-ink-soft)" }}
             >
               Customer saw{" "}
@@ -725,7 +725,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
             />
             {storms !== null && storms.length > 0 ? (
               <span
-                className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5"
+                className="text-micro uppercase tracking-[0.18em] px-1.5 py-0.5"
                 style={{
                   border: "1px solid rgba(199, 107, 63, 0.4)",
                   color: "var(--vx-terra)",
@@ -739,7 +739,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
       >
         {stormsLoading ? (
           <div
-            className="text-[13px] inline-flex items-center gap-2"
+            className="text-mini inline-flex items-center gap-2"
             style={{ color: "var(--vx-ink-soft)" }}
           >
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -747,7 +747,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
           </div>
         ) : storms === null || storms.length === 0 ? (
           <p
-            className="text-[13px] leading-relaxed"
+            className="text-mini leading-relaxed"
             style={{ color: "var(--vx-ink-soft)" }}
           >
             No verified storm events within {stormRadius} miles of this
@@ -780,7 +780,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
               return (
                 <li
                   key={`${e.date ?? "x"}-${i}`}
-                  className="py-2.5 grid grid-cols-[120px_minmax(0,1fr)_auto] gap-4 items-baseline text-[13px]"
+                  className="py-2.5 grid grid-cols-[120px_minmax(0,1fr)_auto] gap-4 items-baseline text-mini"
                   style={{ borderColor: "var(--vx-rule)" }}
                 >
                   <span
@@ -833,7 +833,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
           </p>
           {lead.material ? (
             <p
-              className="text-[13px] mt-1"
+              className="text-mini mt-1"
               style={{ color: "var(--vx-ink-soft)" }}
             >
               {lead.material}
@@ -891,7 +891,7 @@ function Section({
         </h2>
         {right ?? (badge ? (
           <span
-            className="text-[10px] uppercase tracking-[0.18em] px-1.5 py-0.5"
+            className="text-micro uppercase tracking-[0.18em] px-1.5 py-0.5"
             style={{
               border: "1px solid rgba(199, 107, 63, 0.4)",
               color: "var(--vx-terra)",
@@ -946,7 +946,7 @@ function Stat({
       }}
     >
       <p
-        className="text-[10px] uppercase tracking-[0.16em] mb-1"
+        className="text-micro uppercase tracking-[0.16em] mb-1"
         style={{ color: "var(--vx-muted)" }}
       >
         {label}
@@ -963,7 +963,7 @@ function Stat({
         {value}
         {unit ? (
           <span
-            className="ml-1 text-[11px] font-medium"
+            className="ml-1 text-eyebrow font-medium"
             style={{ color: "var(--vx-ink-soft)", letterSpacing: "0" }}
           >
             {unit}
@@ -1003,7 +1003,7 @@ function KnobInput({
         onChange={(e) =>
           onChange(Math.max(min, Math.min(max, Number(e.target.value) || min)))
         }
-        className="w-14 px-1.5 py-0.5 text-[12px] tabular text-center"
+        className="w-14 px-1.5 py-0.5 text-xs tabular text-center"
         style={{
           background: "var(--vx-cream)",
           border: "1px solid var(--vx-rule)",
@@ -1034,13 +1034,13 @@ function RepTierCard({ tier }: { tier: TierPrice }) {
       }}
     >
       <div
-        className="text-[10px] uppercase tracking-[0.18em] font-semibold mb-1.5"
+        className="text-micro uppercase tracking-[0.18em] font-semibold mb-1.5"
         style={{ color: "var(--vx-terra)" }}
       >
         {tier.tier.name}
       </div>
       <div
-        className="text-[12px] mb-3"
+        className="text-xs mb-3"
         style={{ color: "var(--vx-ink-soft)", lineHeight: 1.45 }}
       >
         {tier.tier.tagline}

@@ -31,12 +31,23 @@ LIVEKIT_API_KEY = os.environ["LIVEKIT_API_KEY"]
 LIVEKIT_API_SECRET = os.environ["LIVEKIT_API_SECRET"]
 
 AGENT_NAME = "sydney"
-RULE_NAME = "nolands-sydney"
-ROOM_PREFIX = "nolands-call-"
-# Inbound number — overridable via env so this script ports cleanly to other
-# clients (each gets a different LiveKit Telephony number, dispatch rule,
-# and agent). Defaults to Noland's existing Twilio number for the original
-# Sydney deploy. Format: E.164.
+# RULE_NAME + ROOM_PREFIX + INBOUND_NUMBER are all env-overridable so this
+# script handles BOTH the original Noland's Twilio number (+13219851104,
+# the inbound office line) AND additional numbers like the Voxaris
+# toll-free (+18887869134) without code edits. Each (number, rule) pair
+# is independent — the script reuses by RULE_NAME, so running with a
+# different RULE_NAME creates a separate dispatch rule.
+#
+# To wire the toll-free, invoke with:
+#   RULE_NAME=voxaris-tollfree-sydney \
+#   ROOM_PREFIX=voxaris-tf-call- \
+#   INBOUND_NUMBER=+18887869134 \
+#   python setup_sip.py
+#
+# To re-run the original Noland's wiring (idempotent, reuses existing rule):
+#   python setup_sip.py
+RULE_NAME = os.environ.get("RULE_NAME", "nolands-sydney")
+ROOM_PREFIX = os.environ.get("ROOM_PREFIX", "nolands-call-")
 INBOUND_NUMBER = os.environ.get("INBOUND_NUMBER", "+13219851104")
 
 

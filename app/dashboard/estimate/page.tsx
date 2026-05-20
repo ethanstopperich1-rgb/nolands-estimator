@@ -478,7 +478,7 @@ function EstimatePage() {
     <div className="min-h-[100dvh] px-6 lg:px-10 py-8">
       <header className="max-w-6xl mx-auto mb-8">
         <p
-          className="text-[11px] uppercase tracking-[0.22em]"
+          className="text-eyebrow uppercase tracking-[0.22em]"
           style={{ color: "var(--vx-muted)", fontWeight: 600 }}
         >
           {lead ? `Lead · ${lead.name ?? lead.email ?? lead.public_id}` : "New estimate"}
@@ -709,6 +709,7 @@ function AddressStep({ onResolved }: { onResolved: (a: AddressResolved) => void 
           id="address"
           type="text"
           placeholder="123 Main St, Jupiter, FL 33458"
+          aria-label="Property address"
           className="addr-input w-full"
           style={{
             borderBottom: "2px solid var(--vx-rule)",
@@ -801,7 +802,7 @@ function PinStep({
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 overflow-hidden">
       <div className="p-4 border-b border-ink-700/60">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-cy-400">
+        <p className="text-micro uppercase tracking-[0.18em] text-cy-400">
           Drag pin to the center of the roof
         </p>
         <p className="text-sm text-slate-300 mt-1">{resolved.formatted}</p>
@@ -811,7 +812,7 @@ function PinStep({
         <button
           type="button"
           onClick={onBack}
-          className="text-[11px] uppercase tracking-[0.18em] text-slate-400 hover:text-slate-200"
+          className="text-eyebrow uppercase tracking-[0.18em] text-slate-400 hover:text-slate-200"
         >
           ← Different address
         </button>
@@ -989,10 +990,10 @@ function ResultPanels({
       {result.paintedImageBase64 && (
         <section className="rounded-2xl border border-ink-700 bg-ink-900/80 overflow-hidden">
           <div className="p-3 border-b border-ink-700/60 flex justify-between items-center">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+            <p className="text-micro uppercase tracking-[0.18em] text-slate-400">
               Roof outline
             </p>
-            <button type="button" onClick={onReRun} className="text-[10px] uppercase tracking-[0.16em] text-cy-400 hover:text-cy-300">
+            <button type="button" onClick={onReRun} className="text-micro uppercase tracking-[0.16em] text-cy-400 hover:text-cy-300">
               Re-run
             </button>
           </div>
@@ -1004,10 +1005,10 @@ function ResultPanels({
       {/* Headline measurement + confidence */}
       <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-3 mb-5">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Measurement</p>
+          <p className="text-micro uppercase tracking-[0.18em] text-slate-400">Measurement</p>
           {confidence && (
             <span
-              className={`text-[10px] uppercase tracking-[0.18em] px-3 py-1 rounded-full border ${
+              className={`text-micro uppercase tracking-[0.18em] px-3 py-1 rounded-full border ${
                 confidence.score >= 80
                   ? "border-mint/40 text-mint"
                   : confidence.score >= 55
@@ -1069,11 +1070,11 @@ function ResultPanels({
       {/* Per-facet breakdown */}
       {result.facets.length > 0 && (
         <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+          <p className="text-micro uppercase tracking-[0.18em] text-slate-400 mb-4">
             Per-facet breakdown
           </p>
           <table className="w-full text-sm">
-            <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+            <thead className="text-micro uppercase tracking-[0.14em] text-slate-500">
               <tr>
                 <th className="text-left py-2">#</th>
                 <th className="text-left py-2">Face</th>
@@ -1100,7 +1101,7 @@ function ResultPanels({
       {/* Squares + ordering plan */}
       {squaresAndWaste && (
         <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+          <p className="text-micro uppercase tracking-[0.18em] text-slate-400 mb-4">
             Order quantity
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1115,7 +1116,7 @@ function ResultPanels({
       {/* Tear-off plan */}
       {tearOffPlan && (
         <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">Tear-off plan</p>
+          <p className="text-micro uppercase tracking-[0.18em] text-slate-400 mb-4">Tear-off plan</p>
           <div className="grid grid-cols-2 gap-4">
             <Metric label="Debris weight" value={`${tearOffPlan.tons} tons`} />
             <Metric label="Dumpster" value={tearOffPlan.dumpster} sub="single-layer assumption" />
@@ -1126,11 +1127,11 @@ function ResultPanels({
       {/* Line items */}
       {lineItems && lineItems.length > 0 && (
         <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+          <p className="text-micro uppercase tracking-[0.18em] text-slate-400 mb-4">
             Estimated line items
           </p>
           <table className="w-full text-sm">
-            <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+            <thead className="text-micro uppercase tracking-[0.14em] text-slate-500">
               <tr>
                 <th className="text-left py-2">Qty</th>
                 <th className="text-left py-2">Description</th>
@@ -1173,7 +1174,7 @@ function ResultPanels({
       {/* Drive-there + jobsite ops */}
       {driveLink && (
         <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-3">Jobsite</p>
+          <p className="text-micro uppercase tracking-[0.18em] text-slate-400 mb-3">Jobsite</p>
           <div className="flex flex-wrap gap-2 items-center text-sm">
             <a
               href={driveLink}
@@ -1197,9 +1198,9 @@ function ResultPanels({
 function Metric({ label, value, sub }: { label: string; value: string; sub?: string | null }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">{label}</div>
+      <div className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-1">{label}</div>
       <div className="font-display text-xl tabular-nums text-slate-100">{value}</div>
-      {sub && <div className="text-[11px] text-slate-500 mt-0.5">{sub}</div>}
+      {sub && <div className="text-eyebrow text-slate-500 mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -1220,14 +1221,14 @@ function ImageryFreshnessCard({
       : { border: "border-ink-700", bg: "bg-ink-900/80", text: "text-slate-400", title: "Imagery" };
   return (
     <section className={`rounded-2xl border ${tone.border} ${tone.bg} p-5`}>
-      <p className={`text-[10px] uppercase tracking-[0.18em] mb-2 ${tone.text}`}>{tone.title}</p>
+      <p className={`text-micro uppercase tracking-[0.18em] mb-2 ${tone.text}`}>{tone.title}</p>
       <p className="text-sm text-slate-200">
         Satellite imagery dated <span className="tabular-nums">{imageryDate}</span>
         {stale && <span> · {ageY.toFixed(1)} years old — visible condition may have changed.</span>}
       </p>
       {hasStormsAfter && stormsAfter && (
         <div className="mt-3 pt-3 border-t border-amber/20">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-amber mb-2">
+          <p className="text-micro uppercase tracking-[0.18em] text-amber mb-2">
             Severe weather since imagery
           </p>
           <ul className="space-y-1 text-sm text-slate-200">
@@ -1287,10 +1288,10 @@ function WasteAnalysisCard({
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3 mb-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+        <p className="text-micro uppercase tracking-[0.18em] text-slate-400">
           Waste &amp; pricing analysis
         </p>
-        <span className="text-[10px] uppercase tracking-[0.16em] text-cy-400">
+        <span className="text-micro uppercase tracking-[0.16em] text-cy-400">
           Rep-grade analysis
         </span>
       </div>
@@ -1311,7 +1312,7 @@ function WasteAnalysisCard({
       </div>
 
       <div className="mt-4 pt-4 border-t border-ink-700/60">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">
+        <p className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-2">
           How we got to {waste.suggestedPercent}%
         </p>
         <ul className="text-sm text-slate-200 space-y-1 tabular-nums">
@@ -1350,11 +1351,11 @@ function WasteAnalysisCard({
       </div>
 
       <div className="mt-5 pt-4 border-t border-ink-700/60">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">
+        <p className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-2">
           Waste table
         </p>
         <table className="w-full text-sm tabular-nums">
-          <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+          <thead className="text-micro uppercase tracking-[0.14em] text-slate-500">
             <tr>
               <th className="text-left py-2">Waste %</th>
               <th className="text-right py-2">Squares to order</th>
@@ -1389,7 +1390,7 @@ function WasteAnalysisCard({
             })}
           </tbody>
         </table>
-        <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
+        <p className="mt-3 text-eyebrow text-slate-500 leading-relaxed">
           Suggested waste is a guide — adjust based on crew, material salvage, and
           installation patterns. The customer sees a single total with waste rolled in;
           the percentage itself is intentionally not displayed.
@@ -1399,7 +1400,7 @@ function WasteAnalysisCard({
       {customerPrice.penetrations.lines.length > 0 && (
         <div className="mt-5 pt-4 border-t border-ink-700/60">
           <div className="flex justify-between items-baseline mb-3">
-            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            <p className="text-micro uppercase tracking-[0.16em] text-slate-500">
               Penetration adders
             </p>
             <span className="text-sm tabular-nums text-slate-200">
@@ -1407,7 +1408,7 @@ function WasteAnalysisCard({
             </span>
           </div>
           <table className="w-full text-sm tabular-nums">
-            <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+            <thead className="text-micro uppercase tracking-[0.14em] text-slate-500">
               <tr>
                 <th className="text-left py-2">Type</th>
                 <th className="text-right py-2">Qty</th>
@@ -1428,7 +1429,7 @@ function WasteAnalysisCard({
               ))}
             </tbody>
           </table>
-          <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
+          <p className="mt-3 text-eyebrow text-slate-500 leading-relaxed">
             Per-penetration adders for flashing materials + labor. The $7/sqft
             line already includes generic flashing — these line items cover
             specialty kits (chimney saddle, skylight flashing, HVAC curb) that
@@ -1438,7 +1439,7 @@ function WasteAnalysisCard({
       )}
 
       <div className="mt-5 pt-4 border-t border-ink-700/60">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-3">
+        <p className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-3">
           Total breakdown
         </p>
         <div className="space-y-1 text-sm tabular-nums">
@@ -1487,13 +1488,13 @@ function SiteConditionNotes({
   const prettify = (s: string) => s.replace(/_/g, " ");
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 mb-4">
+      <p className="text-micro uppercase tracking-[0.18em] text-slate-400 mb-4">
         Site &amp; condition notes
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {ga.apparentAgeBand && (
           <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Apparent age</div>
+            <div className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-1">Apparent age</div>
             <div className="text-sm text-slate-100">
               {AGE_BAND_LABEL[ga.apparentAgeBand.band] ?? prettify(ga.apparentAgeBand.band)}{" "}
               <span className="text-slate-500 text-xs">
@@ -1504,7 +1505,7 @@ function SiteConditionNotes({
         )}
         {ga.roofMaterial && (
           <div>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Material guess</div>
+            <div className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-1">Material guess</div>
             <div className="text-sm text-slate-100">
               {prettify(ga.roofMaterial.type)}{" "}
               <span className="text-slate-500 text-xs">
@@ -1517,7 +1518,7 @@ function SiteConditionNotes({
 
       {ga.visibleDamage.length > 0 && (
         <div className="mt-5 pt-4 border-t border-ink-700/60">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-amber mb-2">Visible damage</div>
+          <div className="text-micro uppercase tracking-[0.16em] text-amber mb-2">Visible damage</div>
           <ul className="space-y-1.5 text-sm text-slate-200">
             {ga.visibleDamage.map((d, i) => (
               <li key={i} className="flex gap-2">
@@ -1539,7 +1540,7 @@ function SiteConditionNotes({
 
       {ga.conditionHints.length > 0 && (
         <div className="mt-5 pt-4 border-t border-ink-700/60">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">Condition hints</div>
+          <div className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-2">Condition hints</div>
           <div className="flex flex-wrap gap-2">
             {ga.conditionHints.map((h, i) => (
               <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-ink-800 border border-ink-600 text-slate-300">
@@ -1552,7 +1553,7 @@ function SiteConditionNotes({
 
       {ga.secondaryStructures.length > 0 && (
         <div className="mt-5 pt-4 border-t border-ink-700/60">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-2">Attached additions</div>
+          <div className="text-micro uppercase tracking-[0.16em] text-slate-500 mb-2">Attached additions</div>
           <div className="flex flex-wrap gap-2">
             {ga.secondaryStructures.map((s, i) => (
               <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-ink-800 border border-ink-600 text-slate-300">
@@ -1565,7 +1566,7 @@ function SiteConditionNotes({
 
       {ga.siteObstacles.length > 0 && (
         <div className="mt-5 pt-4 border-t border-ink-700/60">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-amber mb-2">Site obstacles</div>
+          <div className="text-micro uppercase tracking-[0.16em] text-amber mb-2">Site obstacles</div>
           <div className="flex flex-wrap gap-2">
             {ga.siteObstacles.map((o, i) => (
               <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-amber/5 border border-amber/30 text-amber">
@@ -1604,7 +1605,7 @@ function RecentSevereWeatherCard({
   if (events == null) {
     return (
       <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+        <p className="text-micro uppercase tracking-[0.18em] text-slate-400">
           Storm intelligence
         </p>
         <p className="mt-2 text-sm text-slate-500">Loading…</p>
@@ -1623,7 +1624,7 @@ function RecentSevereWeatherCard({
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-6">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
+        <p className="text-micro uppercase tracking-[0.18em] text-slate-400">
           Storm intelligence
         </p>
         <div className="flex items-center gap-2">
@@ -1637,7 +1638,7 @@ function RecentSevereWeatherCard({
               onChange={(e) =>
                 setRadiusMiles(Math.max(1, Math.min(50, Number(e.target.value) || 1)))
               }
-              className="w-12 px-1.5 py-0.5 text-[12px] tabular text-center"
+              className="w-12 px-1.5 py-0.5 text-xs tabular text-center"
               style={{
                 background: "var(--vx-cream)",
                 border: "1px solid var(--vx-rule)",
@@ -1658,7 +1659,7 @@ function RecentSevereWeatherCard({
               onChange={(e) =>
                 setDaysBack(Math.max(1, Math.min(365, Number(e.target.value) || 1)))
               }
-              className="w-14 px-1.5 py-0.5 text-[12px] tabular text-center"
+              className="w-14 px-1.5 py-0.5 text-xs tabular text-center"
               style={{
                 background: "var(--vx-cream)",
                 border: "1px solid var(--vx-rule)",
@@ -1717,7 +1718,7 @@ function RecentSevereWeatherCard({
 function LeadContextCard({ lead }: { lead: LeadRow }) {
   return (
     <section className="rounded-2xl border border-cy-400/30 bg-cy-500/[0.06] p-5 space-y-2">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-cy-300">Lead</p>
+      <p className="text-micro uppercase tracking-[0.22em] text-cy-300">Lead</p>
       {lead.name && <div className="text-sm text-slate-100">{lead.name}</div>}
       {lead.email && (
         <div className="text-xs text-slate-300">
@@ -1733,7 +1734,7 @@ function LeadContextCard({ lead }: { lead: LeadRow }) {
           </a>
         </div>
       )}
-      <div className="pt-2 mt-2 border-t border-cy-400/20 space-y-1 text-[11px] text-slate-400">
+      <div className="pt-2 mt-2 border-t border-cy-400/20 space-y-1 text-eyebrow text-slate-400">
         <div>Submitted: <span className="text-slate-200 tabular-nums">{new Date(lead.created_at).toLocaleString()}</span></div>
         {lead.source && <div>Source: <span className="text-slate-200">{lead.source}</span></div>}
         <div>
@@ -1777,9 +1778,9 @@ function RepInputs({
 }) {
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5 space-y-4">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">Rep inputs</p>
+      <p className="text-micro uppercase tracking-[0.22em] text-slate-400">Rep inputs</p>
       <div>
-        <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1.5">Material</label>
+        <label className="block text-micro uppercase tracking-[0.16em] text-slate-500 mb-1.5">Material</label>
         <select
           value={material}
           onChange={(e) => setMaterial(e.target.value as Material)}
@@ -1793,11 +1794,11 @@ function RepInputs({
         </select>
       </div>
       <div>
-        <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1.5">Pitch</label>
+        <label className="block text-micro uppercase tracking-[0.16em] text-slate-500 mb-1.5">Pitch</label>
         {pitchAutoDetected != null ? (
           <div className="text-sm text-slate-200 tabular-nums">
             {pitchToOnTwelve(pitchAutoDetected)} · {pitchAutoDetected.toFixed(1)}°
-            <span className="ml-2 text-[10px] uppercase tracking-[0.16em] text-cy-400">auto</span>
+            <span className="ml-2 text-micro uppercase tracking-[0.16em] text-cy-400">auto</span>
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -1825,8 +1826,9 @@ function RepInputs({
       </label>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Labor ×</label>
+          <label htmlFor="labor-mult" className="block text-micro uppercase tracking-[0.16em] text-slate-500 mb-1">Labor ×</label>
           <input
+            id="labor-mult"
             type="number"
             min={0.5}
             max={2.0}
@@ -1837,8 +1839,9 @@ function RepInputs({
           />
         </div>
         <div>
-          <label className="block text-[10px] uppercase tracking-[0.16em] text-slate-500 mb-1">Material ×</label>
+          <label htmlFor="material-mult" className="block text-micro uppercase tracking-[0.16em] text-slate-500 mb-1">Material ×</label>
           <input
+            id="material-mult"
             type="number"
             min={0.5}
             max={2.0}
@@ -1856,7 +1859,7 @@ function RepInputs({
 function NotesCard({ notes, setNotes }: { notes: string; setNotes: (s: string) => void }) {
   return (
     <section className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400 mb-2">Notes</p>
+      <p className="text-micro uppercase tracking-[0.22em] text-slate-400 mb-2">Notes</p>
       <textarea
         placeholder="Site observations, customer requests, etc."
         value={notes}
@@ -1879,7 +1882,7 @@ function PricingCard({
 }) {
   return (
     <section className="rounded-2xl border border-cy-400/30 bg-cy-500/[0.06] p-5">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-cy-300">Headline price</p>
+      <p className="text-micro uppercase tracking-[0.22em] text-cy-300">Headline price</p>
       <div className="mt-3 font-display text-3xl tabular-nums text-slate-100">
         ${pricing.mid.toLocaleString()}
       </div>
@@ -2027,14 +2030,14 @@ function SaveEstimateCard({
 
       {saveStatus === "saved" && savedPublicId ? (
         <div className="flex flex-col gap-3">
-          <p className="text-[13px]" style={{ color: "var(--vx-ink-soft)" }}>
+          <p className="text-mini" style={{ color: "var(--vx-ink-soft)" }}>
             This estimate is now in your leads list, attached to{" "}
             <span style={{ color: "var(--vx-ink)" }}>{resolved.formatted}</span>.
             Add a customer name / phone later from the lead drawer.
           </p>
           <Link
             href="/dashboard/leads"
-            className="self-start inline-flex items-center gap-2 px-4 py-2 text-[13px] font-medium transition-colors"
+            className="self-start inline-flex items-center gap-2 px-4 py-2 text-mini font-medium transition-colors"
             style={{
               background: "var(--vx-ink)",
               color: "var(--vx-cream)",
@@ -2046,7 +2049,7 @@ function SaveEstimateCard({
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-[13px]" style={{ color: "var(--vx-ink-soft)" }}>
+          <p className="text-mini" style={{ color: "var(--vx-ink-soft)" }}>
             Keep this estimate against {resolved.formatted}. The painted
             roof, measurements, your inputs, and notes will all save —
             no customer contact info needed.
@@ -2061,7 +2064,7 @@ function SaveEstimateCard({
               type="button"
               onClick={save}
               disabled={saveStatus === "saving"}
-              className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-mini font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 background: "var(--vx-terra)",
                 color: "var(--vx-cream)",
@@ -2071,7 +2074,7 @@ function SaveEstimateCard({
               {saveStatus === "saving" ? "Saving…" : "Save estimate"}
             </button>
             {saveStatus === "error" && saveError ? (
-              <span className="text-[12px]" style={{ color: "var(--vx-terra-dark)" }}>
+              <span className="text-xs" style={{ color: "var(--vx-terra-dark)" }}>
                 {saveError}
               </span>
             ) : null}
