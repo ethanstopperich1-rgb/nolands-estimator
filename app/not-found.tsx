@@ -17,7 +17,7 @@ import PublicFooter from "@/components/ui/public-footer";
  * noindex via metadata so this page itself never enters a search index.
  */
 export const metadata: Metadata = {
-  title: "Not found · Voxaris Pitch",
+  title: "Not found · Noland's Roofing Estimator",
   description: "The page you tried to reach doesn't exist. Get a roof estimate in 30 seconds.",
   robots: { index: false, follow: false },
 };

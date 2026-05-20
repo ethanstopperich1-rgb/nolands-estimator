@@ -1,5 +1,5 @@
 /**
- * Watermark the painted-PNG output with a faint `voxaris.io` stamp in
+ * Watermark the painted-PNG output with a faint `nolandsroofing.com` stamp in
  * the bottom-right corner.
  *
  * The painted roof is the visual asset the customer sees on the
@@ -37,11 +37,11 @@ function buildStampSvg(width: number, height: number): Buffer {
     <text x="2" y="26"
           font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
           font-size="22" font-weight="500"
-          fill="#000" filter="url(#soft)" opacity="0.45">voxaris.io</text>
+          fill="#000" filter="url(#soft)" opacity="0.45">nolandsroofing.com</text>
     <text x="0" y="24"
           font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
           font-size="22" font-weight="500"
-          fill="#ffffff">voxaris.io</text>
+          fill="#ffffff">nolandsroofing.com</text>
   </g>
 </svg>`;
   return Buffer.from(svg);

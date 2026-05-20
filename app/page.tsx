@@ -3254,7 +3254,7 @@ function PinHeader({ onBack }: { onBack?: () => void } = {}) {
   return (
     <header className="relative z-20 pt-7 lg:pt-10">
       <div className="max-w-7xl mx-auto px-6 lg:px-10 flex items-center justify-between">
-        <Link href="/" className="leading-none" aria-label="Voxaris — home">
+        <Link href="/" className="leading-none" aria-label="Noland's Roofing — home">
           {/* Header wordmark matches the footer size (lg) — both lockups
               are now identical in stroke weight so the customer reads
               one consistent brand mark from hero to footer. */}
@@ -3284,8 +3284,7 @@ function PinHeader({ onBack }: { onBack?: () => void } = {}) {
 }
 
 function VoxarisFooter() {
-  // Dark-variant footer per brand §04 Primary · Dark lockup. Wordmark is
-  // "Voxaris." with the period (non-negotiable on hero placements).
+  // Dark-variant footer — Noland's brand on this fork.
   return (
     <footer className="relative z-10" style={{ background: "var(--vx-ink)", color: "var(--vx-paper)" }}>
       <div className="max-w-7xl mx-auto px-6 lg:px-10 py-16 lg:py-20">
@@ -3298,7 +3297,7 @@ function VoxarisFooter() {
               className="eyebrow mb-6"
               style={{ color: "rgba(236, 227, 208, 0.55)" }}
             >
-              Premium roof intelligence
+              Clermont&apos;s #1 choice · Severe Weather Specialists
             </div>
             <p
               className="font-serif italic"
@@ -3315,17 +3314,17 @@ function VoxarisFooter() {
           </div>
           <div className="lg:col-span-3">
             <div className="eyebrow mb-5" style={{ color: "rgba(236, 227, 208, 0.55)" }}>
-              Correspondence
+              Contact
             </div>
             <ul
               className="space-y-2.5"
               style={{ fontSize: "13px", color: "rgba(236, 227, 208, 0.78)", fontWeight: 600 }}
             >
               <li>
-                <a href="mailto:admin@voxaris.io">admin@voxaris.io</a>
+                <a href="mailto:info@nolandsroofing.com">info@nolandsroofing.com</a>
               </li>
               <li className="tabular">
-                <a href="tel:+14078195809">(407) 819 · 5809</a>
+                <a href="tel:+13522424322">(352) 242-4322</a>
               </li>
             </ul>
           </div>
@@ -3356,8 +3355,8 @@ function VoxarisFooter() {
             fontWeight: 600,
           }}
         >
-          <span>© 2026 Voxaris, Inc.</span>
-          <span>Orlando · Florida</span>
+          <span>© {new Date().getFullYear()} Noland&apos;s Roofing, Inc.</span>
+          <span>Clermont · Florida</span>
         </div>
       </div>
     </footer>

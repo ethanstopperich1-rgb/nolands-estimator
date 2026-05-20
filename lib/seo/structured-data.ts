@@ -46,14 +46,16 @@
  *     remove the parcel lookup), update the matching FAQ here too.
  */
 
-const SITE_URL = "https://pitch.voxaris.io";
-const ORG_NAME = "Voxaris";
-const PRODUCT_NAME = "Voxaris";
+// Noland's Roofing fork — estimator at estimate.nolandsroofing.com.
+// SITE_URL falls back to nolands-estimator.vercel.app during transition
+// before the custom domain CNAME is live.
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_ORIGIN ?? "https://estimate.nolandsroofing.com";
+const ORG_NAME = "Noland's Roofing";
+const PRODUCT_NAME = "Noland's Roofing Instant Estimator";
 const LOGO_URL = `${SITE_URL}/icon.png`;
 const OG_IMAGE = `${SITE_URL}/opengraph-image.png`;
-/** When the Voxaris customer-surface product launched. Used as
- *  `datePublished` on SoftwareApplication + Organization founding date.
- *  See voxaris-company memory: opened 2026-01-06. */
+/** Noland's Roofing has operated since the mid-1990s; estimator launched 2026. */
 const PRODUCT_PUBLISHED_DATE = "2026-01-06";
 
 /**
@@ -73,21 +75,28 @@ function currentDateStamp(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-// Sources of truth for these are the user's voxaris-company memory +
-// the lib/branding.ts BRAND_CONFIG. Update both when company facts
-// change (phone, opening date, service area).
-const COMPANY_PHONE = "(407) 819-5809";
+// Noland's Roofing company facts (locked May 2026).
+// Clermont HQ is the primary published number on their door-hangers + website.
+const COMPANY_PHONE = "(352) 242-4322";
+const COMPANY_EMAIL = "info@nolandsroofing.com";
+const COMPANY_ADDRESS = {
+  streetAddress: "1295 W. Hwy. 50",
+  addressLocality: "Clermont",
+  addressRegion: "FL",
+  postalCode: "34711",
+  addressCountry: "US",
+};
 const SERVICE_AREA_COUNTRY = "US";
 const SERVICE_FOCUS_STATE = "FL";
 
-/** Build an Organization node describing Voxaris itself. */
+/** Build an Organization node describing Noland's Roofing. */
 export function buildOrganizationJsonLd(): Record<string, unknown> {
   return {
     "@context": "https://schema.org",
-    "@type": "Organization",
+    "@type": ["Organization", "LocalBusiness", "RoofingContractor"],
     "@id": `${SITE_URL}/#organization`,
     name: ORG_NAME,
-    url: SITE_URL,
+    url: "https://nolandsroofing.com",
     logo: {
       "@type": "ImageObject",
       url: LOGO_URL,
@@ -96,40 +105,65 @@ export function buildOrganizationJsonLd(): Record<string, unknown> {
     },
     image: OG_IMAGE,
     description:
-      "Voxaris builds AI-powered roof estimation tools for homeowners " +
-      "and residential roofing contractors. The customer-facing estimator " +
-      "at pitch.voxaris.io produces transparent roof measurements and " +
-      "pricing in under a minute from satellite imagery, county records, " +
-      "and recent severe-weather data — confirmed on site by a licensed " +
+      "Noland's Roofing is a Florida-licensed general contractor with 25+ " +
+      "years serving Central Florida. CertainTeed Triple Crown Champion — " +
+      "one of only 4 roofing companies in North America to hold this " +
+      "designation. Specializing in asphalt shingle, tile, metal, and " +
+      "flat roofing. Four offices: Clermont, Orange City, Bradenton, and " +
+      "Fort Myers. Severe weather specialists serving Lake, Orange, " +
+      "Volusia, Osceola, Sumter, Polk, Seminole, Flagler, Manatee, and " +
+      "Lee counties. Free estimates — confirmed on site by a licensed " +
       "roofer before any binding quote.",
     telephone: COMPANY_PHONE,
-    areaServed: {
-      "@type": "Country",
-      name: "United States",
+    email: COMPANY_EMAIL,
+    address: {
+      "@type": "PostalAddress",
+      ...COMPANY_ADDRESS,
     },
-    knowsAbout: [
-      "Residential roofing estimates",
-      "Asphalt shingle roofing",
-      "Roof measurement from satellite imagery",
-      "Florida roofing policy discounts",
-      "Hail and wind damage assessment",
-      "Roof material classification",
-      "Severe weather history reporting",
+    areaServed: [
+      { "@type": "State", name: "Florida" },
+      { "@type": "AdministrativeArea", name: "Lake County, FL" },
+      { "@type": "AdministrativeArea", name: "Orange County, FL" },
+      { "@type": "AdministrativeArea", name: "Volusia County, FL" },
+      { "@type": "AdministrativeArea", name: "Seminole County, FL" },
+      { "@type": "AdministrativeArea", name: "Flagler County, FL" },
+      { "@type": "AdministrativeArea", name: "Sumter County, FL" },
+      { "@type": "AdministrativeArea", name: "Osceola County, FL" },
+      { "@type": "AdministrativeArea", name: "Polk County, FL" },
+      { "@type": "AdministrativeArea", name: "Manatee County, FL" },
+      { "@type": "AdministrativeArea", name: "Lee County, FL" },
     ],
-    foundingDate: PRODUCT_PUBLISHED_DATE,
+    hasCredential: [
+      "CertainTeed Triple Crown Champion",
+      "CertainTeed Shingle Master Premier",
+      "Florida Licensed General Contractor",
+    ],
+    knowsAbout: [
+      "Residential roofing — asphalt shingle, tile, metal, flat",
+      "Storm and hail damage repair",
+      "Roof measurement from satellite imagery",
+      "Florida property owner policy discounts",
+      "Hail and wind damage assessment",
+      "Gutters, siding, soffit, fascia repair",
+      "Home renovations",
+      "Financing: Enhancify, Launch, Ygrene",
+    ],
+    priceRange: "$$",
+    // Founding date is mid-1990s; estimator launched 2026. Use a
+    // conservative date that we can substantiate — "25+ years" as of 2026.
+    foundingDate: "2001-01-01",
     dateModified: currentDateStamp(),
     sameAs: [
-      // Add real social profiles here as they go live. Avoid placeholders
-      // — Google specifically penalizes Organization nodes that link to
-      // dead or unmaintained social handles.
+      "https://nolandsroofing.com",
+      // Add Facebook / Instagram / Google Business Profile URLs as they
+      // are confirmed. Avoid dead or unmaintained handles.
     ],
   };
 }
 
 /**
- * SoftwareApplication describing the customer-facing estimator at
- * pitch.voxaris.io. This is the product the AI crawler is INDEXING
- * — free for homeowners, web-based, no install.
+ * SoftwareApplication describing Noland's Roofing's free instant estimator.
+ * Free for homeowners, web-based, no install required.
  */
 export function buildSoftwareApplicationJsonLd(): Record<string, unknown> {
   return {
@@ -144,11 +178,12 @@ export function buildSoftwareApplicationJsonLd(): Record<string, unknown> {
     browserRequirements:
       "Requires JavaScript. Supports Chrome 100+, Safari 15+, Firefox 100+, Edge 100+.",
     description:
-      "Voxaris is a free AI-powered roof estimator. Type your address, " +
-      "confirm the building center on a satellite map, and get a " +
-      "transparent measurement plus three pricing tiers in under a " +
-      "minute. No call required, no in-person visit needed for the " +
-      "estimate. Final pricing is confirmed by a licensed roofer on site.",
+      "Noland's Roofing Instant Estimator — get a real roof price in " +
+      "under 30 seconds. Enter your address, confirm the building on a " +
+      "satellite map, and receive three transparent pricing tiers " +
+      "(Essentials, Standard, Fortified) measured from satellite imagery. " +
+      "Free, no obligation, no pressure. Final pricing confirmed on site " +
+      "by a Florida-licensed Noland's Roofing contractor.",
     offers: {
       "@type": "Offer",
       price: "0",
@@ -188,8 +223,8 @@ export function buildWebSiteJsonLd(): Record<string, unknown> {
     url: SITE_URL,
     name: PRODUCT_NAME,
     description:
-      "Free AI roof estimator from your address — satellite measurement, " +
-      "transparent pricing, severe-weather history, in under a minute.",
+      "Noland's Roofing free roof estimator — satellite measurement, " +
+      "transparent pricing tiers, severe-weather history, in 30 seconds.",
     publisher: {
       "@id": `${SITE_URL}/#organization`,
     },
@@ -326,13 +361,12 @@ export function buildFaqJsonLd(): Record<string, unknown> {
         "the impact-rated tier.",
     },
     {
-      q: "Is my address shared with contractors?",
+      q: "Is my address shared with anyone?",
       a:
-        "Your address is shared only with the local roofing office that " +
-        "serves your area, and only after you submit the form requesting " +
-        "an in-person visit. Voxaris does not sell or share lead data " +
-        "with third parties outside the partner office that will service " +
-        "your job.",
+        "Your address is shared only with your local Noland's Roofing " +
+        "office — and only after you request an in-person visit. " +
+        "Noland's does not sell or share your information with any " +
+        "third parties.",
     },
   ];
 
@@ -459,12 +493,9 @@ export function buildHomeBreadcrumbJsonLd(): Record<string, unknown> {
 }
 
 /**
- * Hard statistics about Voxaris. Embedded into every page-level
- * WebPage node as a `mentions` array so AI crawlers picking up any
- * single page (not just the home) see concrete numbers grounding the
- * brand. Caught by the "Statistics: one page has hard numbers, others
- * don't" audit finding — answer is to put numbers on every page,
- * invisibly.
+ * Hard statistics about Noland's Roofing estimator. Embedded into every
+ * page-level WebPage node as a `mentions` array so AI crawlers picking
+ * up any single page see concrete numbers grounding the brand.
  */
 const VOXARIS_STATS: Array<{ name: string; value: string }> = [
   { name: "Typical roof measurement accuracy", value: "within 2% of professional aerial roof reports on high-resolution imagery" },
@@ -527,63 +558,60 @@ export function buildPrivacyPageJsonLd(): Record<string, unknown>[] {
     url,
     name: "Privacy Policy",
     description:
-      "How Voxaris collects, uses, and protects information from " +
-      "homeowners and partner contractors who use the Voxaris " +
-      "roofing-estimate platform.",
+      "How Noland's Roofing collects, uses, and protects information " +
+      "from homeowners who use the Noland's Roofing instant estimator.",
     section: "legal",
   });
 
   const faqs: Array<{ q: string; a: string }> = [
     {
-      q: "What personal information does Voxaris collect from homeowners?",
+      q: "What personal information does Noland's Roofing collect?",
       a:
         "Name, phone number, and email address provided on the estimate " +
-        "form; the property address you ask Voxaris to estimate; and " +
-        "consent records (the disclosure text you agreed to, your IP, " +
-        "your browser user-agent, and the timestamp) so that text " +
-        "messages and automated voice calls can be sent in compliance " +
-        "with the TCPA.",
+        "form; the property address you submitted; and consent records " +
+        "(the disclosure text you agreed to, your IP, your browser " +
+        "user-agent, and the timestamp) so that follow-up texts and " +
+        "automated voice calls can be sent in compliance with the TCPA.",
     },
     {
-      q: "How long does Voxaris keep my information?",
+      q: "How long does Noland's Roofing keep my information?",
       a:
         "Lead records persist for the period required by TCPA " +
         "record-keeping rules (currently 5 years for consent receipts) " +
-        "plus whatever the partner contractor needs to service the " +
+        "plus whatever the local Noland's office needs to service the " +
         "estimate. Aggregate analytics may persist longer in " +
         "de-identified form.",
     },
     {
-      q: "Does Voxaris sell or share my information with third parties?",
+      q: "Does Noland's Roofing sell or share my information?",
       a:
-        "No. Voxaris does not sell lead data. Your information is shared " +
-        "only with the partner roofing contractor associated with the " +
-        "site you visited, and only after you submit the estimate form " +
-        "indicating you want them to contact you.",
+        "No. Noland's Roofing does not sell your information. Your data " +
+        "is shared only with the local Noland's Roofing office that " +
+        "serves your area, and only after you request an in-person visit.",
     },
     {
       q: "Can I opt out of follow-up calls and texts?",
       a:
         "Yes. Reply STOP to any SMS to revoke text consent. Hang up or " +
         "say \"remove me\" during any automated voice call to revoke " +
-        "voice consent. Email privacy@voxaris.io to remove your record " +
-        "entirely.",
+        "voice consent. Email info@nolandsroofing.com to remove your " +
+        "record entirely.",
     },
     {
       q: "How is my data secured?",
       a:
-        "Lead data is stored in Supabase with row-level security " +
-        "scoped to the partner office that services your area. All " +
-        "transport is HTTPS. Service-role database access is " +
-        "server-only and never exposed to the browser.",
+        "Lead data is stored with row-level security scoped to the " +
+        "local Noland's Roofing office that services your area. All " +
+        "transport is HTTPS. Database access is server-only and never " +
+        "exposed to the browser.",
     },
     {
       q: "What rights do California, Colorado, and Virginia residents have?",
       a:
         "You have the right to request a copy of your data, request " +
-        "deletion, and request that we do not sell or share it. Voxaris " +
-        "does not sell or share lead data; deletion and access requests " +
-        "go to privacy@voxaris.io.",
+        "deletion, and request that we do not sell or share it. " +
+        "Noland's Roofing does not sell lead data; deletion and access " +
+        "requests go to info@nolandsroofing.com.",
     },
   ];
 
@@ -622,7 +650,7 @@ export function buildTermsPageJsonLd(): Record<string, unknown>[] {
     url,
     name: "Terms of Service",
     description:
-      "Terms governing use of the Voxaris roofing-estimate platform, " +
+      "Terms governing use of the Noland's Roofing instant estimator, " +
       "including the marketing-text-message and automated-voice-call " +
       "programs.",
     section: "legal",
@@ -630,35 +658,35 @@ export function buildTermsPageJsonLd(): Record<string, unknown>[] {
 
   const faqs: Array<{ q: string; a: string }> = [
     {
-      q: "Is the Voxaris estimate a binding quote?",
+      q: "Is the Noland's Roofing estimate a binding quote?",
       a:
         "No. The displayed price is a quick visual estimate generated " +
         "from satellite imagery. Final pricing depends on what a " +
-        "licensed roofer finds on site — decking condition, layers, " +
-        "code work, manufacturer requirements. The estimate is " +
-        "informational; the binding number comes from the on-site " +
-        "inspection.",
+        "licensed Noland's Roofing contractor finds on site — decking " +
+        "condition, layers, code work, manufacturer requirements. The " +
+        "estimate is informational; the binding number comes from the " +
+        "on-site inspection.",
     },
     {
       q: "Who performs the actual roof work if I accept?",
       a:
-        "The partner roofing contractor associated with the site you " +
-        "visited. Voxaris is the estimating platform; the contractor " +
-        "owns the work, the warranty, and the binding quote.",
+        "Noland's Roofing — a Florida-licensed general contractor with " +
+        "25+ years serving Central Florida. Noland's owns the work, " +
+        "the warranty, and the binding quote.",
     },
     {
-      q: "Is Voxaris free for homeowners?",
+      q: "Is the estimate free for homeowners?",
       a:
-        "Yes. The estimate at pitch.voxaris.io and on partner-contractor " +
-        "subdomains is free for homeowners.",
+        "Yes. The Noland's Roofing instant estimate is completely free " +
+        "for homeowners. No account required, no in-person visit needed " +
+        "to receive the estimate.",
     },
     {
-      q: "What happens if I provide an inaccurate address or false information?",
+      q: "What happens if I provide an inaccurate address?",
       a:
-        "The estimate may not reflect your actual property. Voxaris " +
-        "reserves the right to refuse service or terminate access if " +
-        "the platform is used to harass, impersonate, or otherwise " +
-        "misuse contractor outreach.",
+        "The estimate may not reflect your actual property. Noland's " +
+        "Roofing reserves the right to refuse service or terminate " +
+        "access if the platform is misused.",
     },
     {
       q: "Can I revoke my consent to automated marketing calls or texts?",
@@ -668,11 +696,10 @@ export function buildTermsPageJsonLd(): Record<string, unknown>[] {
         "and stop future automated contact.",
     },
     {
-      q: "What jurisdiction governs disputes with Voxaris?",
+      q: "What jurisdiction governs disputes?",
       a:
-        "Florida law, with venue in the courts located in Orange " +
-        "County, Florida, unless a specific partner contractor's terms " +
-        "specify otherwise for matters between you and that contractor.",
+        "Florida law, with venue in the courts located in Lake " +
+        "County, Florida.",
     },
   ];
 

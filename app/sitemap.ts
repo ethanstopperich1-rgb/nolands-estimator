@@ -11,7 +11,8 @@ import type { MetadataRoute } from "next";
  * short — every entry is a real top-level customer surface.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = "https://pitch.voxaris.io";
+  const base =
+    process.env.NEXT_PUBLIC_SITE_ORIGIN ?? "https://estimate.nolandsroofing.com";
   const now = new Date();
 
   return [

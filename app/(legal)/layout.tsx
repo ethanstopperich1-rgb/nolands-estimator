@@ -16,7 +16,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
       {/* Minimal top bar — wordmark + return-home link. No social, no nav. */}
       <header className="relative z-20 pt-7 lg:pt-10">
         <div className="max-w-3xl mx-auto px-6 lg:px-10 flex items-baseline justify-between gap-4">
-          <Link href="/" aria-label="Voxaris — home" className="leading-none">
+          <Link href="/" aria-label="Noland's Roofing — home" className="leading-none">
             <span
               className="font-serif tracking-tight"
               style={{
@@ -25,7 +25,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
                 letterSpacing: "-0.02em",
               }}
             >
-              Voxaris.
+              Noland&apos;s Roofing
             </span>
           </Link>
           <Link
@@ -68,7 +68,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
             <Link
               href="/"
               className="leading-none"
-              aria-label="Voxaris — home"
+              aria-label="Noland's Roofing — home"
             >
               <span
                 className="font-serif tracking-tight"
@@ -78,7 +78,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
                   letterSpacing: "-0.02em",
                 }}
               >
-                Voxaris.
+                Noland&apos;s Roofing
               </span>
             </Link>
             <div
@@ -93,7 +93,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
             >
               <Link href="/privacy">Privacy</Link>
               <Link href="/terms">Terms</Link>
-              <a href="mailto:privacy@voxaris.io">Contact</a>
+              <a href="mailto:info@nolandsroofing.com">Contact</a>
             </div>
           </div>
           <hr
@@ -112,8 +112,8 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
               fontWeight: 600,
             }}
           >
-            <span>© MMXXVI Voxaris, Inc.</span>
-            <span>Orlando · Florida</span>
+            <span>© {new Date().getFullYear()} Noland&apos;s Roofing, Inc.</span>
+            <span>Clermont · Florida</span>
           </div>
         </div>
       </footer>
