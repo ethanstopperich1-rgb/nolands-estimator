@@ -12,6 +12,7 @@ import {
   publishLeadEvent,
 } from "@/lib/lead-webhook";
 import { buildHomeownerShareUrl } from "@/lib/share-url";
+import { resolveLangFromRequest, parseLang, t, type Lang } from "@/lib/i18n";
 import {
   createServiceRoleClient,
   resolveOfficeBySlug,
@@ -234,6 +235,16 @@ export async function POST(req: Request) {
   }
   const officeSlug = rawOfficeSlug;
 
+  // Language preference for the bilingual customer journey. Client
+  // can pass `preferredLanguage` in the body (set by the toggle on
+  // /); we fall back to request inference (?lang=es query, vx-lang
+  // cookie, Accept-Language) for older clients or direct API calls.
+  const preferredLanguage: Lang =
+    // Body wins — the customer toggled it explicitly on the page.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    parseLang((body as any)?.preferredLanguage) ??
+    resolveLangFromRequest(req);
+
   let leadId = `lead_${crypto.randomUUID().replace(/-/g, "")}`;
   // Dedup linkage. When a homeowner submits multiple times within
   // the dedup window (30d, same office_id, matched on phone OR
@@ -422,6 +433,11 @@ export async function POST(req: Request) {
           // catch block above will log it. After that, dedup degrades
           // gracefully via lib/leads/dedup.ts.
           ...(dedupMatch ? { parent_lead_id: dedupMatch.parentId } : {}),
+          // Language preference — drives downstream SMS / Sydney /
+          // share-page localization. Migration 0009 adds the column.
+          // Default 'en' if migration not yet applied (Supabase
+          // accepts the field with default).
+          preferred_language: preferredLanguage,
         };
 
         if (isLeadUpdate) {
@@ -662,30 +678,35 @@ export async function POST(req: Request) {
   const customerSmsDisabled =
     (process.env.CUSTOMER_SMS_DISABLED ?? "").toLowerCase() === "true";
   if (phoneE164 && twilioConfigured() && !isLeadUpdate && !customerSmsDisabled && !dedupMatch) {
-    const estimateLine =
-      body.estimateLow && body.estimateHigh
-        ? `Your estimate range: $${body.estimateLow.toLocaleString()}-$${body.estimateHigh.toLocaleString()}. `
-        : "";
     const firstName = body.name.split(/\s+/)[0];
     // Office-aware SMS intro. Falls back to "Voxaris Pitch" if the
     // office row didn't resolve (dev / preview without Supabase).
     const officeName = officeBranding?.displayName ?? "Voxaris Pitch";
     const agentName = officeBranding?.livekitAgentName ?? "Sydney";
-    // Test-mode CTA: invite the customer to opt-in to an immediate AI
-    // voice callback via "YES". The /api/sms/inbound webhook intercepts
-    // the YES keyword (before the AI-reply pipeline), dispatches Sydney
-    // via /api/dispatch-outbound, and replies a confirmation. This is
-    // the SMS-first lead flow Voxaris is testing pre-Voice-Trust: SMS
-    // confirms → YES → Sydney calls → post-call SMS to homeowner +
-    // rep notify SMS. Keep "BOOK" too for the legacy bot path.
-    // Homeowner-share URL — they can bookmark it, email it to their
-    // spouse, send to a contractor friend. Served by /r/[publicId],
-    // server-rendered from the persisted V3 blob (no fresh pipeline
-    // call). Open Graph + Twitter cards make the URL render as a
-    // rich preview in iMessage / WhatsApp / Twitter.
+    const estimateLine =
+      body.estimateLow && body.estimateHigh
+        ? t("sms.estimate_range", preferredLanguage, {
+            low: body.estimateLow.toLocaleString(),
+            high: body.estimateHigh.toLocaleString(),
+          })
+        : "";
+    // Homeowner-share URL — bookmark/share to spouse. Server-
+    // rendered from persisted V3 blob, no fresh pipeline call. OG
+    // + Twitter cards render it as a rich preview.
     const shareOrigin = new URL(req.url).origin;
     const shareUrl = buildHomeownerShareUrl(leadId, shareOrigin);
-    const smsBody = `Hi ${firstName}, this is ${agentName} from ${officeName}. We got your estimate request for ${body.address}. ${estimateLine}Your full report: ${shareUrl} — keep it for your records. Reply YES and Sydney (our AI assistant) will call you now to schedule a free inspection. Reply STOP to opt out.`;
+    // Localized via lib/i18n.ts — Spanish-preferring homeowners get
+    // the Spanish confirmation including the FCC-compliant
+    // "asistente de voz AI" disclosure. EN/ES toggled by the
+    // customer page; persisted on the lead row.
+    const smsBody = t("sms.confirmation", preferredLanguage, {
+      firstName,
+      agentName,
+      officeName,
+      address: body.address,
+      estimateLine,
+      shareUrl,
+    });
 
     // Run both writes in parallel and don't await — keep the API
     // response fast.

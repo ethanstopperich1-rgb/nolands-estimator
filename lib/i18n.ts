@@ -1,0 +1,269 @@
+/**
+ * lib/i18n.ts — bilingual (EN/ES) string dictionary for Voxaris.
+ *
+ * Lightweight on purpose. No next-intl, no LinguiJS, no babel
+ * plugins. Just two parallel object literals keyed by a stable
+ * string id, plus a `t(key, lang)` helper.
+ *
+ * Why so light: 90% of the customer-facing copy is a fixed set of
+ * ~40 strings (hero, form labels, card titles, CTAs, disclosure
+ * footer, SMS bodies). Heavyweight i18n frameworks pay off when
+ * you have hundreds of strings across many locales and a
+ * translation-team workflow. We have ~40 strings, two locales,
+ * and a founder doing the Spanish pass himself. KISS.
+ *
+ * ── Spanish discipline ──
+ *
+ * The Spanish copy below is Florida-natural — not Google Translate.
+ * Targets the homeowner audience in Orlando / Tampa / Miami / Naples
+ * markets where ~25-30% of homeowners prefer Spanish for important
+ * decisions. Recommendations applied throughout:
+ *
+ *   - "tu" not "usted" — warmer, matches the brand voice. Roofers
+ *     close at the kitchen table; this isn't bank-pitch formality.
+ *   - Don't translate proper nouns ("Voxaris", "Sydney").
+ *   - "Tu techo" not "Su tejado" — "techo" is the Florida-Latino
+ *     vernacular for "roof"; "tejado" reads as Spain-Spanish.
+ *   - "Cita" for "appointment" — universal across all LatAm Spanish.
+ *   - "Asistente de voz AI" for FCC AI-voice-disclosure compliance.
+ *     The Feb 2024 ruling requires explicit identification of AI
+ *     voice in BOTH the language of consent capture AND any
+ *     subsequent communication. "AI" as initials is acceptable per
+ *     the FCC's plain-language guidance.
+ *
+ * ── Adding new keys ──
+ *
+ * 1. Add the key to BOTH `en` and `es` dictionaries. Missing-key
+ *    fallback returns the key itself (loud, easy to spot in QA).
+ * 2. Use `t("hero.headline", lang)` at the render site.
+ * 3. Run a native-speaker pass on any new Spanish strings BEFORE
+ *    they ship to production.
+ */
+
+export type Lang = "en" | "es";
+
+export const DEFAULT_LANG: Lang = "en";
+
+/**
+ * Resolve language from a request — checks `?lang=es` query param,
+ * `vx-lang` cookie, then `Accept-Language` header, then default.
+ */
+export function resolveLangFromRequest(req: Request): Lang {
+  // Query param wins — explicit user choice from the toggle.
+  try {
+    const url = new URL(req.url);
+    const qp = url.searchParams.get("lang");
+    if (qp === "en" || qp === "es") return qp;
+  } catch {
+    /* fall through */
+  }
+
+  // Cookie carries the persisted toggle across navigations.
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  const cookieMatch = /(?:^|;\s*)vx-lang=(en|es)\b/.exec(cookieHeader);
+  if (cookieMatch) return cookieMatch[1] as Lang;
+
+  // Browser language preference — Spanish-default users from FL
+  // markets get the right experience on first load.
+  const accept = req.headers.get("accept-language") ?? "";
+  if (/^\s*es\b|,\s*es\b/i.test(accept)) return "es";
+
+  return DEFAULT_LANG;
+}
+
+/**
+ * Validate a string is a supported language. Returns the canonical
+ * lang or null when invalid. Use on every API input that takes
+ * `preferred_language` from a client.
+ */
+export function parseLang(input: unknown): Lang | null {
+  if (input === "en" || input === "es") return input;
+  return null;
+}
+
+// ─── Translation dictionaries ─────────────────────────────────────
+
+const en = {
+  // Hero / brand
+  "hero.eyebrow": "Price · in as little as 30 seconds",
+  "hero.headline": "Your roof, measured from satellite.",
+  "hero.subhead":
+    "Type your address. We'll paint your roof, measure the sqft, and give you three replacement options in 30 seconds. Free, no signup.",
+
+  // Address form
+  "form.address.label": "Property address",
+  "form.address.placeholder": "Start typing your address...",
+  "form.name.label": "Your name",
+  "form.email.label": "Email",
+  "form.phone.label": "Phone",
+  "form.cta.estimate": "Get my estimate",
+  "form.cta.estimating": "Measuring your roof...",
+
+  // Consent
+  "consent.marketing":
+    "By submitting, you agree to be contacted about your roofing project.",
+  "consent.voice.label":
+    "Yes, call me with an AI voice assistant to schedule. I can hang up, say \"remove me,\" or reply STOP anytime.",
+  "consent.stop": "Reply STOP to opt out.",
+
+  // Result page
+  "result.eyebrow": "Your estimate",
+  "result.tier.good": "Good",
+  "result.tier.better": "Better",
+  "result.tier.best": "Best",
+  "result.tier.monthly": "est. {amount}/mo",
+  "result.repcta.title": "Lock in your real number",
+  "result.repcta.body":
+    "A licensed roofer walks your property — exact sqft, decking condition, code work — and puts a written quote in your hand. Free, about 20 minutes, no obligation.",
+  "result.repcta.button": "Lock in my real number",
+
+  // Cards
+  "card.severe_weather.title": "Severe weather, last 12 months",
+  "card.property_record.title": "Property record",
+  "card.measurements.title": "Roof measurements",
+  "card.observations.title": "What we noticed from the imagery",
+
+  // Disclosure / footer
+  "disclosure.not_binding":
+    "Not a final or binding quote. Quick visual estimate from satellite imagery. Final price depends on what we find on site (decking condition, layers, code work). Confirmed by a licensed roofer.",
+  "disclosure.tier_coverage":
+    "Tier prices above cover the full {sqft} sqft, priced as {material} with {waste}% waste assumed. Any flat-roof sections are adjusted on site.",
+  "disclosure.financing":
+    "Monthly est. assumes 15-year financing at 9.99% APR. Actual terms depend on credit + your finance partner.",
+
+  // SMS bodies
+  "sms.confirmation":
+    "Hi {firstName}, this is {agentName} from {officeName}. We got your estimate request for {address}. {estimateLine}Your full report: {shareUrl} — keep it for your records. Reply YES and {agentName} (our AI voice assistant) will call you now to schedule a free inspection. Reply STOP to opt out.",
+  "sms.estimate_range": "Your estimate range: ${low}-${high}. ",
+  "sms.yes_ack":
+    "Got it — {agentName} will call you in a few seconds from {officeName}.",
+  "sms.postcall.appt_scheduled":
+    "Hi {firstName}, your roof inspection with {officeName} is set for {when}. A rep will confirm shortly. Reply STOP to opt out.",
+  "sms.postcall.callback_requested":
+    "Hi {firstName}, thanks for chatting with us. A {officeName} rep will call you back shortly. Reply STOP to opt out.",
+  "sms.postcall.voicemail":
+    "Hi {firstName}, we just left you a voicemail. Reply YES to have us try again, or text us back any time. Reply STOP to opt out.",
+  "sms.postcall.no_appointment":
+    "Hi {firstName}, thanks for your time. If you'd like an estimate later, just reply here. Reply STOP to opt out.",
+
+  // Language toggle
+  "toggle.lang.label": "Language",
+  "toggle.lang.en": "English",
+  "toggle.lang.es": "Español",
+
+  // Duplicate-submission UX
+  "duplicate.headline": "We've already got your request.",
+  "duplicate.body":
+    "Your roof report is ready and a rep will be in touch. Tap below to re-open it.",
+  "duplicate.cta": "Open my report",
+} as const;
+
+type StringKey = keyof typeof en;
+
+const es: Record<StringKey, string> = {
+  // Hero / brand
+  "hero.eyebrow": "Precio · en hasta 30 segundos",
+  "hero.headline": "Tu techo, medido por satélite.",
+  "hero.subhead":
+    "Escribe tu dirección. Pintamos tu techo, medimos los pies cuadrados y te damos tres opciones en 30 segundos. Gratis, sin registro.",
+
+  // Address form
+  "form.address.label": "Dirección de la propiedad",
+  "form.address.placeholder": "Escribe tu dirección...",
+  "form.name.label": "Tu nombre",
+  "form.email.label": "Correo electrónico",
+  "form.phone.label": "Teléfono",
+  "form.cta.estimate": "Ver mi estimado",
+  "form.cta.estimating": "Midiendo tu techo...",
+
+  // Consent
+  "consent.marketing":
+    "Al enviar, aceptas que te contactemos sobre tu proyecto de techo.",
+  "consent.voice.label":
+    "Sí, llámame con un asistente de voz AI para agendar. Puedo colgar, decir \"quítenme\" o responder STOP en cualquier momento.",
+  "consent.stop": "Responde STOP para no recibir más mensajes.",
+
+  // Result page
+  "result.eyebrow": "Tu estimado",
+  "result.tier.good": "Bueno",
+  "result.tier.better": "Mejor",
+  "result.tier.best": "Premium",
+  "result.tier.monthly": "aprox. {amount}/mes",
+  "result.repcta.title": "Asegura tu precio real",
+  "result.repcta.body":
+    "Un techador con licencia visita tu propiedad — pies cuadrados exactos, condición del entablado, trabajo de código — y te entrega una cotización por escrito. Gratis, unos 20 minutos, sin compromiso.",
+  "result.repcta.button": "Asegurar mi precio real",
+
+  // Cards
+  "card.severe_weather.title": "Clima severo, últimos 12 meses",
+  "card.property_record.title": "Registro de la propiedad",
+  "card.measurements.title": "Medidas del techo",
+  "card.observations.title": "Lo que notamos en las imágenes",
+
+  // Disclosure / footer
+  "disclosure.not_binding":
+    "No es una cotización final ni vinculante. Estimado visual rápido de imágenes satelitales. El precio final depende de lo que encontremos en sitio (condición del entablado, capas, código). Confirmado por un techador con licencia.",
+  "disclosure.tier_coverage":
+    "Los precios cubren los {sqft} pies cuadrados completos, cotizados como {material} con {waste}% de desperdicio asumido. Las secciones de techo plano se ajustan en sitio.",
+  "disclosure.financing":
+    "Estimado mensual asume financiamiento a 15 años con 9.99% APR. Términos reales dependen del crédito y tu socio financiero.",
+
+  // SMS bodies
+  "sms.confirmation":
+    "Hola {firstName}, soy {agentName} de {officeName}. Recibimos tu solicitud de estimado para {address}. {estimateLine}Tu reporte completo: {shareUrl} — guárdalo para tu archivo. Responde SÍ y {agentName} (nuestro asistente de voz AI) te llamará ahora para agendar una inspección gratis. Responde STOP para no recibir más mensajes.",
+  "sms.estimate_range": "Tu rango estimado: ${low}-${high}. ",
+  "sms.yes_ack":
+    "Listo — {agentName} te llamará en unos segundos de parte de {officeName}.",
+  "sms.postcall.appt_scheduled":
+    "Hola {firstName}, tu inspección de techo con {officeName} está agendada para {when}. Un representante te confirmará pronto. Responde STOP para no recibir más mensajes.",
+  "sms.postcall.callback_requested":
+    "Hola {firstName}, gracias por hablar con nosotros. Un representante de {officeName} te llamará pronto. Responde STOP para no recibir más mensajes.",
+  "sms.postcall.voicemail":
+    "Hola {firstName}, te acabamos de dejar un mensaje de voz. Responde SÍ para intentarlo de nuevo, o escríbenos en cualquier momento. Responde STOP para no recibir más mensajes.",
+  "sms.postcall.no_appointment":
+    "Hola {firstName}, gracias por tu tiempo. Si quieres un estimado más adelante, responde aquí. Responde STOP para no recibir más mensajes.",
+
+  // Language toggle
+  "toggle.lang.label": "Idioma",
+  "toggle.lang.en": "English",
+  "toggle.lang.es": "Español",
+
+  // Duplicate-submission UX
+  "duplicate.headline": "Ya tenemos tu solicitud.",
+  "duplicate.body":
+    "Tu reporte de techo está listo y un representante se comunicará contigo. Toca aquí para volver a abrirlo.",
+  "duplicate.cta": "Abrir mi reporte",
+};
+
+const DICTIONARIES: Record<Lang, Record<StringKey, string>> = { en, es };
+
+/**
+ * Translate a key. Missing keys return the key itself (loud — easy
+ * to spot in QA). Interpolation uses `{name}` placeholders replaced
+ * by the `vars` map.
+ */
+export function t(
+  key: StringKey,
+  lang: Lang = DEFAULT_LANG,
+  vars?: Record<string, string | number>,
+): string {
+  const dict = DICTIONARIES[lang] ?? DICTIONARIES[DEFAULT_LANG];
+  const raw = dict[key] ?? key;
+  if (!vars) return raw;
+  return raw.replace(/\{(\w+)\}/g, (match, name) => {
+    const v = vars[name as string];
+    return v == null ? match : String(v);
+  });
+}
+
+/**
+ * Bulk translator for the customer-page render. Returns a single
+ * object with all the strings the page needs, avoiding 40+
+ * inline `t()` calls in the JSX. Keeps the rendering site readable
+ * and gives the typechecker a stable shape to lean on.
+ */
+export function customerPageStrings(lang: Lang = DEFAULT_LANG) {
+  return Object.fromEntries(
+    (Object.keys(en) as StringKey[]).map((k) => [k, t(k, lang)]),
+  ) as Record<StringKey, string>;
+}

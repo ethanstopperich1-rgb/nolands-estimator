@@ -174,6 +174,7 @@ export type Database = {
           office_id: string
           parent_lead_id: string | null
           phone: string | null
+          preferred_language: string
           public_id: string
           roof_v3_json: Json | null
           selected_add_ons: string[] | null
@@ -204,6 +205,7 @@ export type Database = {
           office_id: string
           parent_lead_id?: string | null
           phone?: string | null
+          preferred_language?: string
           public_id: string
           roof_v3_json?: Json | null
           selected_add_ons?: string[] | null
@@ -234,6 +236,7 @@ export type Database = {
           office_id?: string
           parent_lead_id?: string | null
           phone?: string | null
+          preferred_language?: string
           public_id?: string
           roof_v3_json?: Json | null
           selected_add_ons?: string[] | null

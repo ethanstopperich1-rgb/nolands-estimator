@@ -311,6 +311,9 @@ export function getDemoLeads(slug: DemoOfficeSlug): Lead[] {
         // Dedup linkage (migration 0008). Demo rows are canonical
         // first submissions, never dupes.
         parent_lead_id: null,
+        // Bilingual journey (migration 0009). Demo rows default to
+        // English; mix in a few Spanish entries in production seed.
+        preferred_language: "en",
         created_at: createdAt,
         updated_at: createdAt,
       };
