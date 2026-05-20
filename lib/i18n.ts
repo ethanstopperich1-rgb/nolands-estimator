@@ -87,12 +87,12 @@ const en = {
   // Hero / brand — match the actual customer page copy verbatim so
   // wiring t() in is a 1:1 swap with no copy regression. The headline
   // splits across two spans (the second is italic) by design.
-  "hero.eyebrow": "Price · in as little as 30 seconds",
-  "hero.headline.line1": "What will it cost",
-  "hero.headline.line2": "to replace your roof?",
+  "hero.eyebrow": "Clermont's #1 choice · Severe Weather Specialists",
+  "hero.headline.line1": "Get your roof priced",
+  "hero.headline.line2": "in 30 seconds.",
   "hero.subhead.lead":
-    "We measure your roof from satellite imagery and price it in thirty seconds. Proprietary model. A real number.",
-  "hero.subhead.close": "No calls until you ask.",
+    "We measure your roof from satellite imagery and price it on the spot. Free, no obligation, no pressure.",
+  "hero.subhead.close": "No callbacks until you ask.",
 
   // Address form — labels are sr-only (screen reader / autofill
   // heuristics) so they still need to translate even though sighted
@@ -206,11 +206,11 @@ const es: Record<StringKey, string> = {
   // Hero / brand — Florida-natural Spanish, "tu" not "usted",
   // "techo" not "tejado". Headline splits across two spans (second
   // italic) — same composition as English.
-  "hero.eyebrow": "Precio · en hasta 30 segundos",
-  "hero.headline.line1": "¿Cuánto costará",
-  "hero.headline.line2": "reemplazar tu techo?",
+  "hero.eyebrow": "La #1 opción de Clermont · Especialistas en Clima Severo",
+  "hero.headline.line1": "Conoce el precio de tu techo",
+  "hero.headline.line2": "en 30 segundos.",
   "hero.subhead.lead":
-    "Medimos tu techo desde imágenes satelitales y te damos el precio en treinta segundos. Modelo propio. Un número real.",
+    "Medimos tu techo desde imágenes satelitales y te damos el precio al instante. Gratis, sin compromiso, sin presión.",
   "hero.subhead.close": "Sin llamadas hasta que las pidas.",
 
   // Address form
