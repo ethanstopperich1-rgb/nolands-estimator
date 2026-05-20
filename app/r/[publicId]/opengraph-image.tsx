@@ -28,8 +28,11 @@ export default async function OpengraphImage({
 }) {
   let address = "Your roof report";
   let dollarRange = "";
-  let officeName = "Voxaris";
-  let accent = "#0F1B2D";
+  // Default to Noland's branding for this fork. The per-office override
+  // below still wins for any office row that has a custom display name
+  // and brand color set in the DB.
+  let officeName = "Noland's Roofing";
+  let accent = "#E84A1F"; // Noland's fire-orange
 
   if (
     /^lead_[a-f0-9]{16,40}$/i.test(params.publicId) &&
@@ -75,9 +78,12 @@ export default async function OpengraphImage({
           flexDirection: "column",
           justifyContent: "space-between",
           padding: "60px 70px",
-          background: "#ECE3D0",
-          color: "#0F1B2D",
-          fontFamily: "DM Sans, system-ui, sans-serif",
+          // Dark Noland's surface — matches the live site.
+          background: "#07080A",
+          color: "#E8E9ED",
+          fontFamily: "system-ui, -apple-system, Helvetica, sans-serif",
+          backgroundImage:
+            "radial-gradient(ellipse 60% 50% at 100% 100%, rgba(232, 74, 31, 0.16), transparent 65%)",
         }}
       >
         <div
