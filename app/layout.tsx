@@ -8,7 +8,6 @@ import {
   Cormorant_Garamond,
   Hanken_Grotesk,
   Roboto,
-  Inter,
   Poppins,
 } from "next/font/google";
 import localFont from "next/font/local";
@@ -93,12 +92,10 @@ const robotoNoland = Roboto({
   display: "swap",
   weight: ["400", "500", "700", "900"],
 });
-const interNoland = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter-noland",
-  display: "swap",
-  weight: ["400", "500", "600", "700"],
-});
+// Body text → Geist (Vercel's typeface). Replaces Inter (banned by
+// taste-skill as the common LLM-default body font) with a metric-
+// neutral, well-engineered sans. Geist is already loaded for the
+// dashboard; reusing it here keeps the bundle lean.
 const poppinsNoland = Poppins({
   subsets: ["latin"],
   variable: "--font-poppins-noland",
@@ -198,7 +195,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable} ${dragonEF.variable} ${ambit.variable} ${robotoNoland.variable} ${interNoland.variable} ${poppinsNoland.variable}`}
+      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable} ${dragonEF.variable} ${ambit.variable} ${robotoNoland.variable} ${poppinsNoland.variable}`}
     >
       <head>
         <script

@@ -97,7 +97,7 @@
    * utilities in JSX.
    */
   --font-noland-primary: var(--font-roboto-noland), system-ui, sans-serif;
-  --font-noland-body:    var(--font-inter-noland), system-ui, sans-serif;
+  --font-noland-body:    var(--font-geist), system-ui, sans-serif;
   --font-noland-display: var(--font-poppins-noland), Impact, "Arial Narrow", sans-serif;
 }
 
@@ -174,7 +174,7 @@ body {
      (matches the actual NOLAND'S logo letterforms); UI is Roboto 600/700
      (matches their site's heading typography token). */
   --vx-font-display: var(--font-poppins-noland), var(--font-roboto-noland), Impact, "Arial Narrow", sans-serif;
-  --vx-font-ui:      var(--font-roboto-noland), var(--font-inter-noland), "Helvetica Neue", system-ui, sans-serif;
+  --vx-font-ui:      var(--font-roboto-noland), var(--font-geist), "Helvetica Neue", system-ui, sans-serif;
 
   /* Radius — bold contractor → sharper. Buttons stay 0 (square); cards
      drop to 0 to read industrial. */
