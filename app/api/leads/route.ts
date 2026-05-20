@@ -322,10 +322,14 @@ export async function POST(req: Request) {
                 if (up.error) {
                   console.error("[leads] painted upload failed:", up.error.message);
                 } else {
-                  const { data: pub } = supabase.storage
-                    .from("painted-roofs")
-                    .getPublicUrl(objectKey);
-                  paintedUrl = pub.publicUrl;
+                  // Mint via the shared helper so all 3 write paths
+                  // (here, /api/gemini-roof, /api/leads/[id]/roof-v3)
+                  // produce the SAME url shape. Survives the bucket
+                  // flipping public→private. See lib/painted-url.ts
+                  // for the parity invariant.
+                  const { mintPaintedUrl } = await import("@/lib/painted-url");
+                  const minted = await mintPaintedUrl(supabase, leadId);
+                  paintedUrl = minted.url;
                 }
               } catch (e) {
                 console.error("[leads] painted upload threw:", e);

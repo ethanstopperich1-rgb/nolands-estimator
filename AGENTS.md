@@ -248,6 +248,55 @@ actually use." This is part of the Website + AEO SKU value prop —
 the manifest publishes today so we can show contractors a real
 artifact, not a future promise.
 
+## Painted-overlay parity invariant (locked)
+
+Every surface that renders the painted roof overlay — customer
+estimator page `/`, rep dashboard `/dashboard/leads/[publicId]`, rep
+estimate workbench `/dashboard/estimate`, homeowner share URL
+`/r/[publicId]`, lead report PDFs — MUST render the **same image
+bytes** for the same lead. The bytes never change after the V3
+pipeline writes them; only the URL changes (signed URL TTL, bucket
+public/private flip).
+
+### The single helper
+
+All URL minting goes through `lib/painted-url.ts`:
+
+- `mintPaintedUrl(supabase, leadPublicId)` — used by every WRITE
+  path after upload (3 routes: `/api/leads`, `/api/gemini-roof`,
+  `/api/leads/[publicId]/roof-v3`)
+- `resolvePaintedUrl(supabase, leadPublicId, roofV3Json)` — used by
+  every READ path on render (2 surfaces: `/dashboard/leads/[id]`,
+  `/r/[publicId]`)
+
+### Rules
+
+1. **No code path may construct a painted-roofs URL by hand.** All
+   `getPublicUrl` / `createSignedUrl` calls live inside the helper.
+2. **Reads NEVER trigger a V3 pipeline run.** Re-running the
+   pipeline costs Gemini credits. If `roof_v3_json` is empty on a
+   read surface, render the empty-state — the rep clicks
+   "Generate roof analysis" to actually run it.
+3. **The bucket can flip public ↔ private without code changes.**
+   The helper tries `createSignedUrl` first; signed URLs work on
+   public buckets too.
+4. **Cache scope bumps don't invalidate painted PNGs.** PNGs in
+   Storage outlive any V3 response-shape changes. The painted PNG
+   for `lead_<32hex>` is forever-stable; only the JSON measurement
+   shape evolves.
+
+### The test
+
+Any new surface that renders a painted overlay must satisfy:
+
+```
+given a lead with persisted roof_v3_json:
+  surface_A.paintedUrl_bytes === surface_B.paintedUrl_bytes
+```
+
+(Byte-identical, not URL-identical — signed URLs vary by TTL but
+point at the same Storage object.)
+
 ## Architectural principles (don't violate these)
 
 ### 1. Pro Image is decorative. Solar + Flash JSON are truth.

@@ -1399,19 +1399,16 @@ async function persistEstimateToLead(
             upsert: true,
           });
         if (!up.error) {
-          // 7-day signed URL — long enough for the rep workbench's
-          // typical follow-up window without standing up a re-signer
-          // route. Customer-facing share pages should re-sign per
-          // request via a server handler (TODO once /p/<id> returns).
-          const { data: signed, error: signErr } = await supabase.storage
-            .from("painted-roofs")
-            .createSignedUrl(objectKey, 60 * 60 * 24 * 7);
-          if (signed?.signedUrl) {
-            paintedUrl = signed.signedUrl;
+          // Shared helper — parity with /api/leads + roof-v3 routes.
+          // See lib/painted-url.ts. Handles both public + private
+          // bucket configurations via one consistent URL shape.
+          const { mintPaintedUrl } = await import("@/lib/painted-url");
+          const minted = await mintPaintedUrl(supabase, leadPublicId);
+          if (minted.url) {
+            paintedUrl = minted.url;
           } else {
             console.warn(
-              "[gemini-roof v3] painted_signed_url_failed",
-              signErr?.message ?? "unknown",
+              "[gemini-roof v3] painted_url_mint_failed kind=" + minted.kind,
             );
           }
         } else {

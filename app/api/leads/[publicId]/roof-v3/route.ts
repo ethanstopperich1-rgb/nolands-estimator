@@ -136,10 +136,11 @@ export async function POST(
         if (up.error) {
           console.error("[roof-v3] painted upload failed:", up.error.message);
         } else {
-          const { data: pub } = supabase.storage
-            .from("painted-roofs")
-            .getPublicUrl(objectKey);
-          paintedUrl = pub.publicUrl;
+          // Shared helper — parity with /api/leads + /api/gemini-roof.
+          // See lib/painted-url.ts for the invariant.
+          const { mintPaintedUrl } = await import("@/lib/painted-url");
+          const minted = await mintPaintedUrl(supabase, publicId);
+          paintedUrl = minted.url;
         }
       } catch (e) {
         console.error("[roof-v3] painted upload threw:", e);

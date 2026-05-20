@@ -22,6 +22,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.venv-intel/
 venv/
 *.egg-info/
 
@@ -44,6 +45,13 @@ scripts/eval-truth/*.json
 # addresses; per-engineer / per-deployment data. In production these go
 # to Vercel Blob, not the filesystem.
 scripts/eval-truth/edits/
+
+# Contractor intel pipeline artifacts (DBPR bulk + exports)
+data/contractor-intel/
+output/instantly_fl_roofing_*.csv
+output/review_fl_roofing_*.csv
+output/contractor_prospects_*.csv
+output/contractor_seed_*.csv
 
 # Throwaway diagnostic scripts from one-off bug hunts.
 scripts/debug-*

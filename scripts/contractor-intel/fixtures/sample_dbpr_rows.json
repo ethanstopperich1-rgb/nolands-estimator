@@ -1,0 +1,25 @@
+[
+  {
+    "board_number": "06",
+    "occupation_code": "0603",
+    "licensee_name": "SMITH, JOHN",
+    "dba_name": "SMITH ROOFING LLC",
+    "class_code": "CCC",
+    "address_line1": "123 MAIN ST",
+    "address_line2": "",
+    "address_line3": "",
+    "city": "ORLANDO",
+    "state": "FL",
+    "zip": "32801",
+    "county_code": "047",
+    "license_number": "CCC1234567",
+    "primary_status": "CURRENT",
+    "secondary_status": "",
+    "original_license_date": "01/15/2010",
+    "effective_date": "01/15/2024",
+    "expiration_date": "08/31/2026",
+    "blank": "",
+    "renewal_period": "",
+    "alternate_license": ""
+  }
+]

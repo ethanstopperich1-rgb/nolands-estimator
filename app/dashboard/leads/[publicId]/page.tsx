@@ -24,52 +24,42 @@ import {
   createServiceRoleClient,
   supabaseServiceRoleConfigured,
 } from "@/lib/supabase";
+import { resolvePaintedUrl } from "@/lib/painted-url";
 import LeadReport from "@/components/dashboard/LeadReport";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /**
- * Re-mint the painted-roof signed URL on every page load.
+ * Re-mint the painted URL on every page load via the shared helper
+ * at `lib/painted-url.ts`. The customer share page `/r/[publicId]`,
+ * the rep dashboard, and every other read surface go through the
+ * SAME helper so they all produce the same URL shape for the same
+ * lead — the parity invariant.
  *
- * `painted-roofs` is a private Supabase Storage bucket (since the
- * 2026-05 PII migration). The original signed URL written into
- * `roof_v3_json.painted_url` is good for 7 days; after that the
- * report page would show "Painted overlay unavailable" even though
- * the PNG itself still lives in Storage.
+ * The DB row's `roof_v3_json.painted_url` stays as-is; the in-memory
+ * Lead handed to LeadReport carries the freshly-minted URL.
  *
- * Solution: every time we serve the report, ask Storage for a fresh
- * 7-day signed URL keyed to `${publicId}.png`. If the object doesn't
- * exist, the Storage API returns an error and we leave painted_url
- * untouched — the LeadReport falls through to the regenerate CTA.
- *
- * Cost is one Storage API call per page load. Worth it: reps stop
- * having to click 'Regenerate' just because a URL aged out.
+ * Cost: one Storage API call per page load. Reads do NOT trigger V3
+ * pipeline runs — those are explicitly gated by the "Generate roof
+ * analysis" button.
  */
 async function refreshPaintedUrl(
   lead: Lead,
 ): Promise<Lead> {
   if (!supabaseServiceRoleConfigured()) return lead;
-  const v3 = lead.roof_v3_json as Record<string, unknown> | null;
-  if (!v3) return lead;
-  // V3 ran at some point — we have measurements but maybe a stale URL.
-  // Worth probing Storage for the object.
-  try {
-    const supabase = createServiceRoleClient();
-    const objectKey = `${lead.public_id}.png`;
-    const { data, error } = await supabase.storage
-      .from("painted-roofs")
-      .createSignedUrl(objectKey, 60 * 60 * 24 * 7);
-    if (error || !data?.signedUrl) return lead;
-    // Mutate the in-memory roof_v3_json copy so the client sees the
-    // fresh URL. The DB row stays as-is; next page load re-mints.
-    return {
-      ...lead,
-      roof_v3_json: { ...v3, painted_url: data.signedUrl },
-    } as Lead;
-  } catch {
-    return lead;
-  }
+  const supabase = createServiceRoleClient();
+  const minted = await resolvePaintedUrl(
+    supabase,
+    lead.public_id,
+    lead.roof_v3_json,
+  );
+  if (!minted.url) return lead;
+  const v3 = (lead.roof_v3_json ?? {}) as Record<string, unknown>;
+  return {
+    ...lead,
+    roof_v3_json: { ...v3, painted_url: minted.url },
+  } as Lead;
 }
 
 async function loadLead(publicId: string): Promise<Lead | null> {

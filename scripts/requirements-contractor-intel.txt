@@ -1,0 +1,14 @@
+# scripts/contractor-intel — FL roofing contractor outbound pipeline
+#
+# CloakBrowser: stealth Chromium for DBPR bulk download (403 on curl) and
+# contractor sites behind Cloudflare. PyPI package wraps github.com/CloakHQ/CloakBrowser
+# Binary ~200MB on first run → ~/.cache/cloakbrowser/
+#
+# Optional: install from source
+#   pip install git+https://github.com/CloakHQ/CloakBrowser.git
+cloakbrowser>=0.3.28
+httpx>=0.27.0
+beautifulsoup4>=4.12.0
+psycopg[binary]>=3.1.18
+python-dateutil>=2.8.2
+dnspython>=2.6.0

@@ -31,6 +31,7 @@ import {
   type OfficeBranding,
 } from "@/lib/supabase";
 import { buildHomeownerShareUrl } from "@/lib/share-url";
+import { resolvePaintedUrl } from "@/lib/painted-url";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -92,8 +93,18 @@ async function loadSharedReport(publicId: string): Promise<SharedReport | null> 
   // estimates may predate fields like `painted_url` or
   // `geminiAnalysis.condition_hints`.
   const v3 = (lead.roof_v3_json ?? {}) as Record<string, unknown>;
-  const paintedUrl =
-    typeof v3.painted_url === "string" ? (v3.painted_url as string) : null;
+
+  // Re-mint the painted URL on every render via the shared helper.
+  // Surviving the bucket flipping public→private + signed-URL TTL
+  // expiry. Reads NEVER trigger a V3 pipeline run — if the bytes
+  // don't exist, we render the empty-state. See lib/painted-url.ts
+  // for the parity invariant.
+  const paintedMint = await resolvePaintedUrl(
+    sb,
+    lead.public_id,
+    lead.roof_v3_json,
+  );
+  const paintedUrl = paintedMint.url;
 
   const generatedAt =
     typeof v3.generated_at === "string"

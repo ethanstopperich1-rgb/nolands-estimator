@@ -492,6 +492,118 @@ export type Database = {
         }
         Relationships: []
       }
+      // migrations/0006_contractor_prospects.sql — regenerate via Supabase MCP after apply
+      contractor_prospects: {
+        Row: {
+          license_number: string
+          board_number: string | null
+          occupation_code: string | null
+          licensee_name: string | null
+          dba_name: string | null
+          class_code: string | null
+          address_line1: string | null
+          address_line2: string | null
+          address_line3: string | null
+          city: string | null
+          state: string | null
+          zip: string | null
+          county_code: string | null
+          county_name: string | null
+          license_status: string | null
+          secondary_status: string | null
+          original_license_date: string | null
+          expiration_date: string | null
+          website: string | null
+          domain: string | null
+          contact_first_name: string | null
+          contact_last_name: string | null
+          contact_title: string | null
+          email: string | null
+          email_confidence: string | null
+          phone: string | null
+          lead_score: number
+          signals: Json
+          enrichment_status: string
+          exclude_reason: string | null
+          last_scraped_at: string | null
+          instantly_exported_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          license_number: string
+          board_number?: string | null
+          occupation_code?: string | null
+          licensee_name?: string | null
+          dba_name?: string | null
+          class_code?: string | null
+          address_line1?: string | null
+          address_line2?: string | null
+          address_line3?: string | null
+          city?: string | null
+          state?: string | null
+          zip?: string | null
+          county_code?: string | null
+          county_name?: string | null
+          license_status?: string | null
+          secondary_status?: string | null
+          original_license_date?: string | null
+          expiration_date?: string | null
+          website?: string | null
+          domain?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
+          contact_title?: string | null
+          email?: string | null
+          email_confidence?: string | null
+          phone?: string | null
+          lead_score?: number
+          signals?: Json
+          enrichment_status?: string
+          exclude_reason?: string | null
+          last_scraped_at?: string | null
+          instantly_exported_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          license_number?: string
+          board_number?: string | null
+          occupation_code?: string | null
+          licensee_name?: string | null
+          dba_name?: string | null
+          class_code?: string | null
+          address_line1?: string | null
+          address_line2?: string | null
+          address_line3?: string | null
+          city?: string | null
+          state?: string | null
+          zip?: string | null
+          county_code?: string | null
+          county_name?: string | null
+          license_status?: string | null
+          secondary_status?: string | null
+          original_license_date?: string | null
+          expiration_date?: string | null
+          website?: string | null
+          domain?: string | null
+          contact_first_name?: string | null
+          contact_last_name?: string | null
+          contact_title?: string | null
+          email?: string | null
+          email_confidence?: string | null
+          phone?: string | null
+          lead_score?: number
+          signals?: Json
+          enrichment_status?: string
+          exclude_reason?: string | null
+          last_scraped_at?: string | null
+          instantly_exported_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

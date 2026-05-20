@@ -12,7 +12,12 @@
     "typecheck": "tsc --noEmit",
     "eval:truth": "npx tsx scripts/eval-truth.ts",
     "ingest:mrms": "python3 scripts/ingest_mrms.py",
-    "e2e:dashboard": "npx tsx scripts/e2e-dashboard.ts"
+    "e2e:dashboard": "npx tsx scripts/e2e-dashboard.ts",
+    "intel:pipeline": "PYTHONPATH=scripts/contractor-intel python3 scripts/contractor-intel/run_pipeline.py",
+    "intel:pipeline:apollo": "PYTHONPATH=scripts/contractor-intel python3 scripts/contractor-intel/run_pipeline.py --enrich apollo",
+    "intel:pipeline:free": "PYTHONPATH=scripts/contractor-intel python3 scripts/contractor-intel/run_pipeline.py --enrich free --fast",
+    "intel:export": "PYTHONPATH=scripts/contractor-intel python3 scripts/contractor-intel/export_instantly.py --top 200 --input output/contractor_prospects_latest.csv",
+    "intel:dbpr": "PYTHONPATH=scripts/contractor-intel python3 scripts/contractor-intel/dbpr_fetch.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
