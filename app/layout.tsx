@@ -107,7 +107,7 @@ const metadataBase = process.env.NEXT_PUBLIC_SITE_ORIGIN
     ? new URL(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
     : process.env.VERCEL_URL
       ? new URL(`https://${process.env.VERCEL_URL}`)
-      : new URL("https://pitch.voxaris.io");
+      : new URL("https://estimate.nolandsroofing.com");
 
 // Root-level metadata is the homeowner-facing copy because `/` is the
 // customer surface and shared links (Slack, iMessage, X previews) pull

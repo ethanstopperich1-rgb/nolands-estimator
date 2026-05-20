@@ -850,6 +850,29 @@ function HeroScreen({
               {t("hero.subhead.close", lang)}
             </span>
           </p>
+
+          {/* Trust credential strip — mirrors the primary trust anchors from
+              nolandsroofing.com (the "25+ years" and "CertainTeed Triple
+              Crown Champion" signals that close roofing sales on the main
+              site). Keeps the estimator feeling like one product, not two.
+              Deliberately small + muted so it doesn't compete with the H1. */}
+          <div
+            className="rise flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-7"
+            data-d="3"
+            style={{
+              fontSize: "10px",
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              color: "var(--vx-ink-soft)",
+            }}
+          >
+            <span>25+ Years in Florida</span>
+            <span aria-hidden="true" style={{ opacity: 0.3 }}>·</span>
+            <span>CertainTeed Triple Crown Champion</span>
+            <span aria-hidden="true" style={{ opacity: 0.3 }}>·</span>
+            <span>Licensed General Contractor</span>
+          </div>
         </div>
 
         {/* Form */}
