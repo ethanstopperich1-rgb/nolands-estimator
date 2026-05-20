@@ -49,13 +49,20 @@ export function Wordmark({
     <span
       className={className}
       style={{
+        // Poppins Black (900) matches the actual NOLAND'S ROOFING logo
+        // on nolandsroofing.com — confirmed geometric circular O,
+        // spurless G, high-crossbar A. Verified May 2026.
         fontFamily:
-          '"Anton", "Bebas Neue", "Arial Narrow", "Impact", Arial, sans-serif',
+          'var(--font-poppins-noland), "Poppins", Impact, "Arial Narrow", Arial, sans-serif',
         fontWeight: 900,
         fontSize: `${px}px`,
         lineHeight: 1,
-        letterSpacing: "0.04em",
-        // Metallic gradient via CSS background-clip trick
+        letterSpacing: "-0.01em",
+        // Metallic gradient via CSS background-clip trick. Door-hangers
+        // use a metallic silver wordmark; the main site uses an orange
+        // version. We render silver by default to differentiate this
+        // surface (premium AI estimator) from the orange-on-photo main
+        // site without breaking brand recognition.
         background: METALLIC_GRADIENT,
         WebkitBackgroundClip: "text",
         WebkitTextFillColor: "transparent",

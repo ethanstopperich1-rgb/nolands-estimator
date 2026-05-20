@@ -73,6 +73,32 @@
   --color-noland-medal:        #C5A87B;   /* "#1 Choice" seal accent */
   --color-noland-storm:        #1A1F2B;   /* storm-sky photo overlays */
   --color-noland-lightning:    #B8E0FF;   /* lightning blue-white accent */
+
+  /* ── Secondary brand colors observed live on nolandsroofing.com ────
+   * Pulled from the Elementor kit's --e-global-color-* tokens. Keep
+   * these in sync with the actual main-site CSS so any UI Noland's
+   * reps see is consistent across estimator + main site.
+   */
+  --color-noland-text-primary:   #252525;   /* main-site body H1/H2 ink */
+  --color-noland-text-secondary: #54595F;   /* main-site sub-heading */
+  --color-noland-text-body:      #7B7B7B;   /* main-site paragraph */
+  --color-noland-button-red:     #AF0738;   /* main-site primary button bg */
+  --color-noland-accent-red:     #A61E36;   /* main-site logo deep-red */
+  --color-noland-orange-link:    #D44B1C;   /* main-site link color, near fire */
+  --color-noland-surface-100:    #F7F7F7;   /* light surface tint */
+  --color-noland-surface-200:    #F0F0F0;   /* slightly deeper surface tint */
+
+  /* ── Noland's typography stack ────────────────────────────────────
+   * Matches nolandsroofing.com:
+   *   primary  → Roboto 600/700 (headings)
+   *   body     → Inter (≈ Helvetica, body)
+   *   display  → Poppins 900 (wordmark + display H1)
+   * Use `font-noland-primary` / `font-noland-body` / `font-noland-display`
+   * utilities in JSX.
+   */
+  --font-noland-primary: var(--font-roboto-noland), system-ui, sans-serif;
+  --font-noland-body:    var(--font-inter-noland), system-ui, sans-serif;
+  --font-noland-display: var(--font-poppins-noland), Impact, "Arial Narrow", sans-serif;
 }
 
 /* ─── Base ────────────────────────────────────────────────────────────── */

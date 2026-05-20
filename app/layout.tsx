@@ -7,6 +7,9 @@ import {
   Space_Mono,
   Cormorant_Garamond,
   Hanken_Grotesk,
+  Roboto,
+  Inter,
+  Poppins,
 } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
@@ -66,6 +69,41 @@ const hanken = Hanken_Grotesk({
   variable: "--font-hanken",
   display: "swap",
   weight: ["300", "400", "500", "600", "700"],
+});
+
+// ── Noland's Roofing brand fonts (locked May 2026) ────────────────────
+//
+// Sourced from the live nolandsroofing.com Elementor kit:
+//   --e-global-typography-primary-font-family: "Roboto" (600/700 headings)
+//   --e-global-typography-text-font-family:    "Helvetica" (body, no webfont → use Inter)
+//
+// The orange NOLAND'S ROOFING wordmark PNG renders in a heavy
+// geometric sans (Montserrat Black / Poppins Black equivalent). We use
+// Poppins 900 because it's the closest Google Fonts match to the
+// rendered logo letterforms (geometric circular O, spurless G,
+// high-crossbar A).
+//
+// metric-fallback: Inter is metric-compatible with Arial/Helvetica
+// (the visitor-side fallback on Windows). Roboto and Poppins use
+// next/font's adjustFontFallback (auto) — both have well-defined
+// CSS metrics.
+const robotoNoland = Roboto({
+  subsets: ["latin"],
+  variable: "--font-roboto-noland",
+  display: "swap",
+  weight: ["400", "500", "700", "900"],
+});
+const interNoland = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter-noland",
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+});
+const poppinsNoland = Poppins({
+  subsets: ["latin"],
+  variable: "--font-poppins-noland",
+  display: "swap",
+  weight: ["700", "800", "900"],
 });
 
 // Self-hosted brand fonts via next/font/local. The critical difference vs
@@ -157,7 +195,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable} ${dragonEF.variable} ${ambit.variable}`}
+      className={`dark ${geist.variable} ${geistMono.variable} ${bricolage.variable} ${spaceGrotesk.variable} ${spaceMono.variable} ${cormorant.variable} ${hanken.variable} ${dragonEF.variable} ${ambit.variable} ${robotoNoland.variable} ${interNoland.variable} ${poppinsNoland.variable}`}
     >
       <head>
         <script
