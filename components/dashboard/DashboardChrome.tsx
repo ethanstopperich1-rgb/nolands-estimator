@@ -134,7 +134,7 @@ export default function DashboardChrome({
     <div className="relative min-h-screen flex flex-col lg:flex-row">
       {/* Mobile top bar */}
       <div className="lg:hidden sticky top-0 z-30 px-4 py-3 flex items-center justify-between border-b border-white/[0.06] bg-[rgba(8,11,17,0.72)] backdrop-blur-xl">
-        <Link href={basePath} className="flex items-center" aria-label="voxaris — home">
+        <Link href={basePath} className="flex items-center" aria-label="Noland's Roofing — home">
           <Wordmark size="sm" tone="ink" />
         </Link>
         <button
