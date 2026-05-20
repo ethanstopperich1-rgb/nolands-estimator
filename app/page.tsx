@@ -25,6 +25,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LanguageToggle, useLanguage } from "@/components/LanguageToggle";
+import { t } from "@/lib/i18n";
 import { BRAND_CONFIG } from "@/lib/branding";
 import { buildMarketingConsentText } from "@/lib/tcpa-consent";
 import Link from "next/link";
@@ -346,6 +348,11 @@ export default function HomePage() {
 }
 
 function VoxarisFlow() {
+  // EN ↔ ES toggle state. The hook reads URL ?lang= + cookie on
+  // mount so SSR and first-paint match. Pass `lang` into both
+  // /api/leads POST bodies so the server persists preferred_language
+  // on the lead row and sends the right-language confirmation SMS.
+  const [lang, setLang] = useLanguage();
   const [step, setStep] = useState<Step>("hero");
   const [resolved, setResolved] = useState<AddressResolved | null>(null);
   const [pinLat, setPinLat] = useState<number | null>(null);
@@ -487,6 +494,8 @@ function VoxarisFlow() {
     <>
       {step === "hero" && (
         <HeroScreen
+          lang={lang}
+          setLang={setLang}
           onAddressResolved={(addr, leadId, capturePayload) => {
             setResolved(addr);
             setLeadPublicId(leadId ?? null);
@@ -556,16 +565,31 @@ export interface LeadCapturePayload {
   lat: number;
   lng: number;
   officeSlug: string;
+  /** Bilingual journey — carried through the retry path so a Spanish
+   *  homeowner who hit a BotID false-positive on first submit still
+   *  gets the Spanish confirmation SMS on retry. */
+  preferredLanguage?: "en" | "es";
 }
 
 function HeroScreen({
   onAddressResolved,
+  lang,
+  setLang,
 }: {
   onAddressResolved: (
     addr: AddressResolved,
     leadId: string | null,
     capturePayload: LeadCapturePayload,
   ) => void;
+  /** Current EN/ES preference from the parent VoxarisFlow. Forwarded
+   *  into /api/leads body + into the LeadCapturePayload stash so a
+   *  retry on the result page preserves the language. */
+  lang: "en" | "es";
+  /** Setter so the in-header LanguageToggle can update the parent's
+   *  state (which propagates back to HeroScreen's lang prop on next
+   *  render). Keeps lang state single-source-of-truth in
+   *  VoxarisFlow. */
+  setLang: (next: "en" | "es") => void;
 }) {
   const addrRef = useRef<HTMLInputElement>(null);
   const [resolvedAddr, setResolvedAddr] = useState<AddressResolved | null>(null);
@@ -686,6 +710,10 @@ function HeroScreen({
             office: officeSlug,
             marketingConsent: true,
             voiceConsent: false,
+            // Lang from the EN/ES toggle — persisted on the lead row
+            // so the confirmation SMS, share URL, and Sydney callback
+            // all speak the homeowner's language.
+            preferredLanguage: lang,
             recaptchaToken,
           }),
         });
@@ -709,6 +737,7 @@ function HeroScreen({
         lat: resolvedAddr.lat,
         lng: resolvedAddr.lng,
         officeSlug,
+        preferredLanguage: lang,
       });
     } finally {
       setSubmitting(false);
@@ -740,27 +769,33 @@ function HeroScreen({
                   should too. */}
               <Wordmark size="lg" tone="ink" />
             </Link>
-            <Link
-              href="/login"
-              className="leading-none inline-flex items-center gap-2 transition-colors"
-              style={{
-                fontFamily: "var(--vx-font-ui)",
-                fontWeight: 600,
-                fontSize: "11px",
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "var(--vx-ink-soft)",
-                padding: "8px 14px",
-                border: "1px solid var(--vx-rule)",
-                borderRadius: 0,
-              }}
-              aria-label="Rep login"
-            >
-              Login
-              <span aria-hidden="true" style={{ fontWeight: 400 }}>
-                →
-              </span>
-            </Link>
+            <div className="flex items-center gap-3">
+              {/* EN ↔ ES toggle — customer-facing only, persists via
+                  cookie + URL so server-rendered surfaces (share URL,
+                  /api/leads SMS body) see the same preference. */}
+              <LanguageToggle value={lang} onChange={setLang} />
+              <Link
+                href="/login"
+                className="leading-none inline-flex items-center gap-2 transition-colors"
+                style={{
+                  fontFamily: "var(--vx-font-ui)",
+                  fontWeight: 600,
+                  fontSize: "11px",
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  color: "var(--vx-ink-soft)",
+                  padding: "8px 14px",
+                  border: "1px solid var(--vx-rule)",
+                  borderRadius: 0,
+                }}
+                aria-label="Rep login"
+              >
+                Login
+                <span aria-hidden="true" style={{ fontWeight: 400 }}>
+                  →
+                </span>
+              </Link>
+            </div>
           </div>
         </header>
 
@@ -778,7 +813,7 @@ function HeroScreen({
             data-d="1"
             style={{ color: "var(--vx-terra)" }}
           >
-            Price · in as little as 30 seconds
+            {t("hero.eyebrow", lang)}
           </div>
           <h1
             className="rise font-serif tracking-tight mx-auto"
@@ -1531,6 +1566,8 @@ function ResultScreen({
           office: pendingLeadCapture.officeSlug,
           marketingConsent: true,
           voiceConsent: false,
+          // Preserve the EN/ES choice from the original hero submit.
+          preferredLanguage: pendingLeadCapture.preferredLanguage ?? "en",
         }),
       });
       if (!res.ok) {
