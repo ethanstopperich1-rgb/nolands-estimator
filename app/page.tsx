@@ -3315,8 +3315,13 @@ function PinHeader({ onBack }: { onBack?: () => void } = {}) {
 
 function VoxarisFooter() {
   // Dark-variant footer — Noland's brand on this fork.
+  // Uses explicit noland tokens (not vx-ink/vx-paper) because the
+  // token re-mapping inverted those: vx-ink is now silver-light
+  // (text color) and vx-paper is now black-soft (surface). Using
+  // the explicit tokens here guarantees the footer stays dark
+  // regardless of future token shifts.
   return (
-    <footer className="relative z-10" style={{ background: "var(--vx-ink)", color: "var(--vx-paper)" }}>
+    <footer className="relative z-10" style={{ background: "var(--color-noland-black)", color: "var(--color-noland-silver-light)" }}>
       <div className="max-w-7xl mx-auto px-6 lg:px-10 py-16 lg:py-20">
         <div className="grid lg:grid-cols-12 gap-12 items-start">
           <div className="lg:col-span-6">

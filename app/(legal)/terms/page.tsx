@@ -5,9 +5,9 @@ import {
 } from "@/lib/seo/structured-data";
 
 export const metadata: Metadata = {
-  title: "Terms of Service · Voxaris",
+  title: "Terms of Service · Noland's Roofing",
   description:
-    "Terms governing use of the Voxaris roofing-estimate platform, including the marketing-text-message and automated-voice-call programs.",
+    "Terms governing use of the Noland's Roofing online roofing-estimate platform, including the marketing-text-message and automated-voice-call programs.",
   robots: { index: true, follow: true },
 };
 
@@ -36,9 +36,9 @@ export default function TermsPage() {
       <section>
         <h2>Acceptance</h2>
         <p>
-          By using the Voxaris roofing-estimate platform — including
-          submitting an estimate request at pitch.voxaris.io or on a
-          partner-contractor subdomain — you agree to these Terms and to
+          By using the Noland&apos;s Roofing online roofing-estimate
+          platform — including submitting an estimate request at
+          estimate.nolandsroofing.com — you agree to these Terms and to
           our <a href="/privacy">Privacy Policy</a>. If you do not agree,
           do not submit a request.
         </p>
@@ -47,18 +47,14 @@ export default function TermsPage() {
       <section>
         <h2>What we do</h2>
         <p>
-          Voxaris is an estimating platform. We measure a roof from public
-          satellite imagery, identify likely material and condition, and
-          produce a price range. We then deliver your request to the
-          partner contractor associated with the site you visited. That
-          contractor may follow up to provide a binding quote and to
-          perform any work.{" "}
-          <strong>
-            Voxaris does not perform roofing work, employ roofing
-            contractors, or guarantee the work of partner contractors.
-          </strong>{" "}
-          The relationship for any work performed is solely between you
-          and the contractor.
+          Noland&apos;s Roofing, Inc. is a Florida-licensed general
+          contractor serving Central Florida. This online estimator
+          measures a roof from public satellite imagery, identifies
+          likely material and condition, and produces a price range.
+          After you submit a request, we follow up to provide a binding
+          quote and, if you authorize the work, to perform it. Any
+          roofing work is performed by Noland&apos;s Roofing under a
+          separate written agreement with you.
         </p>
       </section>
 
@@ -70,11 +66,11 @@ export default function TermsPage() {
           prices depend on factors the platform cannot see from above:
           deck condition, code compliance, jobsite accessibility, changes
           in material prices, and so on. A typical estimate falls within
-          roughly ten percent of a contractor&apos;s in-person quote on
-          standard residential roofs, but variance can be wider on
-          complex roofs, very large properties, or properties where the
-          satellite imagery is older. We flag stale-imagery cases when we
-          detect them.
+          roughly ten percent of our in-person quote on standard
+          residential roofs, but variance can be wider on complex roofs,
+          very large properties, or properties where the satellite
+          imagery is older. We flag stale-imagery cases when we detect
+          them.
         </p>
       </section>
 
@@ -82,15 +78,15 @@ export default function TermsPage() {
         <h2>Marketing-text-message program</h2>
         <p>
           By checking the first consent box on the estimate form, you
-          agree to receive an automated text-message intro from Voxaris
-          and the assigned partner contractor at the phone number you
-          provided, sent via Twilio or a comparable service, plus your
-          estimate by email.
+          agree to receive an automated text-message intro from
+          Noland&apos;s Roofing at the phone number you provided, sent
+          via Twilio or a comparable service, plus your estimate by
+          email.
         </p>
         <ul>
           <li>
             <strong>Program purpose:</strong> delivering your roofing
-            estimate and a brief introduction from the contractor.
+            estimate and a brief introduction from Noland&apos;s Roofing.
           </li>
           <li>
             <strong>Frequency:</strong> varies by inquiry, typically
@@ -98,8 +94,9 @@ export default function TermsPage() {
           </li>
           <li>
             <strong>Carrier charges:</strong> message and data rates may
-            apply per your wireless plan. Neither Voxaris nor your
-            carrier is responsible for delayed or undelivered messages.
+            apply per your wireless plan. Neither Noland&apos;s Roofing
+            nor your carrier is responsible for delayed or undelivered
+            messages.
           </li>
           <li>
             <strong>Opt out:</strong> reply <code>STOP</code> to any
@@ -108,7 +105,10 @@ export default function TermsPage() {
           </li>
           <li>
             <strong>Help:</strong> reply <code>HELP</code> or contact{" "}
-            <a href="mailto:support@voxaris.io">support@voxaris.io</a>.
+            <a href="mailto:info@nolandsroofing.com">
+              info@nolandsroofing.com
+            </a>
+            .
           </li>
           <li>
             <strong>Consent is not required:</strong> agreeing to receive
@@ -123,8 +123,8 @@ export default function TermsPage() {
         <h2>Automated-voice-call program</h2>
         <p>
           The second consent box is <strong>optional and separate</strong>.
-          By checking it, you authorize an automated voice-intro call from
-          the assigned partner contractor at the phone number you provided,
+          By checking it, you authorize an automated voice-intro call
+          from Noland&apos;s Roofing at the phone number you provided,
           placed within a few minutes of submission.
         </p>
         <ul>
@@ -187,12 +187,11 @@ export default function TermsPage() {
         <h2>Intellectual property</h2>
         <p>
           The platform — including the page design, the underlying code,
-          and any model output — is owned by Voxaris and protected by
-          applicable copyright and trademark law. Partner contractors may
-          use the estimate delivered to them in the course of providing
-          services to you; they do not receive a license to the platform
-          itself. Satellite imagery is provided by third parties (Google
-          Maps Platform and others) under their own terms.
+          and any model output — is the property of Noland&apos;s
+          Roofing, Inc. or its licensors and protected by applicable
+          copyright and trademark law. Satellite imagery is provided by
+          third parties (Google Maps Platform and others) under their
+          own terms.
         </p>
       </section>
 
@@ -200,26 +199,28 @@ export default function TermsPage() {
         <h2>Disclaimers</h2>
         <p className="disclaimer">
           The platform is provided &ldquo;as is&rdquo; and &ldquo;as
-          available.&rdquo; Voxaris disclaims all warranties, express or
-          implied, including merchantability, fitness for a particular
-          purpose, and non-infringement. Estimates are not binding offers
-          and do not constitute professional advice. Roofing work
-          performed by a partner contractor is governed by your direct
-          agreement with that contractor.
+          available.&rdquo; Noland&apos;s Roofing disclaims all
+          warranties, express or implied, including merchantability,
+          fitness for a particular purpose, and non-infringement.
+          Estimates are not binding offers and do not constitute
+          professional advice. Roofing work is governed by your direct
+          written agreement with Noland&apos;s Roofing.
         </p>
       </section>
 
       <section>
         <h2>Limitation of liability</h2>
         <p className="disclaimer">
-          To the maximum extent permitted by law, Voxaris&apos;s liability
-          for any claim arising out of or related to your use of the
-          platform is limited to the greater of $100 or the amounts
-          Voxaris has received from you in the prior twelve months
-          (typically zero, because the platform is free to homeowners).
-          Voxaris is not liable for any indirect, incidental, special,
-          consequential, or punitive damages, including loss of profits,
-          business, or data.
+          To the maximum extent permitted by law, Noland&apos;s
+          Roofing&apos;s liability for any claim arising out of or
+          related to your use of the platform is limited to the greater
+          of $100 or the amounts Noland&apos;s Roofing has received from
+          you for use of the platform in the prior twelve months
+          (typically zero, because the estimator is free to homeowners —
+          fees for roofing work are governed by your separate written
+          agreement). Noland&apos;s Roofing is not liable for any
+          indirect, incidental, special, consequential, or punitive
+          damages, including loss of profits, business, or data.
         </p>
       </section>
 
@@ -228,13 +229,16 @@ export default function TermsPage() {
         <p>
           These Terms are governed by the laws of the State of Florida
           without regard to its conflict-of-laws principles. Any dispute
-          will be resolved by binding arbitration in Orange County,
+          will be resolved by binding arbitration in Lake County,
           Florida, under the American Arbitration Association&apos;s
-          Consumer Arbitration Rules — except that either party may bring
-          a claim in small-claims court for eligible matters. You may opt
-          out of arbitration within thirty days of first using the
-          platform by emailing{" "}
-          <a href="mailto:legal@voxaris.io">legal@voxaris.io</a>.
+          Consumer Arbitration Rules — except that either party may
+          bring a claim in small-claims court for eligible matters. You
+          may opt out of arbitration within thirty days of first using
+          the platform by emailing{" "}
+          <a href="mailto:info@nolandsroofing.com">
+            info@nolandsroofing.com
+          </a>
+          .
         </p>
       </section>
 
@@ -252,11 +256,16 @@ export default function TermsPage() {
       <section>
         <h2>Contact</h2>
         <p>
-          Legal:{" "}
-          <a href="mailto:legal@voxaris.io">legal@voxaris.io</a>
+          Noland&apos;s Roofing, Inc.
           <br />
-          Support:{" "}
-          <a href="mailto:support@voxaris.io">support@voxaris.io</a>
+          1295 W. Hwy. 50, Clermont, FL 34711
+          <br />
+          Phone: (352) 242-4322
+          <br />
+          Email:{" "}
+          <a href="mailto:info@nolandsroofing.com">
+            info@nolandsroofing.com
+          </a>
         </p>
       </section>
     </div>

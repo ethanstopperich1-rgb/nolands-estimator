@@ -58,8 +58,10 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
       <footer
         className="relative z-10"
         style={{
-          background: "var(--vx-ink)",
-          color: "var(--vx-paper)",
+          // Explicit noland tokens (see app/page.tsx VoxarisFooter
+          // for the inversion-resistance reasoning).
+          background: "var(--color-noland-black)",
+          color: "var(--color-noland-silver-light)",
           marginTop: "64px",
         }}
       >
@@ -74,7 +76,10 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
                 className="font-serif tracking-tight"
                 style={{
                   fontSize: "24px",
-                  color: "var(--vx-cream)",
+                  // Explicit silver token: vx-cream was inverted to
+                  // black by the token re-mapping, but we want the
+                  // wordmark to read silver on the dark footer.
+                  color: "var(--color-noland-silver-light)",
                   letterSpacing: "-0.02em",
                 }}
               >

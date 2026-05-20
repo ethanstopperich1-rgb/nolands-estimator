@@ -5,9 +5,9 @@ import {
 } from "@/lib/seo/structured-data";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy · Voxaris",
+  title: "Privacy Policy · Noland's Roofing",
   description:
-    "How Voxaris collects, uses, and protects information from homeowners and partner contractors who use the Voxaris roofing-estimate platform.",
+    "How Noland's Roofing collects, uses, and protects information from homeowners who request an estimate at estimate.nolandsroofing.com.",
   robots: { index: true, follow: true },
 };
 
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 const LAST_UPDATED = "May 16, 2026";
 
 export default function PrivacyPage() {
-  // Per-subpage JSON-LD: WebPage (author = Voxaris Organization,
+  // Per-subpage JSON-LD: WebPage (author = publisher Organization,
   // mentions = hard product stats) + FAQPage (6 privacy-specific Q&As
   // mirroring the policy text) + BreadcrumbList (Home → Privacy).
   // Closes the audit findings on author info, statistics, FAQPage,
@@ -42,11 +42,13 @@ export default function PrivacyPage() {
       <section>
         <h2>Who we are</h2>
         <p>
-          Voxaris, Inc. (&ldquo;Voxaris,&rdquo; &ldquo;we,&rdquo;
-          &ldquo;us&rdquo;) operates the Voxaris roofing-estimate platform
-          at pitch.voxaris.io and on partner-contractor subdomains. This
-          policy describes what information we collect, how we use it, who
-          we share it with, and the choices you have.
+          Noland&apos;s Roofing, Inc. (&ldquo;Noland&apos;s Roofing,&rdquo;
+          &ldquo;we,&rdquo; &ldquo;us&rdquo;) is a Florida-licensed
+          general contractor headquartered at 1295 W. Hwy. 50, Clermont,
+          FL 34711. We operate the roofing-estimate platform at
+          estimate.nolandsroofing.com. This policy describes what
+          information we collect, how we use it, who we share it with,
+          and the choices you have.
         </p>
       </section>
 
@@ -91,19 +93,18 @@ export default function PrivacyPage() {
             condition, and produce a price range.
           </li>
           <li>
-            Deliver the estimate to you and to the partner contractor
-            associated with the site you visited.
+            Deliver the estimate to you and route it to our roofing team
+            for follow-up.
           </li>
           <li>
             Send you the communications you consented to — the estimate
-            itself, a brief text-message intro from the contractor, and,
-            only if you separately opted in, an automated voice-intro
-            call.
+            itself, a brief text-message intro from Noland&apos;s
+            Roofing, and, only if you separately opted in, an automated
+            voice-intro call.
           </li>
           <li>
             Operate and improve the platform, including measuring how
-            closely an estimate matches the contractor&apos;s in-person
-            quote.
+            closely an estimate matches our in-person quote.
           </li>
           <li>
             Detect and prevent fraud, abuse, and unauthorized access —
@@ -116,11 +117,9 @@ export default function PrivacyPage() {
       <section>
         <h2>Who we share with</h2>
         <p>
-          The partner contractor associated with the site you visited —
-          and only that contractor — receives your estimate request and
-          contact information. We do not sell or rent your data to
-          third-party marketing lists. We use a limited set of service
-          providers strictly to operate the platform:
+          We do not sell or rent your data to third-party marketing
+          lists. We use a limited set of service providers strictly to
+          operate the platform:
         </p>
         <ul>
           <li>
@@ -128,10 +127,10 @@ export default function PrivacyPage() {
             application runs and where your record is stored.
           </li>
           <li>
-            Communications providers (Twilio for SMS; the partner
-            contractor&apos;s voice infrastructure for the optional
-            outbound voice call) — only when you have granted the
-            corresponding consent.
+            Communications providers (Twilio for SMS; LiveKit and
+            associated voice infrastructure for the optional outbound
+            voice call) — only when you have granted the corresponding
+            consent.
           </li>
           <li>
             Mapping and imagery (Google Maps Platform) — to resolve your
@@ -154,14 +153,14 @@ export default function PrivacyPage() {
         <h2>Marketing-text-message program</h2>
         <p>
           By checking the first consent box on the estimate form, you
-          agree to receive an automated text-message intro from your
-          assigned partner contractor at the phone number you provided,
-          sent via Twilio, plus your estimate by email.
+          agree to receive an automated text-message intro from
+          Noland&apos;s Roofing at the phone number you provided, sent
+          via Twilio, plus your estimate by email.
         </p>
         <ul>
           <li>
             <strong>Program purpose:</strong> delivering your roofing
-            estimate and a brief introduction from the contractor.
+            estimate and a brief introduction from Noland&apos;s Roofing.
           </li>
           <li>
             <strong>Frequency:</strong> varies by inquiry, typically
@@ -178,7 +177,10 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Help:</strong> reply <code>HELP</code> or email{" "}
-            <a href="mailto:support@voxaris.io">support@voxaris.io</a>.
+            <a href="mailto:info@nolandsroofing.com">
+              info@nolandsroofing.com
+            </a>
+            .
           </li>
           <li>
             <strong>Consent is not required:</strong> agreeing to receive
@@ -191,9 +193,9 @@ export default function PrivacyPage() {
         <h2>Automated-voice-call program</h2>
         <p>
           The second consent box is <strong>optional and separate</strong>.
-          By checking it, you authorize an automated voice-intro call from
-          your assigned partner contractor at the phone number you
-          provided, placed within a few minutes of submission.
+          By checking it, you authorize an automated voice-intro call
+          from Noland&apos;s Roofing at the phone number you provided,
+          placed within a few minutes of submission.
         </p>
         <ul>
           <li>
@@ -238,11 +240,13 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Opt out of email:</strong> use the unsubscribe link
-            in any marketing email, or contact support.
+            in any marketing email, or contact us.
           </li>
           <li>
             <strong>Access, correct, delete:</strong> email{" "}
-            <a href="mailto:privacy@voxaris.io">privacy@voxaris.io</a>{" "}
+            <a href="mailto:info@nolandsroofing.com">
+              info@nolandsroofing.com
+            </a>{" "}
             from the address on file with a copy, correction, or
             deletion request. We respond within thirty days.
           </li>
@@ -261,11 +265,11 @@ export default function PrivacyPage() {
       <section>
         <h2>Data retention</h2>
         <p>
-          We retain your inquiry and consent record for as long as the
-          partner contractor is actively engaged with your estimate, plus
-          seven years for legal-compliance and dispute-resolution purposes
-          (TCPA cases have long statutes of limitation). After that,
-          records are deleted or anonymized.
+          We retain your inquiry and consent record for as long as we are
+          actively engaged with your estimate, plus seven years for
+          legal-compliance and dispute-resolution purposes (TCPA cases
+          have long statutes of limitation). After that, records are
+          deleted or anonymized.
         </p>
       </section>
 
@@ -273,9 +277,9 @@ export default function PrivacyPage() {
         <h2>Security</h2>
         <p>
           Records are encrypted in transit (TLS) and at rest. Access is
-          restricted to operations staff and the assigned contractor. We
-          do not store payment-card data — billing for partner contractors
-          is handled by a PCI-compliant payment processor.
+          restricted to authorized Noland&apos;s Roofing staff. We do not
+          store payment-card data — any billing is handled by a
+          PCI-compliant payment processor.
         </p>
       </section>
 
@@ -302,11 +306,16 @@ export default function PrivacyPage() {
       <section>
         <h2>Contact</h2>
         <p>
-          Privacy questions:{" "}
-          <a href="mailto:privacy@voxaris.io">privacy@voxaris.io</a>
+          Noland&apos;s Roofing, Inc.
           <br />
-          General support:{" "}
-          <a href="mailto:support@voxaris.io">support@voxaris.io</a>
+          1295 W. Hwy. 50, Clermont, FL 34711
+          <br />
+          Phone: (352) 242-4322
+          <br />
+          Email:{" "}
+          <a href="mailto:info@nolandsroofing.com">
+            info@nolandsroofing.com
+          </a>
         </p>
       </section>
     </div>
