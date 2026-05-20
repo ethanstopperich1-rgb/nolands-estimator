@@ -172,6 +172,7 @@ export type Database = {
           name: string
           notes: string | null
           office_id: string
+          parent_lead_id: string | null
           phone: string | null
           public_id: string
           roof_v3_json: Json | null
@@ -201,6 +202,7 @@ export type Database = {
           name: string
           notes?: string | null
           office_id: string
+          parent_lead_id?: string | null
           phone?: string | null
           public_id: string
           roof_v3_json?: Json | null
@@ -230,6 +232,7 @@ export type Database = {
           name?: string
           notes?: string | null
           office_id?: string
+          parent_lead_id?: string | null
           phone?: string | null
           public_id?: string
           roof_v3_json?: Json | null

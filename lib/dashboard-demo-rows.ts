@@ -308,6 +308,9 @@ export function getDemoLeads(slug: DemoOfficeSlug): Lead[] {
         // V3 roof payload — demo rows are pre-V3, leave null. Real
         // leads from /estimate carry painted_url + sqft + edges.
         roof_v3_json: null,
+        // Dedup linkage (migration 0008). Demo rows are canonical
+        // first submissions, never dupes.
+        parent_lead_id: null,
         created_at: createdAt,
         updated_at: createdAt,
       };

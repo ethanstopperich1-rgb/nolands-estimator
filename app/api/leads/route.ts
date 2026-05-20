@@ -235,6 +235,15 @@ export async function POST(req: Request) {
   const officeSlug = rawOfficeSlug;
 
   let leadId = `lead_${crypto.randomUUID().replace(/-/g, "")}`;
+  // Dedup linkage. When a homeowner submits multiple times within
+  // the dedup window (30d, same office_id, matched on phone OR
+  // email), the new row's parent_lead_id points at the canonical
+  // first submission. We then SUPPRESS all downstream side effects
+  // (SMS confirm, rep alert, Sydney dispatch, lead webhook) — those
+  // already fired on the parent. We also REUSE the parent's painted
+  // overlay so we never burn a second Gemini Pro Image call for the
+  // same roof. See lib/leads/dedup.ts for matching rules.
+  let dedupMatch: import("@/lib/leads/dedup").DuplicateMatch | null = null;
   let isLeadUpdate = false;
 
   if (supabaseServiceRoleConfigured() && isValidLeadPublicId(body.existingLeadPublicId)) {
@@ -285,6 +294,29 @@ export async function POST(req: Request) {
         console.warn(`[leads] no active office for slug='${officeSlug}' at insert time — lead drop`);
       } else {
         const supabase = createServiceRoleClient();
+
+        // ─── Dedup probe ───────────────────────────────────────────
+        // Only check on fresh inserts. Lead UPDATES are by definition
+        // the same lead row (final submit of a multi-step wizard).
+        if (!isLeadUpdate) {
+          const { findDuplicateLead } = await import("@/lib/leads/dedup");
+          dedupMatch = await findDuplicateLead({
+            supabase,
+            officeId,
+            phone: body.phone,
+            email: emailNorm,
+          });
+          if (dedupMatch) {
+            console.log(
+              "[leads] duplicate detected — linking + suppressing notifications",
+              {
+                newPublicId: leadId,
+                parentPublicId: dedupMatch.parentPublicId,
+                matchedOn: dedupMatch.matchedOn,
+              },
+            );
+          }
+        }
 
         // ─── V3 painted-image upload ───────────────────────────────
         // If the caller (today: /estimate) sent a Gemini V3 roof
@@ -346,6 +378,24 @@ export async function POST(req: Request) {
           } as import("@/types/supabase").Json;
         }
 
+        // ─── Dedup photo reuse ─────────────────────────────────────
+        // If this is a duplicate of an existing lead, ignore the
+        // freshly-uploaded V3 payload (if any) and reuse the parent's
+        // persisted roof_v3_json instead. Two wins:
+        //   1. Painted overlay matches what the homeowner already saw
+        //      on the parent submission — true parity (per the
+        //      painted-overlay parity invariant in AGENTS.md)
+        //   2. Zero Gemini cost — the upload above already happened
+        //      and was uploaded to Storage under the NEW lead's
+        //      objectKey, but Storage will see it as a wasted write
+        //      and the new row points at the SAME bytes via the
+        //      mintPaintedUrl helper. (Future optimization: dedup
+        //      at upload time too. For now the savings is in not
+        //      re-running the V3 pipeline, which costs ~$0.08/call.)
+        if (dedupMatch && dedupMatch.parentRoofV3Json) {
+          roofV3Json = dedupMatch.parentRoofV3Json as import("@/types/supabase").Json;
+        }
+
         const row = {
           name: body.name.trim(),
           email: emailNorm,
@@ -365,6 +415,13 @@ export async function POST(req: Request) {
           tcpa_consent_at: submittedAt,
           tcpa_consent_text: marketingConsentText,
           ...(roofV3Json ? { roof_v3_json: roofV3Json } : {}),
+          // Dedup linkage — null on canonical first submissions, set
+          // on subsequent dupes within the dedup window. Migration
+          // 0008_lead_dedup adds this column; if the migration hasn't
+          // been applied yet, Supabase will reject the insert and the
+          // catch block above will log it. After that, dedup degrades
+          // gracefully via lib/leads/dedup.ts.
+          ...(dedupMatch ? { parent_lead_id: dedupMatch.parentId } : {}),
         };
 
         if (isLeadUpdate) {
@@ -604,7 +661,7 @@ export async function POST(req: Request) {
   // number directly we have context.
   const customerSmsDisabled =
     (process.env.CUSTOMER_SMS_DISABLED ?? "").toLowerCase() === "true";
-  if (phoneE164 && twilioConfigured() && !isLeadUpdate && !customerSmsDisabled) {
+  if (phoneE164 && twilioConfigured() && !isLeadUpdate && !customerSmsDisabled && !dedupMatch) {
     const estimateLine =
       body.estimateLow && body.estimateHigh
         ? `Your estimate range: $${body.estimateLow.toLocaleString()}-$${body.estimateHigh.toLocaleString()}. `
@@ -697,9 +754,12 @@ export async function POST(req: Request) {
   // path; never blocks the lead capture response. Independent of the
   // TCPA voice-consent gate because this is an INTERNAL operator
   // notification, not consumer marketing.
+  // Suppress on dupes — the parent submission already pinged the rep
+  // + fired the lead webhook. Re-pinging on every dupe trains reps to
+  // ignore the alerts entirely.
   const hasEstimateForNotify =
     typeof body.estimateLow === "number" && typeof body.estimateHigh === "number";
-  if (hasEstimateForNotify) {
+  if (hasEstimateForNotify && !dedupMatch) {
     const dashboardOrigin = new URL(req.url).origin;
     void notifyOfficeOfNewLead({
       office: officeBranding,
@@ -786,11 +846,15 @@ export async function POST(req: Request) {
   // voiceConsent, so removing the omission path doesn't regress
   // legitimate traffic — it only closes the bot loophole.
   const dispatchAllowed = voiceConsent === true;
+  // Suppress on dupes — Sydney already called this homeowner on the
+  // parent submission. Re-calling within the dedup window is the
+  // exact "creepy auto-dialer" UX TCPA was meant to prevent.
   if (
     phoneE164 &&
     process.env.INTERNAL_DISPATCH_SECRET &&
     hasEstimate &&
-    dispatchAllowed
+    dispatchAllowed &&
+    !dedupMatch
   ) {
     const origin = new URL(req.url).origin;
     const dispatchSecret = process.env.INTERNAL_DISPATCH_SECRET;
@@ -863,9 +927,24 @@ export async function POST(req: Request) {
     );
   }
 
+  // When the submission was a dedup match, surface the parent's
+  // publicId so the customer page can redirect/inline the existing
+  // report instead of treating this as a brand-new lead.
+  // Notification suppression already happened above; this is purely
+  // a client hint for UX (show "we've already got your request"
+  // message linking to /r/[parentPublicId]).
   return NextResponse.json({
     leadId,
     submittedAt,
-    message: "Thanks — a Voxaris partner will contact you within 1 business hour.",
+    message: dedupMatch
+      ? "We already have your request — your roof report is ready."
+      : "Thanks — a Voxaris partner will contact you within 1 business hour.",
+    ...(dedupMatch
+      ? {
+          isDuplicate: true,
+          parentPublicId: dedupMatch.parentPublicId,
+          matchedOn: dedupMatch.matchedOn,
+        }
+      : {}),
   });
 }
