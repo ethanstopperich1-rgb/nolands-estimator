@@ -180,10 +180,13 @@ body {
      drop to 0 to read industrial. */
   --vx-radius-btn:   0;
   --vx-radius-card:  0;
-  /* Motion unchanged */
-  --vx-ease: cubic-bezier(0.2, 0, 0, 1);
+  /* Motion — easing curve upgraded to the taste-skill "premium spring"
+     cubic-bezier(0.16, 1, 0.3, 1) which lands with a subtle overshoot
+     and feels physical rather than mechanical. Fast/base durations
+     retained for backwards compatibility with existing transitions. */
+  --vx-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --vx-fast: 150ms;
-  --vx-base: 200ms;
+  --vx-base: 300ms;
 
   color-scheme: dark;
   background: var(--vx-cream);
@@ -295,10 +298,12 @@ body {
   text-transform: uppercase;
   color: var(--vx-ink-soft); font-weight: 600;
   border-left: 1px solid var(--vx-rule);
-  transition: color var(--vx-fast) var(--vx-ease);
+  /* All-property transition so background + color + border animate
+     together when nav state changes (e.g. active route highlighting). */
+  transition: all var(--vx-fast) var(--vx-ease);
 }
 .voxaris .nav-row a:first-child { border-left: 0; }
-.voxaris .nav-row a:hover { color: var(--vx-ink); }
+.voxaris .nav-row a:hover { color: var(--vx-ink); background: var(--vx-rule-soft); }
 /* Status badge — sharp, no pill. Lifted one notch off the black bg
    so it's visible against the page (was vx-cream which is now black,
    leaving the badge invisible). */
@@ -322,7 +327,9 @@ body {
 /* Search card — dark surface, hairline silver border, square corners
    (industrial bold-contractor read). The fire-orange glow at the
    bottom signals the live CTA without being garish — opacity is low
-   enough to read as ambient atmosphere, not a glow effect. */
+   enough to read as ambient atmosphere, not a glow effect.
+   :focus-within raises the glow + nudges the card up 1px to signal
+   "you're typing here." Tactile feedback per the taste-skill. */
 .voxaris .search-card {
   background: var(--vx-paper);
   border: 1px solid var(--vx-rule);
@@ -333,6 +340,15 @@ body {
     0 0 24px -8px rgba(232, 74, 31, 0.15);
   width: 100%;
   position: relative;
+  transition: all var(--vx-base) var(--vx-ease);
+}
+.voxaris .search-card:focus-within {
+  border-color: rgba(232, 74, 31, 0.4);
+  box-shadow:
+    0 1px 0 rgba(232, 233, 237, 0.06) inset,
+    0 28px 60px -16px rgba(0, 0, 0, 0.7),
+    0 0 48px -8px rgba(232, 74, 31, 0.28);
+  transform: translateY(-1px);
 }
 .voxaris .addr-row {
   display: grid;
@@ -422,7 +438,10 @@ body {
   border-bottom: 1.5px solid var(--vx-cream);
   transform: rotate(-45deg) translate(1px, -1px);
 }
-/* PRIMARY CTA — the one terracotta moment per screen. */
+/* PRIMARY CTA — the one fire-orange moment per screen.
+   Transitions upgraded to `all` so border, color, transform, and
+   shadow animate together. :active provides tactile -1px press
+   feedback per the taste-skill "physical push" guidance. */
 .voxaris .btn-terra {
   background: var(--vx-terra);
   color: var(--vx-cream);
@@ -437,14 +456,15 @@ body {
   cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   white-space: nowrap;
-  transition: background var(--vx-base) var(--vx-ease);
+  transition: all var(--vx-base) var(--vx-ease);
 }
-.voxaris .btn-terra:hover { background: var(--vx-terra-dark); border-color: var(--vx-terra-dark); }
+.voxaris .btn-terra:hover { background: var(--vx-terra-dark); border-color: var(--vx-terra-dark); transform: translateY(-1px); }
+.voxaris .btn-terra:active:not(:disabled) { transform: translateY(0); }
 .voxaris .btn-terra:focus-visible { outline: 2px solid var(--vx-ink); outline-offset: 3px; }
-.voxaris .btn-terra:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; }
+.voxaris .btn-terra:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; transform: none; }
 .voxaris .btn-terra .arrow { transition: transform var(--vx-base) var(--vx-ease); }
 .voxaris .btn-terra:hover:not(:disabled) .arrow { transform: translateX(4px); }
-/* SECONDARY — ink on cream. */
+/* SECONDARY — silver-light surface (was ink-on-cream upstream). */
 .voxaris .btn-ink {
   background: var(--vx-ink);
   color: var(--vx-cream);
@@ -459,14 +479,15 @@ body {
   cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   white-space: nowrap;
-  transition: background var(--vx-base) var(--vx-ease);
+  transition: all var(--vx-base) var(--vx-ease);
 }
-.voxaris .btn-ink:hover { background: var(--vx-ink-soft); border-color: var(--vx-ink-soft); }
+.voxaris .btn-ink:hover { background: var(--vx-ink-soft); border-color: var(--vx-ink-soft); transform: translateY(-1px); }
+.voxaris .btn-ink:active:not(:disabled) { transform: translateY(0); }
 .voxaris .btn-ink:focus-visible { outline: 2px solid var(--vx-terra); outline-offset: 3px; }
-.voxaris .btn-ink:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; }
+.voxaris .btn-ink:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; transform: none; }
 .voxaris .btn-ink .arrow { transition: transform var(--vx-base) var(--vx-ease); }
 .voxaris .btn-ink:hover:not(:disabled) .arrow { transform: translateX(4px); }
-/* TERTIARY — ghost. */
+/* TERTIARY — ghost. Directional border-fill on hover. */
 .voxaris .btn-ghost {
   background: transparent;
   color: var(--vx-ink);
@@ -481,9 +502,10 @@ body {
   cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   white-space: nowrap;
-  transition: background var(--vx-base) var(--vx-ease);
+  transition: all var(--vx-base) var(--vx-ease);
 }
-.voxaris .btn-ghost:hover { background: var(--vx-ink); color: var(--vx-cream); }
+.voxaris .btn-ghost:hover { background: var(--vx-ink); color: var(--vx-cream); transform: translateY(-1px); }
+.voxaris .btn-ghost:active { transform: translateY(0); }
 .voxaris a:focus-visible,
 .voxaris button:focus-visible,
 .voxaris summary:focus-visible {
