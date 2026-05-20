@@ -116,9 +116,9 @@ const metadataBase = process.env.NEXT_PUBLIC_SITE_ORIGIN
 // audience for the link preview a homeowner sees in their text thread.
 export const metadata: Metadata = {
   metadataBase,
-  title: "Voxaris · Instant roof estimate from your address",
+  title: "Noland's Roofing · Get your roof priced in 30 seconds",
   description:
-    "Get a transparent roof estimate in under a minute. Satellite imagery, your county's records, recent severe-weather history — all in one place. No call required.",
+    "Get a real roof price in under 30 seconds. We measure your roof from satellite imagery and price it on the spot — free, no obligation, no pressure. Serving Lake, Orange, Volusia, Osceola, Sumter, Polk, Seminole, Flagler, Manatee, and Lee counties.",
 };
 
 // Explicit viewport for mobile sizing. Next.js auto-injects a default

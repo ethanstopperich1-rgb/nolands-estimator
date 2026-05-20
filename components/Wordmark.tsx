@@ -1,25 +1,16 @@
 /**
- * Voxaris wordmark — text-only.
+ * Brand wordmark — text-only placeholder until the Noland's vector logo
+ * SVG arrives (see BRAND.md asset checklist).
  *
- * Replaces every prior usage of `/brand/voxaris-ai-wordmark.png` across
- * the app. Renders lowercase "voxaris" in the brand display serif
- * (DragonEF, falling back to Cormorant via next/font) in the brand
- * navy (`--vx-ink: #0F1B2D`). On dark surfaces (the customer footer
- * + a few PDF chrome rows) we flip to cream.
- *
- * The previous `Wordmark` in app/page.tsx was image-first with a text
- * fallback only on image-load failure. The customer asked for the text
- * version everywhere, so this is the new single source of truth.
+ * Renders "NOLAND'S" in a bold condensed sans style with the metallic
+ * silver gradient extracted from Noland's printed door-hangers.
+ * When the real SVG logo lands, swap the <span> for an <img> or inline
+ * SVG here and the rest of the app picks it up automatically.
  *
  * Sizes:
- *   sm — compact chrome (footer, sidebar, chips). ~22px cap-height.
- *   md — page headers. ~32px.
- *   lg — hero / landing. ~80px.
- *
- * Outside the `.voxaris` brand scope (e.g. inside the dark-theme
- * dashboard chrome before its remap pseudo-applies), the inline color
- * style still pins us to the navy/cream pair so we never inherit a
- * pale-on-cream or pale-on-dark accident.
+ *   sm — compact chrome (footer, sidebar). ~18px cap-height.
+ *   md — page header nav. ~24px.
+ *   lg — hero / landing. ~40px.
  */
 
 "use client";
@@ -30,13 +21,20 @@ export type WordmarkSize = "sm" | "md" | "lg";
 export type WordmarkTone = "ink" | "cream";
 
 const SIZE_PX: Record<WordmarkSize, number> = {
-  sm: 22,
-  md: 32,
-  lg: 80,
+  sm: 18,
+  md: 24,
+  lg: 40,
 };
+
+// Metallic silver gradient extracted from Noland's door-hanger wordmark.
+// Locked May 2026 — see BRAND.md.
+const METALLIC_GRADIENT =
+  "linear-gradient(180deg, #E8E9ED 0%, #6E7178 50%, #C8C9CD 100%)";
 
 export function Wordmark({
   size = "md",
+  // tone kept for API compatibility with upstream callers
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   tone = "ink",
   className,
   style,
@@ -47,24 +45,27 @@ export function Wordmark({
   style?: CSSProperties;
 }) {
   const px = SIZE_PX[size];
-  const color = tone === "ink" ? "#0F1B2D" : "#ECE3D0";
   return (
     <span
       className={className}
       style={{
         fontFamily:
-          'DragonEF, var(--font-cormorant), "Cormorant Garamond", Georgia, serif',
-        fontWeight: 500,
+          '"Anton", "Bebas Neue", "Arial Narrow", "Impact", Arial, sans-serif',
+        fontWeight: 900,
         fontSize: `${px}px`,
-        lineHeight: 0.95,
-        letterSpacing: "-0.022em",
-        color,
+        lineHeight: 1,
+        letterSpacing: "0.04em",
+        // Metallic gradient via CSS background-clip trick
+        background: METALLIC_GRADIENT,
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        backgroundClip: "text",
         display: "inline-block",
         whiteSpace: "nowrap",
         ...style,
       }}
     >
-      voxaris
+      {"NOLAND'S"}
     </span>
   );
 }

@@ -93,7 +93,7 @@ export default function PublicHeader({
         <Link
           href={logoHref}
           className="flex items-center gap-2 min-w-0 justify-self-start"
-          aria-label="voxaris — home"
+          aria-label="Noland's Roofing — home"
         >
           <Wordmark size="md" tone="ink" />
           {chip && (

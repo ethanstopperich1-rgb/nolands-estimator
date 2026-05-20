@@ -71,7 +71,7 @@ export default function InternalHeader() {
       }}
     >
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-10 h-16 sm:h-20 flex items-center justify-between gap-3">
-        <Link href="/" className="group flex items-center gap-2 min-w-0" aria-label="voxaris — home">
+        <Link href="/" className="group flex items-center gap-2 min-w-0" aria-label="Noland's Roofing — home">
           <Wordmark size="md" tone="ink" />
           <span className="hidden md:inline-block ml-1 chip text-micro">beta</span>
         </Link>

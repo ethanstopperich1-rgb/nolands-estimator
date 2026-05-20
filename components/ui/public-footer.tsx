@@ -17,7 +17,7 @@ export default function PublicFooter() {
   return (
     <footer className="border-t border-white/[0.08] mt-12">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 flex flex-wrap items-center justify-between gap-y-3 gap-x-6 text-eyebrow text-white/45 font-mono">
-        <span>© {new Date().getFullYear()} Voxaris Pitch</span>
+        <span>© {new Date().getFullYear()} Noland&apos;s Roofing</span>
         <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
           <Link href="/privacy" className="hover:text-white/70 transition-colors">
             Privacy
