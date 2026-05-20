@@ -65,7 +65,12 @@ import { AI_CALL_COST_USD, trackAiSpend } from "@/lib/cost-cap";
 import { validatePaintedPngBase64 } from "@/lib/validate-image";
 import { watermarkPaintedPng } from "@/lib/watermark";
 import { fetchWithTimeout } from "@/lib/safe-fetch";
-import { getCached, setCached } from "@/lib/cache";
+import {
+  getCached,
+  setCached,
+  getCachedByParcel,
+  setCachedByParcel,
+} from "@/lib/cache";
 import { fetchGisFootprint } from "@/lib/reconcile-roof-polygon";
 import { polygonAreaSqft } from "@/lib/polygon";
 import { rotateAllFacets } from "@/lib/solar-facets";
@@ -1055,14 +1060,12 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // channel. Composite gets Pro Image's anti-aliasing for free, killing
 // the jagged-edge / blob-smudge artifacts that needed morphological
 // chasing in the prior render. Force a re-roll of cached composites.
-// Bumped — global alpha scaled down to 0.70 (composite + GroundOverlay)
-// so the cyan tint reads less "too bright blue" on complex multi-facet
-// roofs. Cached composites at full 1.0 alpha re-roll under the dim.
-// Bumped — customer pricing switched from `quotableSqft` (≥12° subset)
-// to the full headline `sqft`. Oak Park was under-quoted because the
-// low-slope split carved out 1,130 sqft incorrectly. Cached pre-bump
-// estimates would tier-price wrong on the customer page.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-flash-lite-3-1";
+// Bumped — cache keys now snap to FDOR parcel ID when available so
+// rep re-pins at the same property hit cache instead of burning a
+// fresh ~$0.08 Gemini Pro Image call. Falls back to lat/lng-keyed
+// caching when FDOR doesn't resolve. Previous bumps preserved
+// (full-sqft pricing, flash-lite-3-1, alpha-070, etc.)
+const CACHE_SCOPE_V3 = "gemini-roof-v3-parcel-keyed";
 
 /** Cheap text-only model used solely for structured-output object
  *  detection alongside the painted-image call. Pro Image is expensive
@@ -1553,8 +1556,51 @@ async function handleV3Pinned(
   leadPublicId: string | null = null,
 ): Promise<NextResponse> {
   if (!skipCache) {
+    // Tier 1 — exact lat/lng cache. Catches the common case
+    // (geocoder is deterministic; same address → same lat/lng →
+    // same cache slot).
     const cached = await getCached<GeminiRoofResponseV3>(CACHE_SCOPE_V3, lat, lng);
     if (cached) return NextResponse.json(cached);
+
+    // Tier 2 — parcel-id cache. If lat/lng missed but the rep
+    // dragged the pin 30m within the same FDOR parcel, we already
+    // have an estimate for THIS property under the parcel-id key.
+    // Soft-fail to null: if FDOR lookup fails or no parcel
+    // intersects, we proceed to the full pipeline as before.
+    // Cost on cache hit: one FDOR call (~500ms-2s, often cached
+    // itself via lib/parcel-lookup.ts) vs ~$0.08 + 30s for full
+    // pipeline. Easy trade.
+    try {
+      const { lookupParcel } = await import("@/lib/parcel-lookup");
+      const parcel = await lookupParcel(lat, lng);
+      if (parcel?.parcelId) {
+        const cachedByParcel = await getCachedByParcel<GeminiRoofResponseV3>(
+          CACHE_SCOPE_V3,
+          parcel.parcelId,
+        );
+        if (cachedByParcel) {
+          console.log(
+            "[gemini-roof v3] parcel cache HIT — skipping pipeline",
+            { parcelId: parcel.parcelId, lat: lat.toFixed(5), lng: lng.toFixed(5) },
+          );
+          // Back-fill the lat/lng key so the NEXT request at this
+          // exact pin hits Tier 1 directly without another FDOR call.
+          void setCached(
+            CACHE_SCOPE_V3,
+            lat,
+            lng,
+            cachedByParcel,
+            60 * 60 * 24 * 30,
+          );
+          return NextResponse.json(cachedByParcel);
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] parcel cache probe failed (proceeding to pipeline):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   const googleKey =
@@ -2647,10 +2693,26 @@ async function handleV3Pinned(
     computedAt: new Date().toISOString(),
   };
 
-  // 30-day cache. Pin-confirmed → safe to long-cache; the pin is
-  // stable for a given building. If a rep re-pins, the lat/lng
-  // changes and the cache key changes.
+  // 30-day cache, written under TWO keys:
+  //   1. Exact lat/lng — for fast Tier-1 hits on identical pins
+  //   2. Parcel ID — for Tier-2 hits when the rep re-pins 30m
+  //      within the same FDOR parcel (saves a $0.08 Gemini call
+  //      per re-pin on the same property)
+  // The parcel ID comes from the FDOR result already inside the
+  // pipeline — we surface it on the result for opportunistic
+  // dual-key writes. If parcel resolution failed, we still write
+  // the lat/lng key as before; no regression.
   await setCached(CACHE_SCOPE_V3, lat, lng, result, 60 * 60 * 24 * 30);
+  const resultParcelId =
+    (result as { parcel?: { parcelId?: string } | null }).parcel?.parcelId;
+  if (resultParcelId) {
+    void setCachedByParcel(
+      CACHE_SCOPE_V3,
+      resultParcelId,
+      result,
+      60 * 60 * 24 * 30,
+    );
+  }
 
   // Mirror the result to the lead row so the rep workbench / lead
   // drawer can render "See report" instantly without re-running the

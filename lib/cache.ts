@@ -79,6 +79,84 @@ function key(scope: string, lat: number, lng: number) {
   return `pitch:${scope}:${lat.toFixed(5)},${lng.toFixed(5)}`;
 }
 
+/**
+ * Parcel-id-based cache key. When two estimates resolve to the
+ * same FDOR parcel (rep dragged the pin 30m within the same
+ * property), they should share a cache entry instead of burning a
+ * separate Gemini pipeline run per pin position.
+ */
+function parcelKey(scope: string, parcelId: string) {
+  // Normalize parcel id — FL parcel IDs are alphanumeric, but
+ // some sources surface them with hyphens or spaces. Strip
+ // separators so 12-3456-78 and 123456-78 hit the same cache slot.
+  const normalized = parcelId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return `pitch:${scope}:parcel:${normalized}`;
+}
+
+/**
+ * Read a cached value by parcel ID. Use when you've already resolved
+ * the parcel from a lat/lng (via lib/parcel-lookup.ts) and want to
+ * see if a prior estimate at this SAME property hit the cache —
+ * regardless of the exact pin coordinates.
+ *
+ * Returns null on miss or when Redis is unconfigured.
+ */
+export async function getCachedByParcel<T>(
+  scope: string,
+  parcelId: string,
+): Promise<T | null> {
+  const k = parcelKey(scope, parcelId);
+  const hit = STORE.get(k);
+  if (hit) {
+    if (Date.now() > hit.expiresAt) {
+      STORE.delete(k);
+    } else {
+      return hit.value as T;
+    }
+  }
+  const redis = getRedis();
+  if (!redis) return null;
+  try {
+    const value = (await redis.get(k)) as T | null;
+    if (value !== null) {
+      STORE.set(k, {
+        value,
+        expiresAt: Date.now() + DEFAULT_TTL_MS,
+      });
+    }
+    return value;
+  } catch (err) {
+    console.warn(`[cache] parcel redis.get failed for ${k}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Write a cached value under a parcel ID. Pair with `setCached` so
+ * the same payload is reachable BOTH by lat/lng (for cold-start
+ * lookups before parcel data resolves) AND by parcel ID (for
+ * re-pin lookups within the same property).
+ */
+export async function setCachedByParcel<T>(
+  scope: string,
+  parcelId: string,
+  value: T,
+  ttlSeconds?: number,
+): Promise<void> {
+  const k = parcelKey(scope, parcelId);
+  const ttlMs = (ttlSeconds ?? DEFAULT_TTL_MS / 1000) * 1000;
+  STORE.set(k, { value, expiresAt: Date.now() + ttlMs });
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    await redis.set(k, value as unknown, {
+      ex: ttlSeconds ?? Math.round(DEFAULT_TTL_MS / 1000),
+    });
+  } catch (err) {
+    console.warn(`[cache] parcel redis.set failed for ${k}:`, err);
+  }
+}
+
 export async function getCached<T>(
   scope: string,
   lat: number,
