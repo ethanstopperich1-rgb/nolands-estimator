@@ -7,6 +7,7 @@ import {
   type OfficeBranding,
 } from "@/lib/supabase";
 import { resolveNotifyPhone } from "@/lib/lead-notifications";
+import { parseLang, t, type Lang } from "@/lib/i18n";
 import {
   LEAD_WEBHOOK_SCHEMA_VERSION,
   publishLeadEvent,
@@ -121,7 +122,7 @@ export async function POST(req: Request) {
   const { data: lead, error: leadErr } = await sb
     .from("leads")
     .select(
-      "public_id, office_id, name, address, phone, estimate_low, estimate_high, estimated_sqft, material, source, notes",
+      "public_id, office_id, name, address, phone, estimate_low, estimate_high, estimated_sqft, material, source, notes, preferred_language",
     )
     .eq("public_id", body.leadPublicId)
     .maybeSingle();
@@ -170,12 +171,20 @@ export async function POST(req: Request) {
   }
 
   // ─── 3. Notify homeowner via SMS ───────────────────────────────────
+  // Respect the language they were submitted in. The confirmation
+  // SMS + Sydney callback already spoke their language; the post-
+  // call follow-up must too. Defaults to 'en' if the lead predates
+  // migration 0009 or for any reason the field is missing.
+  const homeownerLang: Lang =
+    parseLang((lead as { preferred_language?: unknown }).preferred_language) ??
+    "en";
   const homeownerPhoneE164 = toE164(lead.phone);
   const sentHomeowner = await sendHomeownerSms({
     phoneE164: homeownerPhoneE164,
     outcome,
     name: lead.name,
     officeDisplayName: office?.displayName ?? "Voxaris",
+    lang: homeownerLang,
     // FROM the contractor's own Twilio number — same brand the
     // homeowner already saw on the confirmation + ack SMSes.
     fromNumber: office?.twilioNumber ?? undefined,
@@ -252,29 +261,45 @@ async function sendHomeownerSms(opts: {
   outcome: string;
   name: string;
   officeDisplayName: string;
+  lang: Lang;
   fromNumber?: string;
   appointmentAt?: string;
 }): Promise<boolean> {
   if (!opts.phoneE164 || !twilioConfigured()) return false;
   const firstName = opts.name.split(/\s+/)[0] ?? "there";
+  // Localized post-call bodies via lib/i18n.ts. Spanish-preferring
+  // homeowners get the Spanish version automatically; the lang was
+  // captured at submit time on the customer page and persisted to
+  // leads.preferred_language.
   let body: string;
   switch (opts.outcome) {
     case "appt_scheduled": {
-      const when = opts.appointmentAt ? formatAppt(opts.appointmentAt) : "your selected time";
-      body = `Hi ${firstName}, your roof inspection with ${opts.officeDisplayName} is set for ${when}. A rep will confirm shortly. Reply STOP to opt out.`;
+      const when = opts.appointmentAt
+        ? formatAppt(opts.appointmentAt, opts.lang)
+        : (opts.lang === "es" ? "tu hora seleccionada" : "your selected time");
+      body = t("sms.postcall.appt_scheduled", opts.lang, {
+        firstName,
+        officeName: opts.officeDisplayName,
+        when,
+      });
       break;
     }
     case "callback_requested":
-      body = `Hi ${firstName}, thanks for chatting with us. A ${opts.officeDisplayName} rep will call you back shortly. Reply STOP to opt out.`;
+      body = t("sms.postcall.callback_requested", opts.lang, {
+        firstName,
+        officeName: opts.officeDisplayName,
+      });
       break;
     case "voicemail":
-      body = `Hi ${firstName}, we just left you a voicemail. Reply YES to have us try again, or text us back any time. Reply STOP to opt out.`;
+      body = t("sms.postcall.voicemail", opts.lang, { firstName });
       break;
     case "no_appointment":
-      body = `Hi ${firstName}, thanks for your time. If you'd like an estimate later, just reply here. Reply STOP to opt out.`;
+      body = t("sms.postcall.no_appointment", opts.lang, { firstName });
       break;
     default:
-      body = `Hi ${firstName}, thanks for chatting with ${opts.officeDisplayName}. A team member will follow up. Reply STOP to opt out.`;
+      // Fallback for unknown outcomes (e.g. "failed") — short
+      // generic message, still localized.
+      body = t("sms.postcall.no_appointment", opts.lang, { firstName });
   }
   try {
     await sendSms({ to: opts.phoneE164, body, from: opts.fromNumber });
@@ -353,10 +378,14 @@ async function sendRepUpdate(opts: {
   }
 }
 
-function formatAppt(iso: string): string {
+function formatAppt(iso: string, lang: Lang = "en"): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleString("en-US", {
+    // Locale-aware formatting — en-US for English, es-US for
+    // Spanish-preferring FL homeowners (still 12h time, EDT, but
+    // weekday/month names in Spanish: "Mar 18 de jun, 2:00 PM EDT"
+    // vs "Tue Jun 18, 2:00 PM EDT").
+    return d.toLocaleString(lang === "es" ? "es-US" : "en-US", {
       weekday: "short",
       month: "short",
       day: "numeric",

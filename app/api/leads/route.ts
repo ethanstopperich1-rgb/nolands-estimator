@@ -918,6 +918,13 @@ export async function POST(req: Request) {
               // are now unified — one office routes the entire flow.
               office: officeSlug,
               estimatedSqft: body.estimatedSqft,
+              // Bilingual journey — homeowner's EN/ES choice from the
+              // page toggle. Sydney's worker reads
+              // ctx.job.metadata.preferredLanguage and branches the
+              // opener + selects a Spanish TTS voice. FCC AI-voice
+              // disclosure compliance is satisfied in the language of
+              // the consent capture.
+              preferredLanguage,
             }),
           }),
         )

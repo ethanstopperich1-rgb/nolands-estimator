@@ -50,6 +50,14 @@ interface DispatchPayload {
   material?: string;
   office?: string;
   agentName?: string; // optional override; defaults to "sydney"
+  /** Homeowner's language preference from the customer page toggle.
+   *  Read by Sydney's LiveKit agent worker (separate repo) — branches
+   *  the prompt to a Spanish opener + selects a Spanish TTS voice when
+   *  set to 'es'. FCC AI-voice disclosure rule requires the agent
+   *  identify itself as an AI in the language of the consent capture
+   *  (the customer page toggle); the agent worker honors this via
+   *  metadata.preferredLanguage. Defaults to 'en' on omit. */
+  preferredLanguage?: "en" | "es";
 }
 
 const LIVEKIT_URL = process.env.LIVEKIT_URL ?? "";
@@ -186,6 +194,13 @@ export async function POST(req: Request) {
     // Tenancy — same office that captured the lead. Sydney's company
     // name + caller-ID + LiveKit dispatch all key off this.
     office,
+    // Bilingual journey — Sydney's worker reads this from
+    // ctx.job.metadata.preferredLanguage and branches the opener +
+    // TTS voice. Defaults to 'en' on omit (matches the lead row
+    // default). FCC AI-voice disclosure rule is satisfied in the
+    // language of the consent capture, which is what this field
+    // carries through.
+    preferredLanguage: body.preferredLanguage ?? "en",
   };
   const metadata = JSON.stringify(leadContext);
 
