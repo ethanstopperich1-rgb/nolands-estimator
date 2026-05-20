@@ -103,7 +103,10 @@ const poppinsNoland = Poppins({
   subsets: ["latin"],
   variable: "--font-poppins-noland",
   display: "swap",
-  weight: ["700", "800", "900"],
+  // Wider weight range so existing `fontWeight: 300/400/500` inline
+  // styles in the customer surface render correctly without changing
+  // every consumer. 900 stays the headline/wordmark weight.
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
 });
 
 // Self-hosted brand fonts via next/font/local. The critical difference vs

@@ -815,21 +815,28 @@ function HeroScreen({
           >
             {t("hero.eyebrow", lang)}
           </div>
+          {/* Noland's-native H1 — Poppins Black for the main line (matches
+              the NOLAND'S logo letterforms), fire-orange for "in 30
+              seconds" so the value prop reads as a single visual
+              accent. Replaces the italic-serif Patek treatment that
+              was inherited from the upstream Voxaris demo. */}
           <h1
             className="rise font-serif tracking-tight mx-auto"
             data-d="1"
             style={{
               fontSize: "clamp(54px, 8.2vw, 120px)",
-              lineHeight: 0.96,
-              fontWeight: 500,
+              lineHeight: 0.94,
+              fontWeight: 900,
               color: "var(--vx-ink)",
               maxWidth: "14ch",
+              textTransform: "uppercase",
+              letterSpacing: "-0.02em",
             }}
           >
             {t("hero.headline.line1", lang)}
             <span
-              className="block italic"
-              style={{ fontWeight: 300, color: "var(--vx-ink-soft)" }}
+              className="block"
+              style={{ fontWeight: 800, color: "var(--vx-terra)" }}
             >
               {t("hero.headline.line2", lang)}
             </span>
@@ -860,17 +867,17 @@ function HeroScreen({
             className="rise flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-7"
             data-d="3"
             style={{
-              fontSize: "10px",
-              letterSpacing: "0.15em",
+              fontSize: "11px",
+              letterSpacing: "0.18em",
               textTransform: "uppercase",
               fontWeight: 700,
               color: "var(--vx-ink-soft)",
             }}
           >
             <span>25+ Years in Florida</span>
-            <span aria-hidden="true" style={{ opacity: 0.3 }}>·</span>
+            <span aria-hidden="true" style={{ color: "var(--vx-terra)" }}>·</span>
             <span>CertainTeed Triple Crown Champion</span>
-            <span aria-hidden="true" style={{ opacity: 0.3 }}>·</span>
+            <span aria-hidden="true" style={{ color: "var(--vx-terra)" }}>·</span>
             <span>Licensed General Contractor</span>
           </div>
         </div>

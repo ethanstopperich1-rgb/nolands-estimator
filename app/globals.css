@@ -146,35 +146,50 @@ body {
    below: var(--font-dragon) and var(--font-ambit). */
 
 .voxaris {
-  /* Color — locked to Voxaris Brand v1.0 */
-  --vx-ink:        #0F1B2D;
-  --vx-ink-soft:   #1A2A44;
-  --vx-cream:      #ECE3D0;
-  --vx-paper:      #F5EFE0;
-  --vx-muted:      #8A7E68;
-  --vx-terra:      #C76B3F;
-  --vx-terra-dark: #A8542E;
-  --vx-rule:       rgba(15, 27, 45, 0.18);
-  --vx-rule-soft:  rgba(15, 27, 45, 0.08);
-  /* Type — DragonEF display, Ambit SemiBold UI, with graceful fallback.
-     Both brand families are loaded via next/font/local (see layout.tsx)
-     so the fallback is metric-adjusted and the eventual swap doesn't
-     reflow the page. */
-  --vx-font-display: var(--font-dragon), var(--font-cormorant), Georgia, serif;
-  --vx-font-ui:      var(--font-ambit), var(--font-hanken), "Helvetica Neue", system-ui, sans-serif;
-  /* Radius — sharp by default; cards 2px */
+  /* ── Noland's Roofing brand v2.0 (May 2026 white-label) ─────────────
+   * The .voxaris scope name is kept for backwards compatibility with
+   * the ~150 JSX consumers of var(--vx-*); only the token VALUES
+   * change. This inverts the page from cream-on-ink-terracotta-accent
+   * to black-on-silver-with-fire-accent — the bold-contractor
+   * aesthetic that matches nolandsroofing.com.
+   *
+   * Mapping (old → new):
+   *   --vx-cream  (cream bg)        → noland-black (deep black bg)
+   *   --vx-paper  (lighter paper)   → noland-black-soft (card bg)
+   *   --vx-ink    (dark text)       → noland-silver-light (light text)
+   *   --vx-muted  (warm muted)      → noland-silver-dark (cool muted)
+   *   --vx-terra  (terracotta)      → noland-fire (red-orange) */
+  --vx-ink:        var(--color-noland-silver-light);   /* body text on dark */
+  --vx-ink-soft:   var(--color-noland-silver);          /* secondary text */
+  --vx-cream:      var(--color-noland-black);           /* page bg (deep black) */
+  --vx-paper:      var(--color-noland-black-soft);      /* card bg one notch up */
+  --vx-muted:      var(--color-noland-silver-dark);     /* muted UI text */
+  --vx-terra:      var(--color-noland-fire);            /* the fire-orange accent */
+  --vx-terra-dark: var(--color-noland-fire-deep);       /* pressed accent */
+  --vx-rule:       rgba(232, 233, 237, 0.18);           /* silver/18 hairline */
+  --vx-rule-soft:  rgba(232, 233, 237, 0.08);
+
+  /* Type — Roboto/Poppins from nolandsroofing.com replaces the
+     editorial DragonEF/Cormorant pair. Display is Poppins Black 900
+     (matches the actual NOLAND'S logo letterforms); UI is Roboto 600/700
+     (matches their site's heading typography token). */
+  --vx-font-display: var(--font-poppins-noland), var(--font-roboto-noland), Impact, "Arial Narrow", sans-serif;
+  --vx-font-ui:      var(--font-roboto-noland), var(--font-inter-noland), "Helvetica Neue", system-ui, sans-serif;
+
+  /* Radius — bold contractor → sharper. Buttons stay 0 (square); cards
+     drop to 0 to read industrial. */
   --vx-radius-btn:   0;
-  --vx-radius-card:  2px;
-  /* Motion — quiet ease-out, no spring */
+  --vx-radius-card:  0;
+  /* Motion unchanged */
   --vx-ease: cubic-bezier(0.2, 0, 0, 1);
   --vx-fast: 150ms;
   --vx-base: 200ms;
 
-  color-scheme: only light;
+  color-scheme: dark;
   background: var(--vx-cream);
   color: var(--vx-ink);
   font-family: var(--vx-font-ui);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.55;
   font-feature-settings: "kern";
   -webkit-font-smoothing: antialiased;
@@ -186,24 +201,28 @@ body {
 .voxaris .font-serif { font-family: var(--vx-font-display); }
 .voxaris .font-body  { font-family: var(--vx-font-ui); }
 .voxaris .tabular    { font-variant-numeric: tabular-nums lining-nums; }
-/* Subtle paper grain — no purple, no gradient. */
+/* Storm-grain texture — a faint silver noise overlay reads as the
+   atmospheric haze of an approaching storm. Replaces the cream paper
+   grain. Lightened opacity because dark backgrounds amplify noise. */
 .voxaris::before {
   content: "";
   position: fixed; inset: 0;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0.06  0 0 0 0 0.11  0 0 0 0 0.18  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='5'/><feColorMatrix values='0 0 0 0 0.78  0 0 0 0 0.79  0 0 0 0 0.82  0 0 0 0.07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   pointer-events: none;
   z-index: 0;
-  opacity: 0.45;
-  mix-blend-mode: multiply;
+  opacity: 0.55;
+  mix-blend-mode: overlay;
 }
-/* Ambient — no warmth gradients; cream is the only warmth (per discipline).
-   This block is intentionally minimal: a single low-opacity ink wash at
-   the bottom for compositional weight. */
+/* Ambient — fire-orange glow at the bottom-right, plus a cooler
+   storm-blue wash at the upper-left. Reads as "severe weather +
+   sunrise after the storm" — Noland's positioning in atmospherics.
+   Both very low opacity so they don't compete with the hero copy. */
 .voxaris .ambient {
   position: absolute; inset: 0;
   pointer-events: none; z-index: 0;
   background:
-    radial-gradient(ellipse 90% 70% at 50% 100%, rgba(15, 27, 45, 0.06), transparent 70%);
+    radial-gradient(ellipse 60% 50% at 100% 100%, rgba(232, 74, 31, 0.10), transparent 65%),
+    radial-gradient(ellipse 70% 50% at 0% 0%,     rgba(26, 31, 43, 0.55),   transparent 60%);
 }
 .voxaris .crescent {
   position: absolute; left: 50%; top: -180px;
@@ -280,12 +299,14 @@ body {
 }
 .voxaris .nav-row a:first-child { border-left: 0; }
 .voxaris .nav-row a:hover { color: var(--vx-ink); }
-/* Status badge — sharp, no pill. */
+/* Status badge — sharp, no pill. Lifted one notch off the black bg
+   so it's visible against the page (was vx-cream which is now black,
+   leaving the badge invisible). */
 .voxaris .badge {
   display: inline-flex;
   align-items: center; gap: 10px;
   border: 1px solid var(--vx-rule);
-  background: var(--vx-cream);
+  background: var(--vx-paper);
   padding: 8px 14px;
   font-family: var(--vx-font-ui);
   font-size: 10.5px;
@@ -295,15 +316,21 @@ body {
 }
 .voxaris .badge .dot {
   width: 6px; height: 6px;
-  background: var(--vx-muted);
+  background: var(--vx-terra);   /* fire-orange status dot reads "live" */
   border-radius: 0;
 }
-/* Search card — paper surface, hairline border, 2px radius per spec. */
+/* Search card — dark surface, hairline silver border, square corners
+   (industrial bold-contractor read). The fire-orange glow at the
+   bottom signals the live CTA without being garish — opacity is low
+   enough to read as ambient atmosphere, not a glow effect. */
 .voxaris .search-card {
   background: var(--vx-paper);
   border: 1px solid var(--vx-rule);
   border-radius: var(--vx-radius-card);
-  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06);
+  box-shadow:
+    0 1px 0 rgba(232, 233, 237, 0.04) inset,
+    0 24px 48px -16px rgba(0, 0, 0, 0.6),
+    0 0 24px -8px rgba(232, 74, 31, 0.15);
   width: 100%;
   position: relative;
 }
@@ -322,7 +349,7 @@ body {
   line-height: 1.2;
   color: var(--vx-ink); padding: 6px 0;
 }
-.voxaris .addr-input::placeholder { color: var(--vx-muted); font-style: italic; }
+.voxaris .addr-input::placeholder { color: var(--vx-muted); font-style: normal; }
 .voxaris .slim-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
