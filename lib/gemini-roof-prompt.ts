@@ -43,14 +43,34 @@ Your output is the SUPPLIED 1280×1280 satellite photo with cyan paint added on 
 If you cannot identify a roof to paint with high confidence (e.g. the image is too obscured by clouds or trees, or the central pixel does not sit on a building), return the input image UNCHANGED with no cyan added. Do not invent a roof. Do not generate a new satellite image. Do not regenerate the scene from scratch.
 
 ## STYLE
-- Fill: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan.
-- Outline: cyan #38C5EE at full opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring.
+- **Fill**: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan.
+- **Stroke**: cyan #38C5EE at FULL opacity, crisp 2–3 pixel line. Used on BOTH the outer perimeter AND every visible interior facet boundary (see Rule 1). No feathering, no soft edges, no blurring.
 - The effect is paint ADDED on top of the existing photo, not a replacement of it. Preserve the original pixels everywhere outside the painted area.
 
-## RULE 1 — One continuous polygon per plane. No exceptions.
-Every distinct roof plane (each unique direction the roof faces) is painted as ONE solid, gap-free polygon. **No notches. No triangular cutouts. No holes around fixtures. No bite-outs along inside edges. No indentations that follow shadow lines.**
+## RULE 1 — Fill every plane + stroke every visible edge. Both are required on every render.
 
-If two planes meet at an interior edge (ridge, hip, or valley), the two cyan colors meet edge-to-edge with a single crisp stroke between them. If a plane is an L or T shape, the polygon is continuous — it just has corners.
+### 1a. Fill
+Every distinct roof plane (each unique direction the roof faces) is filled as ONE solid, gap-free polygon. **No notches. No triangular cutouts. No holes around fixtures. No bite-outs along inside edges. No indentations that follow shadow lines.** If a plane is an L or T shape, the polygon is continuous — it just has corners.
+
+### 1b. Outer perimeter stroke — always required
+A crisp 2–3 pixel cyan stroke at full opacity runs continuously along the OUTER PERIMETER of the painted area: every eave, rake, and gable-end edge. This stroke is required on every render. Never skip it.
+
+### 1c. Interior facet strokes — required, anchored to visible photo evidence
+The same crisp 2–3 pixel cyan stroke at full opacity ALSO runs along every VISIBLE INTERIOR EDGE between roof planes:
+- **Ridges** — highest horizontal line where two opposing slopes meet at a peak.
+- **Hips** — sloped diagonal from a peak corner down to a building corner.
+- **Valleys** — inward-V where two adjacent planes meet (dormers, intersecting wings).
+
+These interior strokes are NOT optional decoration — they're required wherever a real edge is visible in the photo. On a clean simple-hip roof you should see four hip strokes converging to a center ridge stroke. On a cross-gable you should see the two ridges plus the valleys at every intersection. The fill alone is not enough — the strokes are what make the facet count legible to the customer.
+
+### 1d. CRITICAL CALIBRATION — trace what you SEE, do not invent edges
+The strokes follow what's visible in the photo, not what you THINK should be there:
+- A real ridge/hip/valley shows up as a SHARP, CONTINUOUS BRIGHTNESS TRANSITION between two roof planes facing different directions. The shingle texture direction may also flip across it. The line spans a meaningful length of the roof — not a short segment, not a shadow edge.
+- DO NOT invent interior strokes to subdivide a single-direction roof plane into sub-facets. If a region shows the SAME shingle texture and SAME brightness on both sides of a candidate line, there is NO real edge there — paint through it with cyan fill and NO stroke.
+- DO NOT generate strokes to make the roof look more "complex" or more "EagleView-like". You are tracing existing geometry, not inventing it.
+- When in doubt about whether an interior edge is real, OMIT the stroke and rely on fill alone for that region. Better to stroke five real edges than six edges where the sixth is invented.
+
+Inventing interior facet lines is the failure mode that flips this model from "edit the photo" into "regenerate the scene" — the symmetric CGI-looking output a previous prompt version produced on complex estates. Stay anchored to the photo.
 
 ## RULE 2 — Only six things are legal cyan boundaries
 The cyan painted area's outer + interior boundaries consist ONLY of these six edge types:
