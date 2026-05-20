@@ -87,13 +87,12 @@ SYDNEY_RIME_SPEED_ALPHA = float(os.environ.get("SYDNEY_RIME_SPEED_ALPHA", "1.0")
 # for Noland's; only the position in the FallbackTTS chain changed.
 CARTESIA_VOICE_ID = "f9836c6e-a0bd-460e-9d3c-f7299fa60f94"
 
-# A2: Spanish TTS voice. Cartesia's voice library has multiple Spanish-
-# speaking voices; the operator picks the one that matches the brand
-# (warm, conversational, FL Latino vernacular not Castilian). When
-# SYDNEY_TTS_VOICE_ID_ES is unset, ES calls fall back to rime/arcana
-# (Spanish-capable) so the call doesn't break, but voice drift is
-# noticeable — set this env to lock in the brand voice.
-# Browse voices: https://play.cartesia.ai/voices
+# Optional Spanish brand voice. Spanish calls default to rime/arcana
+# voice="luna" (multilingual — speaks Spanish natively, not a degraded
+# fallback). Setting SYDNEY_TTS_VOICE_ID_ES adds a Cartesia ES voice as
+# a SECOND-TIER fallback under arcana for vendor-diversity / brand-voice
+# unification. Pick from https://play.cartesia.ai/voices when you want
+# a specific Latina voice. Optional, not required.
 CARTESIA_VOICE_ID_ES = os.environ.get("SYDNEY_TTS_VOICE_ID_ES", "").strip() or None
 
 # Sydney TTS speed. 1.0 = natural pace. Demo callers reported 1.15 as
@@ -468,63 +467,52 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
     ])
 
-    # ─── TTS — Rime mistv3 "moraine" primary (matches Cassie + Deedy) ───────
+    # ─── TTS — language-aware Rime-primary fallback chain ──────────────────
     #
     # English path (default):
     #   Primary:    rime/mistv3 voice="moraine" — same speaker as Cassie
     #               (Cassie-HICV) and Deedy (voxaris-vba). Locked May 2026
-    #               for brand-voice consistency across all three agents.
+    #               for brand-voice consistency.
     #   Fallback 1: rime/arcana voice="luna" — same vendor, different
     #               model family. Survives mistv3-specific outages.
-    #   Fallback 2: cartesia/sonic-3 voice=CARTESIA_VOICE_ID — last
-    #               resort, audible voice drift. Was the previous
-    #               primary; kept here so a Rime-side outage still ships
-    #               audio. Speed override SYDNEY_TTS_SPEED applies only
-    #               on this Cartesia leg (Rime uses speed_alpha above).
-    #
-    # See RIME_MODEL / RIME_VOICE / RIME_SAMPLE_RATE constants at the
-    # top of this file — and DO NOT add phonemize_between_brackets to
-    # the Rime config (cost Deedy a full silent-call regression on
-    # 2026-05-11; constants comment block has the full story).
+    #   Fallback 2: cartesia/sonic-3 Southern Woman — last resort, audible
+    #               voice drift but ensures the call doesn't go silent.
     #
     # Spanish path (preferredLanguage="es"):
-    #   - If SYDNEY_TTS_VOICE_ID_ES set: Cartesia ES voice chain
-    #     (sonic-3 → sonic-2 → rime/arcana luna)
-    #   - Else: rime/arcana luna directly (multilingual, speaks ES from
-    #     Spanish text input). The Rime mistv3 moraine voice is locked
-    #     to English (RIME_LANGUAGE="eng") so we don't use it for ES.
+    #   Primary:    rime/arcana voice="luna" — Rime's arcana model is
+    #               multilingual; "luna" speaks Spanish natively when the
+    #               LLM emits Spanish text. NOT a degraded fallback — this
+    #               IS the right Spanish primary.
+    #   Fallback:   cartesia/sonic-3 with SYDNEY_TTS_VOICE_ID_ES if the
+    #               operator picked a Cartesia ES voice (brand-voice
+    #               unification across languages). Optional — arcana alone
+    #               is fine for ES quality; Cartesia adds vendor diversity
+    #               for outage survival.
+    #
+    # Why mistv3 moraine is NOT in the ES chain: moraine is locked to
+    # `language="eng"`. Forcing it on Spanish text produces phonetic
+    # English-accent Spanish (sounds wrong).
+    #
+    # See RIME_MODEL / RIME_VOICE / RIME_SAMPLE_RATE constants at the top
+    # of this file — and DO NOT add phonemize_between_brackets to the Rime
+    # config (cost Deedy a full silent-call regression on 2026-05-11;
+    # constants comment block has the full story).
     _outbound_lang = _resolve_lead_lang(lead_context) if lead_context else "en"
 
-    if _outbound_lang == "es" and CARTESIA_VOICE_ID_ES:
-        # ES with a configured Cartesia ES voice — Cartesia primary,
-        # Cartesia fallback (same voice, degraded model), rime/arcana
-        # last-resort. Rime mistv3 moraine is NOT in this chain — it's
-        # English-only.
-        tts = FallbackTTS([
-            inference.TTS(
-                model="cartesia/sonic-3",
-                voice=CARTESIA_VOICE_ID_ES,
-                extra_kwargs={"speed": SYDNEY_TTS_SPEED},
-            ),
-            inference.TTS(
-                model="cartesia/sonic-2",
-                voice=CARTESIA_VOICE_ID_ES,
-                extra_kwargs={"speed": SYDNEY_TTS_SPEED},
-            ),
-            inference.TTS(model="rime/arcana", voice="luna"),
-        ])
-    elif _outbound_lang == "es":
-        # ES with no Cartesia voice configured — go straight to
-        # rime/arcana luna. Loud warning so ops can fix without watching
-        # call recordings to find the drift.
-        logger.warning(
-            "ES call but SYDNEY_TTS_VOICE_ID_ES is unset — falling back to "
-            "rime/arcana ES voice. Pick a Cartesia ES voice at "
-            "play.cartesia.ai/voices and set SYDNEY_TTS_VOICE_ID_ES."
-        )
-        tts = FallbackTTS([
-            inference.TTS(model="rime/arcana", voice="luna"),
-        ])
+    if _outbound_lang == "es":
+        # Spanish — Rime arcana luna primary (multilingual, native ES).
+        # Cartesia ES is an OPTIONAL second-tier fallback if the operator
+        # set SYDNEY_TTS_VOICE_ID_ES for brand-voice unification.
+        es_chain = [inference.TTS(model="rime/arcana", voice="luna")]
+        if CARTESIA_VOICE_ID_ES:
+            es_chain.append(
+                inference.TTS(
+                    model="cartesia/sonic-3",
+                    voice=CARTESIA_VOICE_ID_ES,
+                    extra_kwargs={"speed": SYDNEY_TTS_SPEED},
+                )
+            )
+        tts = FallbackTTS(es_chain)
     else:
         # English — the canonical Cassie/Deedy/Sydney voice chain.
         tts = FallbackTTS([

@@ -115,10 +115,17 @@ every Voxaris voice agent.
 3. `cartesia/sonic-3` voice=`f9836c6e-…` (Southern Woman) — last resort
 
 **Spanish branch is INDEPENDENT** (separate config in the
-`_outbound_lang == "es"` block). The Rime mistv3 moraine voice is
-locked to `language="eng"` — never use it for ES calls. Spanish
-uses Cartesia ES (if `SYDNEY_TTS_VOICE_ID_ES` is set) or
-`rime/arcana` luna fallback.
+`_outbound_lang == "es"` block):
+
+- **Primary:** `rime/arcana` voice="luna" — Rime's arcana model is
+  multilingual; luna speaks Spanish natively. This IS the right
+  Spanish primary, not a degraded fallback.
+- **Optional fallback:** `cartesia/sonic-3` with `SYDNEY_TTS_VOICE_ID_ES`
+  for vendor-diversity + brand-voice unification across languages.
+
+The Rime mistv3 moraine voice is locked to `language="eng"` — never
+use it for ES calls (forcing English voice on Spanish text produces
+phonetic English-accent Spanish, sounds wrong).
 
 ⚠️ **NEVER add `phonemize_between_brackets` to the mistv3 config.**
 - Flag is documented for `mist` / `mistv2` only

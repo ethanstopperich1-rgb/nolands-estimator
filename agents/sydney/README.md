@@ -123,8 +123,11 @@ Fallback chain (English):
    audible voice drift but ensures the call doesn't go silent.
 
 Spanish path uses a separate chain (see `agent.py` `_outbound_lang`
-branch): Cartesia ES voice via `SYDNEY_TTS_VOICE_ID_ES` env if set,
-else straight to `rime/arcana` luna.
+branch). Primary is `rime/arcana` voice="luna" — Rime's arcana model
+is multilingual and speaks Spanish natively (this is the right
+primary, NOT a degraded fallback). `SYDNEY_TTS_VOICE_ID_ES` is an
+optional override that adds a Cartesia ES voice as a second-tier
+fallback for vendor-diversity / brand-voice unification.
 
 ⚠️ **Don't add `phonemize_between_brackets` to the mistv3 config.**
 The flag is documented for `mist` and `mistv2` only — mistv3 doesn't

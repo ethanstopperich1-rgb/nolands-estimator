@@ -1,13 +1,18 @@
-"""A/B test Cartesia Spanish voice candidates for Sydney.
+"""Optional: A/B test Cartesia Spanish voice candidates for Sydney.
+
+You don't need this — Spanish calls default to rime/arcana voice="luna"
+(multilingual, native Spanish). This script is ONLY for picking a
+Cartesia ES voice as a brand-voice unification preference (set via
+SYDNEY_TTS_VOICE_ID_ES env). Skip unless you specifically want a
+different vendor for Spanish than what Rime arcana provides.
 
 You browse https://play.cartesia.ai/voices, find 2-3 candidates that
 match the brand criteria below, drop their voice IDs into the
 CANDIDATES list, and run this script. It synthesizes the same short
-script in each voice via LiveKit Inference (no separate Cartesia key
-needed) and writes them to /tmp/sydney_es_*.wav so you can play them
-back and pick the one that sounds right.
+script in each voice via LiveKit Inference and writes them to
+/tmp/sydney_es_*.wav so you can play them back and pick.
 
-Brand criteria for the Sydney ES voice:
+Brand criteria for an optional Cartesia ES voice:
   - LATIN AMERICAN Spanish (NOT Castilian/Spain — FL homeowners hear
     Castilian as foreign / formal)
   - Warm, conversational, not corporate / not radio-broadcast
