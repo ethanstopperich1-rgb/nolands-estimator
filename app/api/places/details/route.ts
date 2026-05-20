@@ -1,0 +1,65 @@
+import { NextResponse } from "next/server";
+import { checkBotId } from "botid/server";
+import { rateLimit } from "@/lib/ratelimit";
+import { checkOrigin } from "@/lib/origin-guard";
+
+interface AddressComponent {
+  types?: string[];
+  shortText?: string;
+  longText?: string;
+}
+
+export async function GET(req: Request) {
+  const __o = checkOrigin(req);
+  if (__o) return __o;
+  const __rl = await rateLimit(req, "standard");
+  if (__rl) return __rl;
+  const __bot = await checkBotId();
+  if ("isBot" in __bot && __bot.isBot && !__bot.isVerifiedBot) {
+    return NextResponse.json({ error: "Bot detected" }, { status: 403 });
+  }
+  const apiKey = process.env.GOOGLE_SERVER_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  if (!apiKey) return NextResponse.json({ error: "Missing key" }, { status: 503 });
+  const { searchParams } = new URL(req.url);
+  const placeId = searchParams.get("placeId");
+  // Forward sessionToken from autocomplete — when present, this details
+  // call closes out the session and the preceding autocomplete keystrokes
+  // bill as one unit instead of per-request. See /api/places/autocomplete
+  // route header comment for the full rationale.
+  const sessionToken = searchParams.get("sessionToken");
+  if (!placeId) return NextResponse.json({ error: "placeId required" }, { status: 400 });
+
+  const detailsUrl =
+    `https://places.googleapis.com/v1/places/${placeId}` +
+    (sessionToken ? `?sessionToken=${encodeURIComponent(sessionToken)}` : "");
+  const res = await fetch(detailsUrl, {
+    headers: {
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "formattedAddress,addressComponents,location",
+    },
+    signal: AbortSignal.timeout(8_000),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return NextResponse.json({ error: "places error", detail: data }, { status: res.status });
+  }
+  const components = data.addressComponents as AddressComponent[] | undefined;
+  const zip = components?.find((c) => c.types?.includes("postal_code"))?.shortText;
+  // street_number is the leading numeric part of the address ("1234" in
+  // "1234 Main St"). When Places returns details for a fallback Place ID
+  // (e.g. the user typed "Main St" and we autocompleted), this field is
+  // OFTEN MISSING — which means we've geocoded a street, not a house.
+  // Surface it so the caller can refuse the submission instead of
+  // silently quoting a nearby roof.
+  const streetNumber = components?.find((c) =>
+    c.types?.includes("street_number"),
+  )?.shortText ?? null;
+  return NextResponse.json({
+    formatted: data.formattedAddress,
+    zip,
+    lat: data.location?.latitude,
+    lng: data.location?.longitude,
+    streetNumber,
+    hasStreetNumber: Boolean(streetNumber),
+  });
+}

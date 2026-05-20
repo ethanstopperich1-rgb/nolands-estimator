@@ -1,0 +1,2968 @@
+/**
+ * /api/gemini-roof — V3 truth pipeline endpoint.
+ *
+ * Fans out to Solar API + multiple Gemini calls in parallel:
+ *   1. Solar API → authoritative pitch + per-segment azimuth + footprint
+ *   2. Gemini 3 Pro Image (multimodal IMAGE+TEXT) → painted overlay
+ *   3. Gemini 2.5 Flash (structured JSON) → rooftop objects + material
+ *      + condition hints + visible damage + secondary structures
+ *   4. Gemini 2.5 Flash (structured JSON) → ridge/hip/valley/rake/eave
+ *      polylines for edge measurement
+ *
+ * The geometry module (lib/roof-geometry) handles pixel → lat/lng →
+ * sqft / LF math. This route is the orchestrator.
+ *
+ * ─── GEMINI 3 CONFIG RULES (empirically verified, do not "fix") ───────
+ *
+ * Google publishes two prompting guides that disagree on temperature,
+ * media resolution, parts order, and system-instruction placement.
+ * That's because they target two different task types:
+ *
+ *   A) IMAGE-UNDERSTANDING / TEXT GENERATION (Flash text calls below)
+ *      Google's `ai.google.dev/gemini-api/docs/prompt-strategies`:
+ *        - temperature 1.0 (Gemini 3 default)
+ *        - mediaResolution: MEDIA_RESOLUTION_HIGH for fine detail
+ *        - Persona + rules in systemInstruction
+ *        - parts order [image, text] per the image-understanding guide
+ *        - User content opens with anchor phrase "Based on the image
+ *          above, return..."
+ *
+ *   B) IMAGE-EDIT (Pro Image multimodal, responseModalities ["IMAGE","TEXT"])
+ *      The image-generation model is a DIFFERENT beast. We verified
+ *      Brad's working config against bad Pro Image responses on
+ *      2026-05-18 and the rules are:
+ *        - temperature 0 (1.0 → empty responses)
+ *        - NO mediaResolution param (causes empty responses)
+ *        - NO systemInstruction split (edit prompt must travel with
+ *          the image in user content)
+ *        - parts order [text, image] (image-first degraded facet-line
+ *          crispness in side-by-side; Brad's text-first produced the
+ *          magazine-clean Winter Garden + Orlando paints)
+ *        - Open with "Edit this 1280×1280 aerial satellite image."
+ *          NOT "You are a senior inspector..." (the persona opener
+ *          made Pro Image generate a new image from scratch)
+ *
+ * If a future Gemini release ever publishes an official image-edit
+ * prompting guide, revisit this. Until then: don't apply (A) rules to
+ * (B) calls.
+ *
+ * GET ?lat=X&lng=Y[&address=...&skipCache=1]
+ * POST { lat, lng, address?, skipCache? }
+ */
+
+import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
+import sharp from "sharp";
+import {
+  guardGeminiRoofRequest,
+  sanitizeGeminiRoofDebug,
+} from "@/lib/gemini-roof/request-guards";
+import {
+  parseGeminiRoofInputs,
+  type ParsedGeminiRoofInputs,
+} from "@/lib/gemini-roof/parse-inputs";
+import { AI_CALL_COST_USD, trackAiSpend } from "@/lib/cost-cap";
+import { validatePaintedPngBase64 } from "@/lib/validate-image";
+import { watermarkPaintedPng } from "@/lib/watermark";
+import { fetchWithTimeout } from "@/lib/safe-fetch";
+import {
+  getCached,
+  setCached,
+  getCachedByParcel,
+  setCachedByParcel,
+} from "@/lib/cache";
+import { fetchGisFootprint } from "@/lib/reconcile-roof-polygon";
+import { polygonAreaSqft } from "@/lib/polygon";
+import { rotateAllFacets } from "@/lib/solar-facets";
+import { classifyEdges } from "@/lib/roof-engine";
+import {
+  createServiceRoleClient,
+  supabaseServiceRoleConfigured,
+} from "@/lib/supabase";
+import type { Json } from "@/types/supabase";
+import type { Facet, Edge, Material } from "@/types/roof";
+import {
+  buildTileMetadata,
+  pixelPolygonToLatLng,
+  processVisionOutput,
+  reconcileGeminiAgainstSolar,
+  type ReconciliationResult,
+  type RoofMeasurements,
+  type SolarPlaneMatch,
+  type VisionRoofOutput,
+} from "@/lib/roof-geometry";
+import {
+  GEMINI_ROOF_SCHEMA,
+  GEMINI_ROOF_SYSTEM_INSTRUCTION,
+  GEMINI_ROOF_USER_TRIGGER,
+} from "@/lib/gemini-roof-prompt";
+import { extractCyanMask, maskToCyanOverlayPng, type CyanMask } from "@/lib/cyan-mask";
+import { compositeCyanOnAerial } from "@/lib/composite-cyan-overlay";
+import { countAzimuthClusters } from "@/lib/roof-geometry/azimuth-cluster";
+import {
+  filterPenetrations,
+  type RawObject,
+} from "@/lib/penetration-filter";
+import {
+  calculateGeometricWaste,
+  calculatePenetrationAdders,
+  calculateTieredPricingWithPenetrations,
+  geminiMaterialToRateKey,
+} from "@/lib/pricing/calculate-waste";
+import { lookupParcel, type ParcelLookupResult } from "@/lib/parcel-lookup";
+import {
+  runVisualRoofEval,
+  type EvalResult as VisualRoofEvalResult,
+} from "@/lib/visual-roof-eval";
+
+export const runtime = "nodejs";
+// Paint-only mode budget: Pro Image is the only Gemini call now.
+// 90s leaves ~30s of slack on top of typical 25–50s paint latency
+// without blowing past Vercel's default function ceiling.
+export const maxDuration = 90;
+
+const TILE_ZOOM = 20;
+const TILE_SCALE = 2 as const;
+const TILE_SIZE_PX = 640; // Google `size=640x640`; image becomes 1280×1280 at scale=2
+const GEMINI_MODEL =
+  process.env.GEMINI_MODEL ?? "gemini-3-pro-image-preview";
+const CACHE_SCOPE = "gemini-roof-v1";
+
+type GeminiPart =
+  | { text: string }
+  | { inline_data: { mime_type: string; data: string } }
+  | { inlineData: { mimeType: string; data: string } };
+
+type Confidence = "high" | "medium" | "low";
+
+interface GeminiPredictionRaw {
+  outline?: Array<{ x: number; y: number }>;
+  facets?: Array<{
+    letter: string;
+    polygon: Array<{ x: number; y: number }>;
+    orientation: string;
+    confidence: Confidence;
+  }>;
+  roof_lines?: Array<{
+    start: { x: number; y: number };
+    end: { x: number; y: number };
+    is_perimeter: boolean;
+  }>;
+  objects?: Array<{
+    kind:
+      | "vent"
+      | "chimney"
+      | "hvac_unit"
+      | "skylight"
+      | "plumbing_boot"
+      | "satellite_dish"
+      | "solar_panel";
+    center: { x: number; y: number };
+    bbox: { x: number; y: number; width: number; height: number };
+    confidence: Confidence;
+  }>;
+}
+
+interface SolarSegment {
+  pitchDegrees?: number;
+  azimuthDegrees?: number;
+  stats?: { areaMeters2?: number; groundAreaMeters2?: number };
+  boundingBox?: {
+    sw: { latitude: number; longitude: number };
+    ne: { latitude: number; longitude: number };
+  };
+}
+
+interface SolarResponse {
+  center?: { latitude: number; longitude: number };
+  /** Whole-building bbox. Google's photogrammetric building model
+   *  emits this alongside `center` — used to pick a tile zoom level
+   *  that makes the target building dominate the frame. */
+  boundingBox?: {
+    sw: { latitude: number; longitude: number };
+    ne: { latitude: number; longitude: number };
+  };
+  solarPotential?: {
+    roofSegmentStats?: SolarSegment[];
+    wholeRoofStats?: { groundAreaMeters2?: number };
+    maxArrayPanelsCount?: number;
+    maxSunshineHoursPerYear?: number;
+  };
+  imageryDate?: { year: number; month: number; day: number };
+  imageryQuality?: string;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+type ParsedInputs = ParsedGeminiRoofInputs;
+
+async function fetchGoogleStaticTile(
+  lat: number,
+  lng: number,
+  apiKey: string,
+  zoom: number = TILE_ZOOM,
+): Promise<{
+  /** Shadow-lifted version sent to Gemini for paint + analysis. */
+  base64: string;
+  /** Untouched Google Static Maps PNG bytes. The customer-facing display
+   *  composites cyan-mask-over-raw, not over the lifted version, so the
+   *  photo they see matches what Google actually has at the address. */
+  rawBase64: string;
+  mimeType: "image/png";
+}> {
+  const url =
+    `https://maps.googleapis.com/maps/api/staticmap` +
+    `?center=${lat},${lng}&zoom=${zoom}` +
+    `&size=${TILE_SIZE_PX}x${TILE_SIZE_PX}&scale=${TILE_SCALE}` +
+    `&maptype=satellite&key=${apiKey}`;
+  const res = await fetchWithTimeout(url, { timeoutMs: 15_000, cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`google_static_${res.status}`);
+  }
+  const raw = Buffer.from(await res.arrayBuffer());
+
+  // ─── Shadow-lift preprocessing ────────────────────────────────────────
+  // Lifts dark areas (skylight-cast shadows, tree shadows on roof,
+  // dormer shadows) before the tile reaches Gemini so the model is less
+  // tempted to treat sharp shadow boundaries as roof edges. We're not
+  // washing out the image — we're reducing the contrast between
+  // "lit shingle" and "shadowed shingle" so they read as the same
+  // surface.
+  //
+  // Pipeline:
+  //   - gamma(1.25): lifts midtones (the typical shingle exposure)
+  //     more than highlights or pure black. Shadow detail comes up
+  //     without blowing out bright roof areas.
+  //   - linear(0.92, 18): subtle contrast reduction + 18-unit black-
+  //     point lift. RGB(20,20,30) → ~(36,36,46); RGB(220,210,200) →
+  //     ~(220,211,202). Asymmetric lift = relative shadow brightening.
+  //   - modulate({ saturation: 0.92 }): slight desaturation reduces
+  //     the chance Gemini latches onto color edges that aren't real
+  //     plane transitions.
+  //
+  // Failure modes are bounded: the only downside of this preprocessing
+  // is a slightly flatter input image. The Gemini overlay still
+  // renders correctly on top of the ORIGINAL tile in the browser
+  // (we're only sending the lifted version to Gemini, not displaying
+  // it). Try/catch ensures a sharp failure just falls back to the raw
+  // tile — the route never breaks.
+  let processed: Buffer = raw;
+  try {
+    processed = await sharp(raw)
+      .gamma(1.25)
+      .linear(0.92, 18)
+      .modulate({ saturation: 0.92 })
+      .png()
+      .toBuffer();
+  } catch (err) {
+    console.warn(
+      "[gemini-roof] shadow-lift preprocessing failed; using raw tile:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  return {
+    base64: processed.toString("base64"),
+    rawBase64: raw.toString("base64"),
+    mimeType: "image/png",
+  };
+}
+
+/**
+ * Pick an optimal zoom level so the target building dominates the
+ * frame. Solar API's `boundingBox` gives us the building's lat/lng
+ * extent; we want the building's longest dimension to occupy roughly
+ * 50–65% of the 1280-px tile width.
+ *
+ * Reasoning: at zoom 20 (our prior default), a typical residential
+ * building (~12m wide) occupies only ~14% of the tile. The surrounding
+ * 86% is yard / driveway / neighbors — plenty of room for Gemini's
+ * visual attention to wander to a brighter neighboring roof. At a
+ * tighter zoom the target building physically dominates the frame
+ * and the wrong-building failure mode collapses to near zero.
+ *
+ * Clamped to [19, 22]:
+ *   - Zoom 22 is Google's max for satellite imagery in most US regions;
+ *     pushing further returns a blurred upscale.
+ *   - Zoom 19 is the floor — below that we lose roof-edge detail.
+ *
+ * The 20% padding factor is added to the building bbox so eaves and
+ * roof overhangs don't get cropped at the tile edges.
+ */
+function pickOptimalZoom(
+  bbox: NonNullable<SolarResponse["boundingBox"]>,
+  centerLat: number,
+): number {
+  const M_PER_DEG_LAT = 111_320;
+  const cosLat = Math.cos((centerLat * Math.PI) / 180);
+  const widthM = (bbox.ne.longitude - bbox.sw.longitude) * 111_320 * cosLat;
+  const heightM = (bbox.ne.latitude - bbox.sw.latitude) * M_PER_DEG_LAT;
+  const longestM = Math.max(widthM, heightM, 8) * 1.2; // 20% padding
+  const TARGET_FRACTION = 0.55;
+  const tilePx = TILE_SIZE_PX * TILE_SCALE; // 1280
+  const targetTileM = longestM / TARGET_FRACTION;
+  const targetMPerPx = targetTileM / tilePx;
+  // metersPerPixel = 156543.03392 × cos(lat) / 2^(Z + scale − 1)
+  // Solve for Z: Z = log2(num / mPerPx) − (scale − 1)
+  const num = 156_543.03392 * cosLat;
+  const z = Math.log2(num / targetMPerPx) - (TILE_SCALE - 1);
+  return Math.min(22, Math.max(19, Math.round(z)));
+}
+
+interface GeminiMultimodalResult {
+  /** Base64-encoded painted image returned by Gemini (PNG). */
+  paintedImageBase64: string | null;
+  /** Parsed Layer 2 object detection. Native Gemini format: box_2d is
+   *  [ymin, xmin, ymax, xmax] normalized 0-1000 per Google's docs.
+   *  We descale to pixel coords downstream via `box2dToPx()`. */
+  objects: Array<{
+    type: string;
+    box_2d: [number, number, number, number];
+    confidence: number;
+  }>;
+  /** Raw text part for debugging when JSON parse fails. */
+  rawText: string | null;
+}
+
+/**
+ * Descale Google's native [ymin, xmin, ymax, xmax] 0-1000 normalized
+ * format into our 1280×1280 tile's pixel coordinates + center.
+ * Gemini docs are explicit that this is the model's trained format;
+ * descaling on our side preserves accuracy.
+ */
+function box2dToPx(
+  box: [number, number, number, number],
+  tileSize = 1280,
+): {
+  centerPx: { x: number; y: number };
+  bboxPx: { x: number; y: number; width: number; height: number };
+} {
+  const [ymin, xmin, ymax, xmax] = box;
+  const k = tileSize / 1000;
+  const x = Math.round(xmin * k);
+  const y = Math.round(ymin * k);
+  const width = Math.max(1, Math.round((xmax - xmin) * k));
+  const height = Math.max(1, Math.round((ymax - ymin) * k));
+  return {
+    centerPx: {
+      x: Math.round(x + width / 2),
+      y: Math.round(y + height / 2),
+    },
+    bboxPx: { x, y, width, height },
+  };
+}
+
+/**
+ * Multimodal Gemini call. Requests BOTH an annotated image (cyan
+ * roof-overlay paint) AND JSON object-detection in one round trip via
+ * `responseModalities: ["IMAGE", "TEXT"]`. This is the V3 architecture
+ * — the painted image IS the visual we show the customer; the objects
+ * JSON drives the rich-data layer. Solar runs in parallel for the
+ * headline measurement number.
+ */
+async function callGeminiMultimodal(
+  tileBase64: string,
+  apiKey: string,
+  /**
+   * Solar API's segment count for this roof. When > 1, we inject a
+   * floor-count hint into the system prompt so Pro Image is forced to
+   * draw at least that many interior boundary lines. Pro Image
+   * working from a single overhead photo can otherwise visually merge
+   * adjacent hip planes with similar pitch — the customer-visible
+   * "one big diamond" failure mode the rep flagged on Jupiter
+   * 2026-05-18. Solar already has the photogrammetric truth; we just
+   * weren't telling Pro Image about it. Free fix, no extra API cost.
+   */
+  solarSegmentCount: number | null = null,
+): Promise<GeminiMultimodalResult> {
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/` +
+    `${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  // Append a per-request hint when Solar gave us a useful count.
+  // ≥2 because a single segment doesn't need a "split more" nudge.
+  const hint =
+    solarSegmentCount != null && solarSegmentCount >= 2
+      ? `\n\n## SEGMENTATION HINT (per-request)\nPhotogrammetric data for this property reports ${solarSegmentCount} distinct roof planes. Your interior 1-pixel boundary lines must reflect at least that many facets — every fold where two planes meet at a different pitch or azimuth gets its own crisp line. Do NOT merge adjacent planes into one continuous polygon just because they share a similar visual color from straight above.`
+      : "";
+  const promptForThisCall = GEMINI_ROOF_SYSTEM_INSTRUCTION + hint;
+  const body = {
+    // IMPORTANT: image-editing tasks (`responseModalities: ["IMAGE",
+    // "TEXT"]`) require the edit instruction to travel WITH the
+    // image in user content — moving it to systemInstruction broke
+    // the painted output on 2026-05-18. For multimodal image-edit
+    // calls, keep the full prompt inline. Text-only Flash calls
+    // (callGeminiRichData) DO use systemInstruction because there's
+    // no image-edit binding to worry about.
+    contents: [
+      {
+        // Parts order: [text, image]. Google's image-understanding
+        // doc recommends [image, text] for understanding tasks — but
+        // for image-EDIT tasks with `responseModalities: ["IMAGE",
+        // "TEXT"]`, the working configuration (verified by the
+        // magazine-clean Winter Garden + Orlando paints from 2026-05-
+        // 17) is text-first. Image-first reduced facet-outline
+        // crispness in side-by-side tests. Keep this as-is.
+        parts: [
+          { text: promptForThisCall },
+          { inline_data: { mime_type: "image/png", data: tileBase64 } },
+        ] satisfies GeminiPart[],
+      },
+    ],
+    generationConfig: {
+      // IMPORTANT: Pro Image (gemini-3-pro-image-preview) does NOT
+      // play by the same rules as the text/vision models.
+      //   - `temperature: 1.0` produces empty responses (verified on
+      //     Jupiter 2026-05-18: 200 OK with no inline_data part).
+      //   - `mediaResolution: HIGH` is likewise unsupported on image
+      //     generation — same empty-response failure mode.
+      // Both knobs are documented for Gemini 3 text/vision models, not
+      // image-edit. Keep this call at temperature 0 + no media res
+      // override. Flash text calls below still use temperature 1.0 +
+      // mediaResolution HIGH per Google's docs.
+      temperature: 0,
+      responseModalities: ["IMAGE", "TEXT"],
+    },
+  };
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    // Must be < route maxDuration (90s) so we fail fast with a clean
+    // error instead of letting Vercel kill the function with a
+    // FUNCTION_INVOCATION_TIMEOUT 504.
+    timeoutMs: 80_000,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`gemini_${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+          inline_data?: { mime_type: string; data: string };
+          inlineData?: { mimeType: string; data: string };
+        }>;
+      };
+    }>;
+  };
+
+  let paintedImageBase64: string | null = null;
+  let rawText: string | null = null;
+  const parts = json.candidates?.[0]?.content?.parts ?? [];
+  for (const part of parts) {
+    const inline = part.inline_data ?? part.inlineData;
+    if (inline?.data && !paintedImageBase64) {
+      paintedImageBase64 = inline.data;
+    }
+    if (part.text && !rawText) {
+      rawText = part.text;
+    }
+  }
+
+  // Parse objects out of the text part. Gemini may return:
+  //   - Pure JSON: { "objects": [...] }
+  //   - Markdown-fenced JSON: ```json\n{...}\n```
+  //   - JSON embedded in prose
+  // Strip code fences first, then look for the first {...} block.
+  let objects: GeminiMultimodalResult["objects"] = [];
+  if (rawText) {
+    let candidate = rawText.trim();
+    candidate = candidate.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const jsonSlice = candidate.slice(firstBrace, lastBrace + 1);
+      try {
+        const parsed = JSON.parse(jsonSlice) as { objects?: typeof objects };
+        if (Array.isArray(parsed.objects)) objects = parsed.objects;
+      } catch {
+        // Soft-fail — leave objects empty. The painted image is still useful.
+      }
+    }
+  }
+
+  return { paintedImageBase64, objects, rawText };
+}
+
+// Legacy single-modality call retained for non-pin-confirmed paths.
+// Returns the older structured-output shape (outline/facets/lines/objects).
+async function callGemini(
+  tileBase64: string,
+  apiKey: string,
+): Promise<GeminiPredictionRaw> {
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/` +
+    `${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const body = {
+    systemInstruction: { parts: [{ text: GEMINI_ROOF_SYSTEM_INSTRUCTION }] },
+    contents: [
+      {
+        parts: [
+          {
+            inline_data: {
+              mime_type: "image/png",
+              data: tileBase64,
+            },
+          },
+          { text: GEMINI_ROOF_USER_TRIGGER },
+        ] satisfies GeminiPart[],
+      },
+    ],
+    generationConfig: {
+      // See multimodal-call notes above for the temperature 1.0 +
+      // mediaResolution HIGH rationale.
+      temperature: 1.0,
+      mediaResolution: "MEDIA_RESOLUTION_HIGH",
+      responseMimeType: "application/json",
+      responseSchema: GEMINI_ROOF_SCHEMA,
+    },
+  };
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    timeoutMs: 55_000,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`gemini_${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("gemini_no_text_in_response");
+  }
+  let parsed: GeminiPredictionRaw;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`gemini_invalid_json: ${err instanceof Error ? err.message : "?"}`);
+  }
+  return parsed;
+}
+
+async function callSolar(
+  lat: number,
+  lng: number,
+  apiKey: string,
+): Promise<SolarResponse | null> {
+  const requiredQuality = process.env.SOLAR_REQUIRED_QUALITY ?? "LOW";
+  const url =
+    `https://solar.googleapis.com/v1/buildingInsights:findClosest` +
+    `?location.latitude=${lat}&location.longitude=${lng}` +
+    `&requiredQuality=${requiredQuality}&key=${apiKey}`;
+  try {
+    const res = await fetchWithTimeout(url, { timeoutMs: 15_000, cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as SolarResponse;
+  } catch {
+    return null;
+  }
+}
+
+function solarToPlaneMatches(solar: SolarResponse | null): SolarPlaneMatch[] {
+  const segs = solar?.solarPotential?.roofSegmentStats ?? [];
+  return segs
+    .filter((s) => s.boundingBox && typeof s.pitchDegrees === "number")
+    .map((s) => {
+      const bb = s.boundingBox!;
+      const centerLat = (bb.sw.latitude + bb.ne.latitude) / 2;
+      const centerLng = (bb.sw.longitude + bb.ne.longitude) / 2;
+      const areaM2 = s.stats?.areaMeters2 ?? 0;
+      return {
+        centerLat,
+        centerLng,
+        pitchDegrees: s.pitchDegrees ?? 0,
+        azimuthDeg: s.azimuthDegrees ?? 0,
+        solarAreaSqft: areaM2 * 10.7639,
+      };
+    });
+}
+
+function normalizeGeminiOutput(raw: GeminiPredictionRaw): VisionRoofOutput {
+  return {
+    outlinePx: raw.outline ?? [],
+    facets: (raw.facets ?? []).map((f) => ({
+      letter: f.letter,
+      polygonPx: f.polygon,
+      orientation: f.orientation,
+      confidence: f.confidence ?? "medium",
+    })),
+    roofLines: (raw.roof_lines ?? []).map((lf) => ({
+      startPx: lf.start,
+      endPx: lf.end,
+      isPerimeter: lf.is_perimeter,
+    })),
+    objects: (raw.objects ?? []).map((o) => ({
+      kind: o.kind,
+      centerPx: o.center,
+      bboxPx: o.bbox,
+      confidence: o.confidence ?? "medium",
+    })),
+  };
+}
+
+/**
+ * Convert the raw Google Solar response into the shape `classifyEdges`
+ * expects (Facet[] with rotated polygons). Mirrors what /api/solar +
+ * lib/sources/solar-source.ts do internally — inlined here so the V3
+ * route doesn't have to roundtrip through the HTTP /api/solar endpoint
+ * to get real edge measurements.
+ */
+function buildFacetsFromSolar(
+  solar: SolarResponse | null,
+): { facets: Facet[]; dominantAzimuthDeg: number | null } {
+  const segs = solar?.solarPotential?.roofSegmentStats ?? [];
+  if (segs.length === 0) return { facets: [], dominantAzimuthDeg: null };
+
+  // Per-segment enriched data (matches lib/sources/solar-source.ts shape)
+  const enriched = segs.map((s) => {
+    const bb = s.boundingBox;
+    return {
+      pitchDegrees: s.pitchDegrees ?? 0,
+      azimuthDegrees: s.azimuthDegrees ?? 0,
+      areaSqft: Math.round((s.stats?.areaMeters2 ?? 0) * 10.7639),
+      groundAreaSqft: Math.round((s.stats?.groundAreaMeters2 ?? 0) * 10.7639),
+      bboxLatLng: bb
+        ? {
+            swLat: bb.sw.latitude,
+            swLng: bb.sw.longitude,
+            neLat: bb.ne.latitude,
+            neLng: bb.ne.longitude,
+          }
+        : { swLat: 0, swLng: 0, neLat: 0, neLng: 0 },
+    };
+  });
+
+  // Area-weighted dominant azimuth, mod 90, double-angle averaged.
+  // Mirrors the helper inside /api/solar/route.ts so edges classify
+  // consistently across the two consumers.
+  let sumX = 0;
+  let sumY = 0;
+  let totalA = 0;
+  for (const s of enriched) {
+    if (s.areaSqft <= 0) continue;
+    const a = ((s.azimuthDegrees % 90) + 90) % 90;
+    const rad = (a * Math.PI) / 90;
+    sumX += Math.cos(rad) * s.areaSqft;
+    sumY += Math.sin(rad) * s.areaSqft;
+    totalA += s.areaSqft;
+  }
+  let dominantAzimuthDeg: number | null = null;
+  if (totalA > 0) {
+    const avg = (Math.atan2(sumY, sumX) * 90) / Math.PI / 2;
+    dominantAzimuthDeg = ((avg % 90) + 90) % 90;
+  }
+
+  // Rotate per-facet bboxes to the building's true axis (otherwise the
+  // edges are all axis-aligned and the edge classifier reports
+  // garbage). rotateAllFacets returns lat/lng polygons in the same
+  // order as the input enriched segments.
+  const segmentPolygons = rotateAllFacets(enriched, dominantAzimuthDeg);
+
+  const facets: Facet[] = enriched.map((seg, idx) => {
+    const polygon = segmentPolygons[idx] ?? [];
+    const pitchRad = (seg.pitchDegrees * Math.PI) / 180;
+    const azRad = (seg.azimuthDegrees * Math.PI) / 180;
+    return {
+      id: `facet-${idx}`,
+      polygon,
+      normal: {
+        x: Math.sin(pitchRad) * Math.sin(azRad),
+        y: Math.sin(pitchRad) * Math.cos(azRad),
+        z: Math.cos(pitchRad),
+      },
+      pitchDegrees: seg.pitchDegrees,
+      azimuthDeg: seg.azimuthDegrees,
+      areaSqftSloped: seg.areaSqft,
+      areaSqftFootprint: seg.groundAreaSqft,
+      material: null as Material | null,
+      isLowSlope: seg.pitchDegrees < 18.43,
+    };
+  });
+
+  return { facets, dominantAzimuthDeg };
+}
+
+/** Sum classified edges into EagleView-style totals (ridges + hips merged
+ *  to match EagleView's "Total Ridges/Hips" field; valleys, rakes, eaves
+ *  separate). */
+function sumEdgesByType(edges: Edge[]): {
+  ridgesHipsLf: number;
+  valleysLf: number;
+  rakesLf: number;
+  eavesLf: number;
+} {
+  let r = 0,
+    v = 0,
+    k = 0,
+    e = 0;
+  for (const edge of edges) {
+    if (edge.type === "ridge" || edge.type === "hip") r += edge.lengthFt;
+    else if (edge.type === "valley") v += edge.lengthFt;
+    else if (edge.type === "rake") k += edge.lengthFt;
+    else if (edge.type === "eave") e += edge.lengthFt;
+  }
+  return {
+    ridgesHipsLf: Math.round(r),
+    valleysLf: Math.round(v),
+    rakesLf: Math.round(k),
+    eavesLf: Math.round(e),
+  };
+}
+
+function imageryDateString(
+  d: SolarResponse["imageryDate"] | undefined,
+): string | null {
+  if (!d?.year) return null;
+  const m = String(d.month ?? 1).padStart(2, "0");
+  const day = String(d.day ?? 1).padStart(2, "0");
+  return `${d.year}-${m}-${day}`;
+}
+
+// ─── Route handlers ──────────────────────────────────────────────────
+
+/** V3 (holy-grail) response shape — pin-confirmed customer flow. */
+export interface GeminiRoofResponseV3 {
+  /** Customer-facing solar measurements (sqft, pitch, facets, etc).
+   *  When imagery quality is MEDIUM/LOW and Solar's photogrammetric
+   *  footprint is suspiciously low vs OSM, the `sqft` + `footprintSqft`
+   *  fields here are GIS-corrected (see `correction` for the audit
+   *  trail). The customer always sees the corrected number — the raw
+   *  Solar values are preserved under `correction.solarRawSqft` etc. */
+  solar: {
+    /** Customer-facing total sloped roof area in sqft.
+     *  Includes every Solar segment ≥ 3° pitch — i.e. the homeowner's
+     *  full "this is my roof" mental model: main shingle, low-slope
+     *  additions, lanai covers, screened-porch roofs. Excludes only
+     *  pool cages (0-2°) and pergolas. */
+    sqft: number | null;
+    /** Pricing-eligible asphalt-shingle roof area in sqft.
+     *  Tighter filter (≥ 12° pitch) so the tier prices stay calibrated
+     *  to the 4/12 manufacturer-warranty minimum. Customer page uses
+     *  this — not `sqft` — when computing Good/Better/Best tiers, so
+     *  the displayed roof number can be wider than the priced area
+     *  without the price ballooning. Equals `sqft` when every segment
+     *  is steeper than 12° (the common case on modern FL builds). */
+    quotableSqft: number | null;
+    footprintSqft: number | null;
+    pitchDegrees: number | null;
+    segmentCount: number;
+    imageryQuality: string | null;
+    imageryDate: string | null;
+  };
+  /** Undercount-correction audit trail. `applied: true` means we
+   *  swapped Solar's footprint for the GIS footprint × Solar slope.
+   *  Null when correction didn't run (HIGH imagery / GIS unavailable /
+   *  GIS failed validation). */
+  correction: {
+    applied: boolean;
+    reason: string;
+    /** Raw Solar values before correction. */
+    solarRawSlopedSqft: number;
+    solarRawFootprintSqft: number;
+    /** GIS source (OSM or MS Buildings) + its footprint area. */
+    gisSource: string | null;
+    gisFootprintSqft: number | null;
+    /** Multiplier applied to GIS footprint to get the corrected sloped
+     *  area: solarRawSloped / solarRawFootprint. */
+    slopeFactor: number | null;
+  } | null;
+  /** Tile metadata so the frontend can position the painted image
+   *  exactly where Google Maps would put a satellite tile. */
+  tile: {
+    centerLat: number;
+    centerLng: number;
+    zoom: number;
+    widthPx: number;
+    heightPx: number;
+  };
+  /** Customer-facing painted image. As of May 2026 this is a TRUE
+   *  composite: real Google Static Maps aerial + translucent cyan
+   *  overlay tracing the roof polygon Gemini detected (mask extracted
+   *  via lib/cyan-mask.ts, composited via lib/composite-cyan-overlay.ts,
+   *  watermarked, then returned). The frontend shows this directly.
+   *  Null only when both Gemini paint AND the raw aerial fetch failed
+   *  — extremely rare since the aerial is the same request Google
+   *  responded to for the tile. */
+  paintedImageBase64: string | null;
+  /** Gemini Pro Image's RAW generative paint output, pre-composite.
+   *  Useful for the rep workbench (debug: did Gemini paint correctly?
+   *  did the mask extractor catch every cyan pixel?). NOT shown to
+   *  customers when the dual publisher routes to "composite" or
+   *  "raw_aerial". Null when paint failed. */
+  paintedImageRawBase64: string | null;
+  /** Which path the route took to produce the customer's visible image.
+   *  "composite" = cyan mask drawn on the raw Google aerial (the normal
+   *  case); "raw_aerial" = no cyan available (paint or mask failed),
+   *  customer sees the bare satellite tile. The "pro_edit" variant was
+   *  removed when the dual publisher was reverted — Pro Image's output
+   *  is never shown directly to customers. */
+  customerImageSource: "composite" | "raw_aerial";
+  /** Rooftop objects detected by Gemini (vents, chimneys, skylights,
+   *  HVAC, solar panels, etc). Empty array when Gemini failed. */
+  objects: Array<{
+    type: string;
+    centerPx: { x: number; y: number };
+    bboxPx: { x: number; y: number; width: number; height: number };
+    confidence: number;
+  }>;
+  /** Derived totals from `objects[]` + tile GSD. Mirrors EagleView's
+   *  "Roof Penetrations: 3 · Perimeter 6 ft · Area 0.8 sq ft" block. */
+  penetrationTotals: {
+    count: number;
+    perimeterFt: number;
+    areaSqft: number;
+  };
+  /** EagleView-equivalent edge lengths derived from Solar's per-facet
+   *  azimuth + adjacency (production roof-engine classifier). Null
+   *  fields when Solar didn't return enough segments to classify. */
+  edges: {
+    ridgesHipsLf: number | null;
+    valleysLf: number | null;
+    rakesLf: number | null;
+    eavesLf: number | null;
+  };
+  /** Second-opinion edge totals from Gemini direct line detection.
+   *  Cheaper to compute (cheap Flash call, $0.005) but vision-fuzzy;
+   *  Solar's geometric classification is generally more reliable on
+   *  HIGH imagery. Use these when Solar has too few segments to
+   *  classify well (MEDIUM/LOW imagery on complex roofs).
+   *  `linesCount` is the raw count Gemini returned. */
+  geminiEdges: {
+    ridgesHipsLf: number;
+    valleysLf: number;
+    rakesLf: number;
+    eavesLf: number;
+    linesCount: number;
+  } | null;
+  /** Per-facet breakdown from Solar (one entry per roofSegmentStats).
+   *  Empty array when Solar returned no segments. */
+  facets: Array<{
+    pitchDegrees: number;
+    pitchOnTwelve: string;
+    azimuthDegrees: number;
+    compassDirection: string;
+    slopedSqft: number;
+    footprintSqft: number;
+  }>;
+  /** Whole-roof derived fields — also mirror EagleView. */
+  derived: {
+    stories: number;
+    estimatedAtticSqft: number | null;
+    predominantCompass: string | null;
+    complexity: "simple" | "moderate" | "complex";
+  };
+  /** Solar-API-only metrics: how much PV would fit, annual sunshine. */
+  solarPotential: {
+    maxPanels: number | null;
+    annualSunshineHours: number | null;
+  };
+  /** Vision analysis (separate from Solar's measurement). Rep-only
+   *  fields (visibleDamage, secondaryStructures, siteObstacles,
+   *  apparentAgeBand) drive the workbench's "site & condition notes"
+   *  panel — they are NOT surfaced to the customer page. */
+  geminiAnalysis: {
+    facetCountEstimate: {
+      count: number;
+      complexity: "simple" | "moderate" | "complex";
+      confidence: number;
+    } | null;
+    roofMaterial: { type: string; confidence: number } | null;
+    conditionHints: Array<{ hint: string; confidence: number }>;
+    visibleDamage: Array<{ kind: string; location_hint?: string; confidence: number }>;
+    secondaryStructures: Array<{ kind: string; confidence: number }>;
+    siteObstacles: Array<{ kind: string; confidence: number }>;
+    apparentAgeBand: { band: string; confidence: number } | null;
+  };
+  /** Cyan polygon as a TRANSPARENT-BACKGROUND PNG, suitable for use as
+   *  a Google Maps `GroundOverlay` on top of an interactive satellite
+   *  view. Customer pages render an interactive map at `tile.centerLat`
+   *  / `tile.centerLng` / `tile.zoom` and drape this PNG over it using
+   *  `cyanOverlayBounds`. Null when no usable cyan mask was extracted
+   *  (paint failed, returned no cyan, etc) — frontend should render the
+   *  satellite map without overlay in that case. */
+  cyanOverlay: {
+    /** Base64 PNG, transparent everywhere except where Gemini painted
+     *  cyan. */
+    base64: string;
+    /** Lat/lng bounds of the overlay — matches the source tile exactly,
+     *  so GroundOverlay aligns pixel-for-pixel with the satellite. */
+    bounds: { north: number; south: number; east: number; west: number };
+    widthPx: number;
+    heightPx: number;
+  } | null;
+  /** Always null in the current pipeline — paint-verify was removed
+   *  when the dual publisher was reverted (the cyan-mask-or-raw
+   *  composite already handles the "Pro Image gave us nothing useful"
+   *  case). Field kept on the interface so older readers
+   *  (eval harness, rep workbench) don't break. */
+  paintVerify: null;
+  /** Deterministic geometric signals that drive the geometric waste
+   *  formula. Exposed so the rep workbench / debug tools can audit
+   *  "why is the suggested waste 17%?". */
+  qualitySignals: {
+    /** Painted-polygon compactness ratio (perimeter² / 4π × area).
+     *  Null when paint failed. Simple rectangle ≈ 1.3, L ≈ 1.8, cross
+     *  ≈ 2.2+. */
+    compactness: number | null;
+    /** Number of distinct azimuth clusters mod 90° from Solar facets.
+     *  1 = simple gable/hip, 2 = L-shape, 3+ = cross-gable/multi-wing. */
+    azimuthClusters: number;
+    /** Fraction of kept objects detected in BOTH the raw-tile and
+     *  painted-image rich-data passes. Null when the second pass didn't
+     *  run (paint failed or Flash 5xx'd). */
+    twoPassAgreementRate: number | null;
+    /** Pass-by-pass counts through the penetration-filter chain. */
+    filterStats: {
+      raw: number;
+      afterConfidence: number;
+      afterBbox: number;
+      afterMask: number;
+      afterTwoPass: number;
+      afterDedup: number;
+      afterCaps: number;
+    };
+  };
+  /** Customer-side pricing inputs derived from the V3 measurement.
+   *  Returned in the response so the frontend (and any other reader)
+   *  doesn't have to reproduce the formula. */
+  pricing: {
+    /** Geometric waste % — calculated from facet count, azimuth
+     *  clusters, compactness, pitch, and secondary structures. */
+    recommendedWastePercent: number;
+    wasteBreakdown: {
+      fromFacets: number;
+      fromAzimuthClusters: number;
+      fromCompactness: number;
+      fromSteepPitch: number;
+      fromSecondaryStructures: number;
+    };
+    /** Sum of per-fixture adders from `objects[]` (chimney $700,
+     *  skylight $280, etc.). Customer total = effectiveSqft × rate +
+     *  penetrationAddersTotal. */
+    penetrationAddersTotal: number;
+    /** Per-type breakdown of penetration adders. */
+    penetrationAdderLines: Array<{
+      type: string;
+      count: number;
+      unit: number;
+      subtotal: number;
+    }>;
+  };
+  /** Florida statewide cadastral lookup (year built, sqft, value, sale
+   *  history) keyed off the Solar API building centroid — not the
+   *  geocoded address pin, which sits on the road centerline and misses
+   *  every parcel polygon.
+   *
+   *  Null when the property is non-residential, in a no-coverage county
+   *  (rare), or when Solar didn't return a building footprint. The V3
+   *  response is fully usable without it; the customer "Why this roof
+   *  needs attention" card just hides the parcel-derived bullets. */
+  parcel: ParcelLookupResult | null;
+  /** Customer-facing roof condition assessment derived from
+   *  Gemini 2.5 Pro reading the top-down satellite tile + a heading-
+   *  corrected Street View pano of the same building. Surfaced in the
+   *  ParcelBlock to give the customer hedged "what our imagery
+   *  suggests" pain points before the rep walks the property.
+   *
+   *  LEGAL FRAMING RULE — customer-facing renderers MUST hedge every
+   *  observation as a system detection ("appears to be", "our system
+   *  detected", "typically indicates") and defer ground truth to the
+   *  rep on-site. NEVER render the raw enum tokens to customers; map
+   *  them through a copy table that retains the hedge. See
+   *  feedback_visual_condition_legal_framing memory.
+   *
+   *  Null on any of:
+   *    - Either image fetch failed / Pro call failed / parse failed
+   *    - Pro timed out (45s soft ceiling, fail-open to null)
+   *    - Identity gate tripped (no image came back identity="match")
+   *
+   *  Confidence gate is the renderer's job — `confidence: "low"`
+   *  outputs SHOULD render material (if known) but suppress
+   *  conditionObservations. */
+  visualRoofAssessment: {
+    /** Raw enum from Pro. Renderer maps to plain English. */
+    primaryMaterial: string;
+    /** Subset of the schema enum — renderer further filters down to
+     *  pain-point observations only (omits `color_uniformity_good`,
+     *  `tree_overhang_heavy`, `no_visible_issues` from customer view). */
+    conditionObservations: string[];
+    confidence: "high" | "medium" | "low";
+    /** Free-text from Pro — rep-facing only. Not for customer copy. */
+    observationNotes: string | null;
+    /** True when Street View was within the 30m guardrail and Pro
+     *  flagged at least one image identity="match". Used to render
+     *  "verified from a [date] street-level photo" disclosure. */
+    streetViewVerified: boolean;
+    streetViewDate: string | null;
+  } | null;
+  modelVersion: string;
+  computedAt: string;
+}
+
+/** V2 (legacy) response shape — retained for the existing test harness +
+ *  any non-pin callers. The route gates on `pinConfirmed` to choose. */
+export interface GeminiRoofResponse {
+  measurements: RoofMeasurements;
+  reconciliation: ReconciliationResult;
+  imageryDate: string | null;
+  imageryQuality: string | null;
+  modelVersion: string;
+  computedAt: string;
+}
+
+const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominates frame
+// Bumped 2026-05-18 — schema change: objects now use Google's native
+// `box_2d` 0-1000 format instead of the prior `bounding_box` shape, so
+// any pre-existing cached entries would deserialize wrong. Bumping the
+// scope key forces a fresh painted call on every address. Also covers
+// the temperature: 1.0 + mediaResolution HIGH + systemInstruction split
+// changes from the same commit — any of those could produce a
+// different output even at the same lat/lng.
+// Bumped 2026-05-18 (round 2) — prompt now leads with "EDIT this
+// image" + image-before-text order to fix the cyan-blob-on-black
+// regression. Also fixed Solar slope-factor fallback for the
+// `sloped<footprint` impossible-data case.
+// Bumped 2026-05-18 — Pro Image now receives a per-request Solar
+// segment-count hint that forces interior facet subdivisions. Prior
+// cache entries lack that segmentation detail.
+// Bumped 2026-05-18 — Flash facet-count prompt now uses per-face
+// counting (EagleView-style) instead of per-wing counting. Cached
+// "5–10 facets on Jupiter" entries from before this change are no
+// longer correct — re-paint forces fresh per-face counts.
+// Bumped — cached entries from before paint-verify + composite shipped
+// carry hallucinated PNGs that we now (a) detect and retry via verify,
+// (b) overlay onto the real Google aerial via composite. Cache miss on
+// next read forces a fresh paint+verify+composite pass.
+// Bumped — verify rewritten for the composite world: drops the
+// MAE-on-non-cyan check (no longer relevant since the composite
+// discards Pro Image's facade) and adds a cyan-centroid sanity check.
+// Old cached entries from before this fix may include legitimate
+// paints that the prior strict MAE check rejected; force a re-roll.
+// Bumped — dual publisher reverted; pipeline condensed (verify removed,
+// both Flash line calls removed, second-pass painted rich-data removed).
+// Older cached responses are shaped differently; force a re-roll.
+// Bumped — composite now does a two-tier cyan render (full-opacity
+// stroke pixels on top of translucent fill) so the facet boundary
+// lines stay visible. Previously cached images were the flat-alpha
+// render where interior outlines disappeared; force a re-roll.
+// Bumped — stroke detection tightened + thin-line morphological
+// filter added. Old cached composites showed bright cyan smudges in
+// the interior of the fill (blob-shaped clusters that passed the
+// loose stroke detector). Force a re-roll under the new filter.
+// Bumped — cyan extraction now uses a continuous alpha map (smooth
+// per-pixel cyan strength) instead of a binary mask + separate stroke
+// channel. Composite gets Pro Image's anti-aliasing for free, killing
+// the jagged-edge / blob-smudge artifacts that needed morphological
+// chasing in the prior render. Force a re-roll of cached composites.
+// Bumped — cache keys now snap to FDOR parcel ID when available so
+// rep re-pins at the same property hit cache instead of burning a
+// fresh ~$0.08 Gemini Pro Image call. Falls back to lat/lng-keyed
+// caching when FDOR doesn't resolve. Previous bumps preserved
+// (full-sqft pricing, flash-lite-3-1, alpha-070, etc.)
+const CACHE_SCOPE_V3 = "gemini-roof-v3-parcel-keyed";
+
+/** Cheap text-only model used solely for structured-output object
+ *  detection alongside the painted-image call. Pro Image is expensive
+ *  ($0.075/call) and returns no text in multimodal mode — so we fan
+ *  out a second call to a Flash model with structured JSON output for
+ *  the vents/chimneys/skylights chips, material classification,
+ *  condition hints, etc. See `GEMINI_ROOF_SCHEMA` in
+ *  `lib/gemini-roof-prompt.ts` for the full output shape.
+ *
+ *  Model swap history:
+ *  - 2026-05-17 → `gemini-2.5-flash`: stable baseline, validated
+ *    against Newcomb / Jupiter eval set.
+ *  - 2026-05-19 → `gemini-3.1-flash-lite`: cheaper (~35% on Flash
+ *    spend), newer architecture, same generation as 3-flash-preview
+ *    / 3.5-flash without the frontier-pricing tax. Pricing:
+ *      $0.25 / $1.50 per 1M tokens (vs $0.30 / $2.50 on 2.5 flash).
+ *    DO NOT swap to `gemini-3.5-flash` ($1.50 / $9.00) without
+ *    eval — that model is priced for frontier-reasoning use cases
+ *    we don't have. ~80% of our Flash schema is enum classification
+ *    that's already saturated on 2.5; the one hard task (small-object
+ *    bounding boxes on satellite tiles) has no published benchmark
+ *    favoring 3.5 over 3.1. Default below kept on 3.1-flash-lite for
+ *    new deployments. */
+const GEMINI_OBJECTS_MODEL =
+  process.env.GEMINI_OBJECTS_MODEL ?? "gemini-3.1-flash-lite";
+
+const GEMINI_OBJECTS_PROMPT = `Analyze this 1280×1280 aerial satellite image of a residential property. The target building is centered at pixel (640, 640). Only consider the central building — ignore neighbors, yards, and ground objects (except for site_obstacles below).
+
+Return eight fields. Per-field rules below. Confidence on every field is float 0.0–1.0 reflecting your ACTUAL certainty (1.0 = sure; 0.7–0.9 = typical confident observation; <0.5 = genuine uncertainty).
+
+## 1. objects[] — physical rooftop fixtures
+Identify every physical fixture sitting on the central building's roof. Return ONLY what you can clearly identify.
+
+### Be conservative — false positives are worse than misses
+Many residential roofs have ZERO penetrations besides one or two small plumbing vents along the ridge. A typical asphalt-shingle roof with no skylights, no chimney, and no HVAC on the roof should return objects: []. Returning fixtures that aren't really there leads to inflated repair quotes and bad-faith customer experiences. Better to miss a real vent than to invent one.
+
+If you're not certain a feature is a physical 3D fixture, do NOT include it. Use confidence < 0.5 to mark uncertain detections — those are dropped downstream.
+
+### Visual cues for each type (what they actually look like)
+- **vent** — small circular or square cap, 6–12 inches across, white / galvanized / black metal. Has a clear sharp boundary and casts a small short shadow. Usually appears in groups of 1–4 along the ridge.
+- **plumbing_boot** — similar size to vent but with a flexible black rubber collar at the base.
+- **stack** — vertical pipe sticking up from the roof near the ridge (small; treat similarly to vent).
+- **chimney** — tall masonry or metal rectangular structure with a clearly distinct surface (brick texture or metal panels), typically 2–6 ft wide on the long dimension, penetrates near the ridge, casts a long shadow.
+- **hvac_unit** — large boxy unit ~3–5 ft on a side, usually on flat sections, often with visible grilles or fans. Almost never present on a residential pitched roof.
+- **skylight** — clear / translucent rectangular panel, distinctly LIGHTER than surrounding shingles, often with reflective glare. Has a clear straight-edged rectangular outline. NOT just a lighter patch — must have a definite rectangle shape.
+- **satellite_dish** — round / oval disc on a visible mount, distinctive curved shape with a clear shadow.
+- **solar_panel** — dark rectangular array, multiple panels in a grid, blue / black surface that's distinctly different from shingle texture.
+
+### Anti-patterns — these are NOT objects, do not detect them
+- **Discolored shingle patches** — areas where shingles have weathered unevenly, granule loss patches, or staining. These have soft fuzzy edges, blend into surrounding shingles, and don't cast shadows. Skip.
+- **Algae / moss streaks** — black or green vertical streaks running down a slope from the ridge. Skip (those are condition_hints, not objects).
+- **Dirt / debris piles** — leaves, branches, debris on the roof. Skip (condition_hints).
+- **Roof texture artifacts** — granule patterns, shingle seam shadows, ridge cap shadow lines. Skip.
+- **Shadows cast by features** — the shadow of a skylight is NOT a skylight; the shadow of a chimney is NOT a chimney. Return the feature once; ignore the shadow.
+- **Pixel-level satellite imagery noise** — compression artifacts, scan lines, sensor noise. Skip.
+
+### Discrimination test
+For each candidate, ask: "Does this have a CLEAR SHARP BOUNDARY, a UNIFORM SURFACE that's visibly different from shingles, and (if it's tall) a SHADOW that matches its expected height?" If all three answers are yes, include it. If any answer is "maybe," set confidence < 0.5. If two or more are no, skip it.
+
+### Counting rules
+- Each entry must correspond to a physical 3D object on the roof.
+- A shadow cast by an object is NOT a separate object. Three skylights side by side = 3 entries, not 6.
+- Skip objects under tree canopy (don't infer).
+- A roof with zero visible penetrations should return objects: [] — that's a valid answer.
+
+Per object: { type, center_pixel: [x, y], bounding_box: { x, y, width, height }, confidence }
+Confidence: 1.0 = sure; 0.7–0.9 = typical confident; <0.5 = uncertain (will be filtered out).
+
+## 2. facet_count_estimate — every visible triangular or trapezoidal face
+
+A facet is a SINGLE triangular or trapezoidal roof surface bounded by ridge / hip / valley / eave / rake edges. **Each face counts separately, even when it shares a pitch with an adjacent face.** This matches how a professional roof measurement service (e.g. EagleView) reports facet count — per-face, not per-wing.
+
+Targets by roof type (use these as calibration, not lower bounds):
+- Simple front-back gable: **2 facets**
+- Simple hip (square ranch): **4 facets** — N, S, E, W triangles meeting at the peak
+- L-shaped gable: **4 facets** (2 per wing)
+- Cross-hip (typical FL ranch): **8–12 facets** — each wing has its own 4 hip faces
+- Cross-hip + dormers: **12–20 facets**
+- Multi-wing hip + turret + porch: **20–40 facets**
+
+**Key counting rules** — these are where most under-counts come from:
+- A 4-sided hip roof has **FOUR facets** (the four triangle faces meeting at the apex), NOT ONE "hip wing"
+- A hexagonal turret has **SIX facets**, not one cone
+- An L-shaped house with two crossed hips has **EIGHT facets** (4 hips × 2 wings), NOT 2
+- A gable with one dormer adds **3–4 facets** to the parent gable's 2 (front, back + dormer sides + dormer face)
+- Eyebrow vents and small architectural pop-ups are separate facets
+- Each side of a cross-hip valley is its own facet (the valley line separates two adjacent facets, doesn't merge them)
+
+Do NOT count as separate facets:
+- **Shadows cast on a face** by skylights, chimneys, dormers, ridges, or trees — same face with a dark patch, not a new face
+- **Attached porches / carports with a visibly shallower separate roof** — those are separate structures and don't count
+- **Two halves of the same rectangular plane** divided by a shingle-color seam — still one face
+
+Classification (recalibrated for per-face counting):
+- **simple**: 2–8 facets (gable, simple hip, L-shape)
+- **moderate**: 9–20 facets (cross-hip, multi-wing, single dormer cluster)
+- **complex**: 21+ facets (multi-wing hip with turret, dormer cluster, attached additions)
+
+Return: { count, complexity, confidence }
+
+## 3. roof_material — predominant covering
+Choose the SINGLE most likely material. asphalt_shingle_architectural is the FL residential default unless you see clear evidence of another.
+
+Visual cues:
+- **asphalt_shingle_3tab** — uniform thin shingles, often gray, distinctive 3-tab pattern visible
+- **asphalt_shingle_architectural** — thicker dimensional shingles, varied granule pattern, slight shadow lines between courses
+- **concrete_tile** — uniform rectangular tiles in rows, often gray or earth-toned
+- **clay_tile_barrel** — half-cylinder S-curve tiles, distinctive ripple pattern, often terracotta / red
+- **clay_tile_flat** — flat rectangular clay tiles, terracotta colored
+- **metal_standing_seam** — long parallel vertical seams every 12–24 inches, shiny or matte metal
+- **metal_corrugated** — ribbed metal with regular wavy texture
+- **wood_shake** — irregular brown wood pieces in varied widths
+- **slate** — dark gray / black tiles, often irregular sizes
+- **membrane_flat** — smooth flat surface (TPO / EPDM), often gray or white, no shingle pattern
+- **unknown** — only when imagery is too poor to tell
+
+Return: { type, confidence }
+
+## 4. condition_hints[] — discrete visible signs of wear
+List ONLY observable features. Empty array is valid (and correct when the roof is intact). Use uniform_clean only when the entire roof has no notable issues.
+
+Allowed hints: moss_or_algae, dark_streaking, shingle_wear_granule_loss, missing_tabs, patches_or_repairs, tarp_visible, ponding_water, tree_debris, rust_staining, uniform_clean
+
+Per hint: { hint, confidence }
+
+## 5. visible_damage[] — discrete damage observations
+Each entry is ONE observation. Include only what you can SEE. Empty array is correct for healthy roofs.
+
+Allowed kinds: lifted_shingles, missing_shingles, exposed_underlayment, ridge_cap_lifting, visible_sagging, displaced_tiles, blistering, hail_bruising_pattern, wind_streak_pattern, patched_area
+
+Per damage: { kind, location_hint?: "north slope" / "ridge near chimney" / etc, confidence }
+
+## 6. secondary_structures[] — attached, continuous additions
+List ATTACHED additions whose roof plane is visibly CONTINUOUS with the main house (same pitch, same shingles, no horizontal seam at the wall).
+
+Allowed kinds: attached_garage, attached_carport, screened_lanai, covered_porch, sunroom, addition_wing, shed_attached
+
+Skip detached structures and porches with their own visibly shallower roofs (those are separate structures, not additions).
+
+Per structure: { kind, confidence }
+
+## 7. site_obstacles[] — crew access / staging concerns
+Surrounding features that would affect a roofing crew's access, dumpster staging, or material delivery.
+
+Allowed kinds: heavy_tree_overhang, overhead_utility_wires, pool_adjacent, narrow_side_yard, fenced_property, shared_driveway, steep_grade
+
+Per obstacle: { kind, confidence }
+
+## 8. apparent_age_band — rough age guess
+One band based on overall appearance (granule coverage uniformity, color uniformity, visible weathering). Rough banding, not a precise age.
+
+- new_under_5y — uniform sharp color, no streaking, clean granules
+- mid_5_to_15y — minor weathering, slightly faded color, no major issues
+- mature_15_to_25y — visible weathering, color variation, possible minor wear
+- end_of_life_25y_plus — heavy wear, granule loss, severely faded color
+- indeterminate — imagery too poor or roof too obscured
+
+Return: { band, confidence }`;
+
+
+interface GeminiRichDataResult {
+  objects: GeminiMultimodalResult["objects"];
+  facetCountEstimate: {
+    count: number;
+    complexity: "simple" | "moderate" | "complex";
+    confidence: number;
+  } | null;
+  roofMaterial: { type: string; confidence: number } | null;
+  conditionHints: Array<{ hint: string; confidence: number }>;
+  /** Discrete visible-damage observations — surfaced to the rep workbench
+   *  only (not the customer page). */
+  visibleDamage: Array<{ kind: string; location_hint?: string; confidence: number }>;
+  /** Attached additions whose roof plane is continuous with the main house. */
+  secondaryStructures: Array<{ kind: string; confidence: number }>;
+  /** Surrounding-site features that affect crew access or staging. */
+  siteObstacles: Array<{ kind: string; confidence: number }>;
+  /** Rough age banding from visible weathering. */
+  apparentAgeBand: { band: string; confidence: number } | null;
+  /** Raw text returned by Gemini. Surfaced for the ?debug=1 path so the
+   *  route can echo what the model actually emitted. */
+  rawText: string | null;
+}
+
+async function callGeminiRichData(
+  tileBase64: string,
+  apiKey: string,
+): Promise<GeminiRichDataResult> {
+  const empty: GeminiRichDataResult = {
+    objects: [],
+    facetCountEstimate: null,
+    roofMaterial: null,
+    conditionHints: [],
+    visibleDamage: [],
+    secondaryStructures: [],
+    siteObstacles: [],
+    apparentAgeBand: null,
+    rawText: null,
+  };
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/` +
+    `${GEMINI_OBJECTS_MODEL}:generateContent?key=${apiKey}`;
+  // Use the broader schema from lib/gemini-roof-prompt.ts which covers
+  // objects + facets + material + condition.
+  const body = {
+    systemInstruction: { parts: [{ text: GEMINI_OBJECTS_PROMPT }] },
+    contents: [
+      {
+        parts: [
+          { inline_data: { mime_type: "image/png", data: tileBase64 } },
+          {
+            text:
+              "Based on the aerial image above, return the JSON object " +
+              "matching the response schema — objects, facet count, " +
+              "material, condition, damage, additions, obstacles, age band.",
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 1.0,
+      mediaResolution: "MEDIA_RESOLUTION_HIGH",
+      responseMimeType: "application/json",
+      responseSchema: GEMINI_ROOF_SCHEMA,
+    },
+  };
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    timeoutMs: 30_000,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`gemini_rich_${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    console.warn("[gemini-rich] no_text_in_response");
+    return empty;
+  }
+  try {
+    const parsed = JSON.parse(text) as {
+      objects?: GeminiMultimodalResult["objects"];
+      facet_count_estimate?: GeminiRichDataResult["facetCountEstimate"];
+      roof_material?: GeminiRichDataResult["roofMaterial"];
+      condition_hints?: GeminiRichDataResult["conditionHints"];
+      visible_damage?: GeminiRichDataResult["visibleDamage"];
+      secondary_structures?: GeminiRichDataResult["secondaryStructures"];
+      site_obstacles?: GeminiRichDataResult["siteObstacles"];
+      apparent_age_band?: GeminiRichDataResult["apparentAgeBand"];
+    };
+    console.log(
+      `[gemini-rich] parsed objects=${parsed.objects?.length ?? 0} ` +
+        `facetEst=${parsed.facet_count_estimate ? "yes" : "no"} ` +
+        `material=${parsed.roof_material ? parsed.roof_material.type : "no"} ` +
+        `hints=${parsed.condition_hints?.length ?? 0} ` +
+        `damage=${parsed.visible_damage?.length ?? 0} ` +
+        `addons=${parsed.secondary_structures?.length ?? 0} ` +
+        `obstacles=${parsed.site_obstacles?.length ?? 0} ` +
+        `age=${parsed.apparent_age_band?.band ?? "no"}`,
+    );
+    return {
+      objects: parsed.objects ?? [],
+      facetCountEstimate: parsed.facet_count_estimate ?? null,
+      roofMaterial: parsed.roof_material ?? null,
+      conditionHints: parsed.condition_hints ?? [],
+      visibleDamage: parsed.visible_damage ?? [],
+      secondaryStructures: parsed.secondary_structures ?? [],
+      siteObstacles: parsed.site_obstacles ?? [],
+      apparentAgeBand: parsed.apparent_age_band ?? null,
+      rawText: text,
+    };
+  } catch (err) {
+    console.warn(
+      "[gemini-rich] parse_failed",
+      err instanceof Error ? err.message : String(err),
+      `text_preview=${text.slice(0, 200)}`,
+    );
+    return { ...empty, rawText: text };
+  }
+}
+
+/**
+ * Persists the V3 result to leads.roof_v3_json so the rep workbench
+ * can render "See report" instantly. Painted image (base64) is moved
+ * to Supabase Storage; the row carries the URL plus the structured
+ * summary. Mirrors the shape /api/leads/[publicId]/roof-v3 produces
+ * so downstream readers don't care which path filled the row.
+ *
+ * Best-effort — wrapped in waitUntil() by the caller. Any failure
+ * logs and silently no-ops; the customer doesn't see persistence
+ * errors.
+ */
+async function persistEstimateToLead(
+  leadPublicId: string,
+  result: GeminiRoofResponseV3,
+): Promise<void> {
+  if (!supabaseServiceRoleConfigured()) return;
+  const supabase = createServiceRoleClient();
+
+  // Upload painted PNG to Storage so the JSON row stays small.
+  //
+  // The `painted-roofs` bucket should be PRIVATE — earlier versions
+  // emitted a public URL, which meant anyone who learned a publicId
+  // (lead_<32-hex>) could pull customer-property imagery anonymously.
+  // Audit (2026-05) flagged this. Switch to a signed URL with a short
+  // TTL; the rep workbench renews on demand, and customer-facing share
+  // pages should fetch via a server route that re-signs per request.
+  //
+  // Migration note: bucket needs to be marked Private in Supabase
+  // Studio (or via SQL: update storage.buckets set public=false where
+  // id='painted-roofs'). Until that flips, getPublicUrl + signed URL
+  // both work; once flipped, only signed URLs work.
+  let paintedUrl: string | null = null;
+  if (result.paintedImageBase64) {
+    // Validate PNG magic-bytes + size cap even though the base64 here
+    // is server-produced. A cheap safety net against a future code path
+    // where this base64 turns out to be client-influenced.
+    const validated = validatePaintedPngBase64(result.paintedImageBase64);
+    if (!validated.ok) {
+      console.warn(
+        `[gemini-roof v3] painted_upload_rejected reason=${validated.reason}`,
+      );
+    } else {
+      try {
+        const objectKey = `${leadPublicId}.png`;
+        const up = await supabase.storage
+          .from("painted-roofs")
+          .upload(objectKey, validated.bytes, {
+            contentType: "image/png",
+            upsert: true,
+          });
+        if (!up.error) {
+          // Shared helper — parity with /api/leads + roof-v3 routes.
+          // See lib/painted-url.ts. Handles both public + private
+          // bucket configurations via one consistent URL shape.
+          const { mintPaintedUrl } = await import("@/lib/painted-url");
+          const minted = await mintPaintedUrl(supabase, leadPublicId);
+          if (minted.url) {
+            paintedUrl = minted.url;
+          } else {
+            console.warn(
+              "[gemini-roof v3] painted_url_mint_failed kind=" + minted.kind,
+            );
+          }
+        } else {
+          console.warn(
+            "[gemini-roof v3] painted_upload_failed",
+            up.error.message,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          "[gemini-roof v3] painted_upload_threw",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
+
+  const { paintedImageBase64: _drop, ...rest } = result;
+  void _drop;
+  const roofV3Json = {
+    ...rest,
+    painted_url: paintedUrl,
+    generated_at: new Date().toISOString(),
+    generated_via: "customer-flow",
+  } as unknown as Json;
+
+  // Defense-in-depth: look up the lead's office_id first and include
+  // it in the update predicate. Service-role bypasses RLS, so omitting
+  // office_id would let a malformed publicId match across tenants.
+  // PublicId entropy makes that practically infeasible today, but the
+  // invariant documented in lib/supabase.ts says "Always tag office_id".
+  const { data: priorLead } = await supabase
+    .from("leads")
+    .select("office_id")
+    .eq("public_id", leadPublicId)
+    .maybeSingle();
+  if (!priorLead) {
+    console.warn(
+      `[gemini-roof v3] persist_skipped lead_not_found publicId=${leadPublicId}`,
+    );
+    return;
+  }
+
+  // Compute customer-facing tier prices here so the lead row carries
+  // the same `estimate_low` / `estimate_high` numbers the customer saw
+  // on the result page. Prior version wrote only `roof_v3_json` and
+  // left the headline price columns null — the rep dashboard showed
+  // "No estimate" for customers who had clearly seen a price.
+  //
+  // Source of truth for sqft / waste / objects / material: this V3
+  // result. Same math the customer page (calculateTieredPricingWithPenetrations)
+  // runs against.
+  let estimateLow: number | null = null;
+  let estimateHigh: number | null = null;
+  const pricingSqft = result.solar.quotableSqft ?? result.solar.sqft ?? null;
+  if (pricingSqft && result.pricing) {
+    const wastePct = result.pricing.recommendedWastePercent;
+    const objects = result.objects ?? [];
+    const detectedMaterialKey = geminiMaterialToRateKey(
+      result.geminiAnalysis.roofMaterial?.type ?? null,
+    );
+    const matConf = result.geminiAnalysis.roofMaterial?.confidence ?? 0;
+    const pricingMaterialKey =
+      matConf >= 0.65 ? detectedMaterialKey : null;
+    try {
+      const { tiers } = calculateTieredPricingWithPenetrations(
+        pricingSqft,
+        {
+          suggestedPercent: wastePct,
+          complexityScore: 0,
+          breakdown: {
+            fromFacets: 0,
+            fromValleys: 0,
+            fromRidgesHips: 0,
+            fromSteepPitch: 0,
+          },
+          table: [],
+        },
+        objects,
+        pricingMaterialKey,
+      );
+      // Customer sees three tiers; the lead row carries the low/high
+      // band across the full tier ladder (Essentials → Fortified).
+      const totals = tiers.map((t) => t.total);
+      estimateLow = Math.min(...totals);
+      estimateHigh = Math.max(...totals);
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] tier_price_calc_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const updatePayload: {
+    roof_v3_json: Json;
+    estimate_low?: number;
+    estimate_high?: number;
+    estimated_sqft?: number;
+  } = { roof_v3_json: roofV3Json };
+  if (estimateLow != null) updatePayload.estimate_low = estimateLow;
+  if (estimateHigh != null) updatePayload.estimate_high = estimateHigh;
+  if (result.solar.sqft != null) updatePayload.estimated_sqft = result.solar.sqft;
+
+  const { error } = await supabase
+    .from("leads")
+    .update(updatePayload)
+    .eq("public_id", leadPublicId)
+    .eq("office_id", priorLead.office_id);
+  if (error) {
+    console.warn(
+      "[gemini-roof v3] lead_update_failed",
+      error.message,
+      `publicId=${leadPublicId}`,
+    );
+    return;
+  }
+  console.log(
+    `[gemini-roof v3] persisted_to_lead publicId=${leadPublicId} painted=${paintedUrl ? "yes" : "no"}`,
+  );
+}
+
+/**
+ * V3 handler — pin-confirmed customer flow ("the holy grail").
+ *
+ * The customer has dragged a pin onto the center of their roof. We:
+ *   1. Refetch a Google Static Maps tile centered EXACTLY on the pin
+ *      at fixed zoom 21 (1280×1280 px after scale=2).
+ *   2. Call Solar API in parallel for measurement data.
+ *   3. Call Gemini in multimodal mode — returns a cyan-painted version
+ *      of the tile + JSON of rooftop objects.
+ *   4. Return: painted image + Solar measurements + objects.
+ *
+ * No reconciliation, no Solar-bbox recentering, no centroid drift
+ * tolerance — the pin IS the source of truth.
+ */
+async function handleV3Pinned(
+  lat: number,
+  lng: number,
+  skipCache: boolean,
+  debug: boolean = false,
+  leadPublicId: string | null = null,
+): Promise<NextResponse> {
+  if (!skipCache) {
+    // Tier 1 — exact lat/lng cache. Catches the common case
+    // (geocoder is deterministic; same address → same lat/lng →
+    // same cache slot).
+    const cached = await getCached<GeminiRoofResponseV3>(CACHE_SCOPE_V3, lat, lng);
+    if (cached) return NextResponse.json(cached);
+
+    // Tier 2 — parcel-id cache. If lat/lng missed but the rep
+    // dragged the pin 30m within the same FDOR parcel, we already
+    // have an estimate for THIS property under the parcel-id key.
+    // Soft-fail to null: if FDOR lookup fails or no parcel
+    // intersects, we proceed to the full pipeline as before.
+    // Cost on cache hit: one FDOR call (~500ms-2s, often cached
+    // itself via lib/parcel-lookup.ts) vs ~$0.08 + 30s for full
+    // pipeline. Easy trade.
+    try {
+      const { lookupParcel } = await import("@/lib/parcel-lookup");
+      const parcel = await lookupParcel(lat, lng);
+      if (parcel?.parcelId) {
+        const cachedByParcel = await getCachedByParcel<GeminiRoofResponseV3>(
+          CACHE_SCOPE_V3,
+          parcel.parcelId,
+        );
+        if (cachedByParcel) {
+          console.log(
+            "[gemini-roof v3] parcel cache HIT — skipping pipeline",
+            { parcelId: parcel.parcelId, lat: lat.toFixed(5), lng: lng.toFixed(5) },
+          );
+          // Back-fill the lat/lng key so the NEXT request at this
+          // exact pin hits Tier 1 directly without another FDOR call.
+          void setCached(
+            CACHE_SCOPE_V3,
+            lat,
+            lng,
+            cachedByParcel,
+            60 * 60 * 24 * 30,
+          );
+          return NextResponse.json(cachedByParcel);
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] parcel cache probe failed (proceeding to pipeline):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const googleKey =
+    process.env.GOOGLE_SERVER_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  if (!googleKey) {
+    return NextResponse.json({ error: "missing_google_key" }, { status: 503 });
+  }
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return NextResponse.json({ error: "missing_gemini_key" }, { status: 503 });
+  }
+
+  // Post-call accounting — track cost AT pipeline entry rather than
+  // per-call, so a partial failure still bills the budget for whatever
+  // Gemini we did consume. Conservative: assume one paint + one Flash +
+  // one Solar fanout on every V3 entry that misses cache.
+  void trackAiSpend(
+    AI_CALL_COST_USD.gemini_pro_image_paint +
+      AI_CALL_COST_USD.gemini_flash_json +
+      AI_CALL_COST_USD.solar_findclosest,
+    `gemini-roof-v3 lat=${lat.toFixed(4)} lng=${lng.toFixed(4)}`,
+  );
+
+  // Pin = tile center. Fixed zoom 21. No Solar recentering.
+  const [tile, solar] = await Promise.all([
+    fetchGoogleStaticTile(lat, lng, googleKey, PIN_TILE_ZOOM),
+    callSolar(lat, lng, googleKey),
+  ]);
+
+  // Kick off the FL statewide cadastral lookup the moment Solar is back.
+  // KEY DESIGN CHOICE: we hand the FDOR FeatureServer Solar's BUILDING
+  // CENTROID, not the incoming (lat,lng) pin. The customer pin lands on
+  // road centerlines roughly half the time (geocoders snap to the
+  // mailbox), and FDOR parcel polygons don't include the road right-of-
+  // way — so a pin-driven query misses every residential parcel on the
+  // map. Solar's centroid is inside the building footprint, which is
+  // inside the parcel polygon, which makes the lookup hit.
+  // When Solar didn't return a building (rural acreage, brand-new
+  // construction, water), fall back to the pin so we still attempt a
+  // lookup — worst case is null, which the customer card handles.
+  // Fires concurrently with the Gemini fan-out below; ~300ms is free
+  // latency against the 25-30s Pro Image call.
+  const parcelQueryPoint = solar?.center
+    ? { lat: solar.center.latitude, lng: solar.center.longitude }
+    : { lat, lng };
+  const parcelPromise = lookupParcel(parcelQueryPoint.lat, parcelQueryPoint.lng);
+
+  // Pipeline architecture:
+  //   - Multimodal paint (Pro Image, ~25–50s) — the cyan overlay.
+  //     THIS PROMPT IS LOCKED. It's not hallucinating and the visual
+  //     wow factor is critical. Do not modify GEMINI_ROOF_PROMPT
+  //     unless objects are misbehaving again.
+  //   - Rich-data Flash (~8–15s) runs IN PARALLEL — free latency
+  //     since paint dominates total wall clock. Provides facet count
+  //     correction (Solar undercounts on some imagery), penetration
+  //     objects (vents, skylights, chimneys), roof material guess.
+  //     Strict confidence floor 0.60 to prevent the "4 skylights, 3
+  //     vents on a clean roof" hallucinations seen before.
+  //   - Line-trace Flash calls REMAIN REMOVED — edge LFs from those
+  //     never aligned with EagleView and weren't shown to the customer.
+  //
+  // Two-call parallel mode keeps total latency ≈ paint latency (the
+  // user's hard constraint of < 45s) while restoring the data points
+  // the rep workbench needs.
+  let paintedImageBase64: string | null = null;
+  let objects: GeminiRoofResponseV3["objects"] = [];
+  let geminiAnalysis: GeminiRoofResponseV3["geminiAnalysis"] = {
+    facetCountEstimate: null,
+    roofMaterial: null,
+    conditionHints: [],
+    visibleDamage: [],
+    secondaryStructures: [],
+    siteObstacles: [],
+    apparentAgeBand: null,
+  };
+  let geminiRawText: string | null = null;
+  let geminiRichErr: string | null = null;
+  // Three-call parallel block — total wall clock = max(paint) ≈ 25–30s.
+  //   - Pro Image paint (slowest)
+  //   - Flash rich-data (objects + facet count + material)
+  //   - Flash lines-on-raw (eaves / ridges / valleys / rakes / hips
+  //     from the RAW satellite tile). Flash 2.5 has been trained on
+  //     aerial imagery and can identify real roof geometry directly.
+  //     This is the fallback if the painted-pass below returns empty
+  //     lines (the painted-pass strokes can get absorbed into the
+  //     translucent cyan fill on some roofs — observed on Newcomb).
+  // Pull Solar's segment count BEFORE firing Pro Image so we can inject
+  // it as a "minimum facets" hint. Solar's already resolved at this
+  // point (it ran in parallel with the tile fetch), so this is a free
+  // synchronous read. On Jupiter's hip-and-turret composition Solar
+  // returns ~5 distinct shingle segments. Without this hint Pro Image
+  // visually merged adjacent same-pitch hips into one big polygon.
+  //
+  // SEGMENTATION HINT — DISABLED (May 2026 post-Oak-Park audit).
+  //
+  // The hint was added in `a32a487` to push Pro Image to subdivide
+  // adjacent same-pitch hips on simple 4-facet roofs ("paint at least
+  // N planes"). It worked on Newcomb. It broke spectacularly on Oak
+  // Park's 17-segment estate — the model satisfied the count by
+  // fabricating facet boundaries, which flipped it from "real photo
+  // edit" mode into "generative fill" mode, producing the symmetric
+  // CGI-looking building the customer immediately recognized as wrong.
+  //
+  // The 3°-filter variant (prior iteration of this slot) was a partial
+  // mitigation — still left the hint at 17 on Oak Park because every
+  // segment cleared 3°. After two passes of audit (Cursor + external
+  // review) the call is to remove the hint entirely. Pro Image's
+  // natural behavior on a clean satellite tile is a faithful
+  // translucent cyan edit, and the composite step below extracts the
+  // cyan mask and overlays it on the real Google aerial — so even
+  // when Pro Image's facade interpretation drifts, the customer sees
+  // their actual roof with cyan only where we measured.
+  //
+  // If we ever bring it back, gate strictly: cap at 6 and only inject
+  // when Solar's roofSegmentStats.length is in [2, 6]. Never on
+  // complex multi-wing estates.
+  const solarSegmentsForHint: number | null = null;
+  // Three-call parallel fan-out (paint + flash rich-data + visual
+  // roof assessment). Prior versions also fired callGeminiLines on raw
+  // + painted, which produced rep-only edge LFs flagged as unreliable
+  // in the route header AND pushed total wall clock past the 90s
+  // function ceiling on complex roofs (Vercel logs showed the raw-
+  // lines call timing out at 30s). Cutting both line calls + the
+  // second-pass painted rich-data call brings the pipeline from
+  // 70-120s back to 30-55s, leaving headroom to fold the visual roof
+  // assessment into the same parallel block.
+  //
+  // Visual roof assessment (gemini-2.5-pro × top-down + Street View)
+  // is fail-open with a hard 45s ceiling — it's a customer-facing
+  // pain-point surface, NOT a measurement input. Any failure path
+  // (timeout, network, parse, identity mismatch) → null → ParcelBlock
+  // omits the condition section. Uses tile.rawBase64 because the
+  // shadow-lifted variant Pro Image / Flash receive flattens the very
+  // signal (granule shading, streaking) the condition assessor needs.
+  const VISUAL_ASSESSMENT_TIMEOUT_MS = 45_000;
+  const visualEvalPromise: Promise<VisualRoofEvalResult | null> = Promise.race([
+    runVisualRoofEval({
+      lat,
+      lng,
+      label: `pin=${lat.toFixed(5)},${lng.toFixed(5)}`,
+      geminiKey,
+      googleKey,
+      topDownBytes: Buffer.from(tile.rawBase64, "base64"),
+    }).catch((err) => {
+      console.warn(
+        "[gemini-roof v3] visual_assessment_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+      return null;
+    }),
+    new Promise<null>((resolve) =>
+      setTimeout(() => {
+        console.warn(
+          `[gemini-roof v3] visual_assessment_timeout after ${VISUAL_ASSESSMENT_TIMEOUT_MS}ms`,
+        );
+        resolve(null);
+      }, VISUAL_ASSESSMENT_TIMEOUT_MS),
+    ),
+  ]);
+  void trackAiSpend(
+    AI_CALL_COST_USD.gemini_pro_visual_assessment,
+    `gemini-roof-v3-visual lat=${lat.toFixed(4)} lng=${lng.toFixed(4)}`,
+  );
+
+  const [paintedResult, richResult, visualResult] = await Promise.allSettled([
+    callGeminiMultimodal(tile.base64, geminiKey, solarSegmentsForHint),
+    callGeminiRichData(tile.base64, geminiKey),
+    visualEvalPromise,
+  ]);
+
+  // ─── Visual roof assessment → identity gate → slim shape for response ──
+  // Trip null when:
+  //   - call failed / timed out (Promise.race resolved to null above)
+  //   - Pro returned but JSON parse failed
+  //   - identity gate: no image flagged as "match" — Pro saw a
+  //     different building or both views were obstructed. Surfacing
+  //     condition copy under either case would describe the wrong
+  //     roof, which violates the legal-framing rule even with hedging.
+  let visualRoofAssessment: GeminiRoofResponseV3["visualRoofAssessment"] = null;
+  if (visualResult.status === "fulfilled" && visualResult.value) {
+    const ev = visualResult.value;
+    const parsed = ev.pro.parsed;
+    if (parsed) {
+      const anyImageMatched = parsed.images.some((i) => i.identity === "match");
+      if (anyImageMatched) {
+        const conf = (parsed.confidence ?? "low") as "high" | "medium" | "low";
+        visualRoofAssessment = {
+          primaryMaterial: parsed.primaryMaterial ?? "unknown",
+          conditionObservations: parsed.conditionObservations ?? [],
+          confidence: conf,
+          observationNotes: parsed.observationNotes ?? null,
+          streetViewVerified: !ev.pano.skipped,
+          streetViewDate: ev.pano.date,
+        };
+      } else {
+        console.log(
+          `[gemini-roof v3] visual_assessment_identity_gated images=${parsed.images
+            .map((i) => `${i.index}:${i.identity}`)
+            .join(",")}`,
+        );
+      }
+    }
+  } else if (visualResult.status === "rejected") {
+    console.warn(
+      "[gemini-roof v3] visual_assessment_settled_rejected",
+      visualResult.reason instanceof Error
+        ? visualResult.reason.message
+        : String(visualResult.reason),
+    );
+  }
+
+  if (paintedResult.status === "fulfilled") {
+    paintedImageBase64 = paintedResult.value.paintedImageBase64;
+  } else {
+    console.warn(
+      "[gemini-roof v3] painted_call_failed",
+      paintedResult.reason instanceof Error
+        ? paintedResult.reason.message
+        : String(paintedResult.reason),
+    );
+  }
+
+  // Raw object detections from the raw-tile rich-data pass. We DO NOT
+  // apply the old flat 0.60 confidence floor here any longer — instead
+  // we hand the unfiltered objects to filterPenetrations() further
+  // down, which layers six independent guards (type-specific
+  // confidence, bbox-in-feet, cyan-mask gate, two-pass agreement,
+  // dedup, per-sqft caps). The new chain is calibrated to handle the
+  // same "4 skylights, 3 vents" false-positive case without throwing
+  // out real high-confidence detections.
+  let rawObjects: RawObject[] = [];
+  if (richResult.status === "fulfilled") {
+    const rich = richResult.value;
+    rawObjects = rich.objects.map((o) => {
+      const { centerPx, bboxPx } = box2dToPx(o.box_2d);
+      return {
+        type: o.type,
+        centerPx,
+        bboxPx,
+        confidence: o.confidence,
+      };
+    });
+    geminiAnalysis = {
+      facetCountEstimate: rich.facetCountEstimate,
+      roofMaterial: rich.roofMaterial,
+      conditionHints: rich.conditionHints,
+      visibleDamage: rich.visibleDamage,
+      secondaryStructures: rich.secondaryStructures,
+      siteObstacles: rich.siteObstacles,
+      apparentAgeBand: rich.apparentAgeBand,
+    };
+    geminiRawText = rich.rawText;
+  } else {
+    geminiRichErr =
+      richResult.reason instanceof Error
+        ? `${richResult.reason.name}: ${richResult.reason.message}`
+        : String(richResult.reason);
+    console.warn("[gemini-roof v3] rich_data_call_failed", geminiRichErr);
+  }
+
+  // ─── Cyan-mask extraction (serial after paint) ───────────────────────
+  // Single sharp call, ~1s. Returns null when paint failed or returned
+  // nothing usable; the composite step below handles null mask by
+  // falling back to the bare aerial.
+  let cyanMask: CyanMask | null = null;
+  if (paintedImageBase64) {
+    try {
+      cyanMask = await extractCyanMask(paintedImageBase64);
+      if (cyanMask) {
+        console.log(
+          `[gemini-roof v3] cyan_mask area_px=${cyanMask.areaPx} ` +
+            `perimeter_px=${cyanMask.perimeterPx} ` +
+            `compactness=${cyanMask.compactness?.toFixed(2) ?? "null"}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] cyan_mask_extract_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  console.log(
+    `[gemini-roof v3] pinned (${lat.toFixed(5)},${lng.toFixed(5)}) ` +
+      `painted=${paintedImageBase64 ? "yes" : "no"} ` +
+      `raw_objects=${rawObjects.length} ` +
+      `cyan_mask=${cyanMask ? `yes (${cyanMask.areaPx}px)` : "no"} ` +
+      `facets=${geminiAnalysis.facetCountEstimate?.count ?? "null"}`,
+  );
+
+  // Filter out flat / near-flat Solar segments before summing sqft.
+  //
+  // Solar's photogrammetric model treats attached flat planes as
+  // legitimate roof segments — pool cages / screen enclosures, lanai
+  // covers, attached pergolas, carport awnings. None of those get
+  // shingled (they need TPO or modified bitumen if anything at all),
+  // and including them inflates the customer-visible price by 20-40%
+  // on homes with a big pool overhang.
+  //
+  // Threshold of 5° (≈ 1/12 pitch) cleanly separates real shingled
+  // roof (4/12 = 18° and steeper) from screen/lanai planes (0-3°).
+  // Modern flat-roof homes (rare in FL) would be filtered too — but
+  // those need a different product anyway, so the shingles estimator
+  // declining to quote them is the right behavior.
+  // ─── Two-threshold split (May 2026) ───────────────────────────────
+  // The customer's gut check is "is the sqft number the size of MY roof?"
+  // Filtering all sub-12° segments out of the displayed total broke that
+  // check on 8450 Oak Park (real customer report): the house's two
+  // low-slope wings (11.6° / 6.6°) were eaten by the filter, displayed
+  // 4,357 vs Solar's actual 5,487 (-20%). Customer immediately said
+  // "that's not my house" and trust collapsed.
+  //
+  // The earlier 12° threshold wasn't wrong — it was answering a
+  // DIFFERENT question (what area do we PRICE as asphalt-shingle re-roof,
+  // given the 4/12 manufacturer-warranty floor). Both questions matter.
+  //
+  // Resolution: two thresholds.
+  //   • DISPLAY_MIN_PITCH_DEG = 3°  — everything above this is "real
+  //     roof you'd recognize as yours." 3° excludes pool cages (0-2°)
+  //     and pergolas (effectively flat) but includes lanai covers and
+  //     low-slope additions that the homeowner identifies as their roof.
+  //   • SHINGLE_MIN_PITCH_DEG = 12° — used for the *pricing-eligible
+  //     shingle area*. Anything 5-12° gets re-roofed but with a
+  //     different (membrane / metal / TPO) product, priced elsewhere.
+  //
+  // The customer-facing header sqft = displayedSlopedSqft.
+  // Pricing tiers + facets array continue to use the 12°-filtered set
+  // so Brad's prior calibration on Newcomb/Jupiter holds.
+  const DISPLAY_MIN_PITCH_DEG = 3;
+  const SHINGLE_MIN_PITCH_DEG = 12;
+  const allSegments = solar?.solarPotential?.roofSegmentStats ?? [];
+
+  const displaySegments = allSegments.filter(
+    (seg) => (seg.pitchDegrees ?? 0) >= DISPLAY_MIN_PITCH_DEG,
+  );
+  const displaySlopedM2 = displaySegments.reduce(
+    (s, seg) => s + (seg.stats?.areaMeters2 ?? 0),
+    0,
+  );
+
+  const shingleOnlySegments = allSegments.filter(
+    (seg) => (seg.pitchDegrees ?? 0) >= SHINGLE_MIN_PITCH_DEG,
+  );
+  const shingleOnlyM2 = shingleOnlySegments.reduce(
+    (s, seg) => s + (seg.stats?.areaMeters2 ?? 0),
+    0,
+  );
+  const excludedM2 = displaySlopedM2 - shingleOnlyM2;
+
+  // ─── Excluded-area sanity check (May 2026) ────────────────────────
+  // When Solar's 12° pricing gate excludes more than ~40% of the
+  // displayed (3°+) area, that's a strong signal Solar's segment
+  // pitches are wrong on this property — not that the property really
+  // has half its roof as low-slope membrane.
+  //
+  // Failure mode this catches: hipped FL homes where tree canopy or a
+  // bad photogrammetric pass biases segment pitches downward, classifying
+  // real shingle slopes as 5-11° (just below the gate). Customer sees a
+  // normal hip roof on the satellite, but the card prices only half of it,
+  // undercutting the quote ~50% and looking broken. Reported case:
+  // 2414 Weber St, Orlando — 2,271 sqft displayed, only 982 sqft priced
+  // because Solar classified 1,289 sqft as <12°. House has no visible
+  // flat sections on satellite.
+  //
+  // When triggered, trust the whole displayed (3°+) area as pricing-
+  // eligible. quotableSqft === displaySqft, so the customer-page
+  // disclaimer copy falls through to the "full X sqft of shingled roof"
+  // branch (no near-flat split).
+  const LOW_PITCH_OVERRIDE_THRESHOLD = 0.4;
+  const excludedFraction =
+    displaySlopedM2 > 0 ? excludedM2 / displaySlopedM2 : 0;
+  const pricingOverrideApplied =
+    displaySlopedM2 > 0 &&
+    excludedFraction > LOW_PITCH_OVERRIDE_THRESHOLD;
+
+  // shingleSegments / totalSlopedM2 flow into pricing, facets, azimuth
+  // clusters, segmentCount. When the override fires, all of those use
+  // the broader 3°+ set so the priced area matches the displayed area.
+  const shingleSegments = pricingOverrideApplied
+    ? displaySegments
+    : shingleOnlySegments;
+  const totalSlopedM2 = pricingOverrideApplied
+    ? displaySlopedM2
+    : shingleOnlyM2;
+  const excludedSegments = allSegments.length - shingleOnlySegments.length;
+  const totalFootprintM2 =
+    solar?.solarPotential?.wholeRoofStats?.groundAreaMeters2 ?? 0;
+  const avgPitchDeg = (() => {
+    if (shingleSegments.length === 0 || totalSlopedM2 === 0) return null;
+    return (
+      shingleSegments.reduce(
+        (s, seg) => s + (seg.pitchDegrees ?? 0) * (seg.stats?.areaMeters2 ?? 0),
+        0,
+      ) / totalSlopedM2
+    );
+  })();
+
+  if (pricingOverrideApplied) {
+    console.log(
+      `[gemini-roof v3] low_pitch_override ` +
+        `excluded=${Math.round(excludedM2 * 10.7639)}sqft ` +
+        `(${(excludedFraction * 100).toFixed(0)}% of 3°+ area) ` +
+        `> ${Math.round(LOW_PITCH_OVERRIDE_THRESHOLD * 100)}% threshold ` +
+        `— Solar segmentation suspect, pricing whole displayed area`,
+    );
+  } else if (excludedSegments > 0) {
+    console.log(
+      `[gemini-roof v3] flat_segments_excluded ` +
+        `count=${excludedSegments}/${allSegments.length} ` +
+        `area=${Math.round(excludedM2 * 10.7639)}sqft ` +
+        `(pitch<${SHINGLE_MIN_PITCH_DEG}° — pool cage/lanai/awning)`,
+    );
+  }
+
+  // Gemini-line edge LFs are no longer computed — both Flash line calls
+  // were cut to keep the pipeline under the 90s function ceiling. Rep
+  // workbench falls back to Solar's geometric `classifyEdges` (already
+  // populated as `result.edges` below) when it needs edge totals.
+  const geminiEdges: GeminiRoofResponseV3["geminiEdges"] = null;
+
+  // Raw Solar values (in sqft).
+  const solarRawSloped = totalSlopedM2 > 0 ? Math.round(totalSlopedM2 * 10.7639) : 0;
+  const solarRawFootprint = totalFootprintM2 > 0 ? Math.round(totalFootprintM2 * 10.7639) : 0;
+
+  // ─── Undercount correction (ported from lib/roof-pipeline.ts) ─────
+  // Solar's photogrammetric model can dramatically undercount complex
+  // roofs on MEDIUM/LOW imagery (Jupiter case: 1,721 sqft on a 3,654
+  // sqft building, -53%). When imagery quality is below HIGH AND
+  // Solar's footprint is suspiciously small vs the OSM/MS-Buildings
+  // building polygon, swap in `GIS footprint × Solar slope ratio` as
+  // the corrected sloped area. Solar's measured pitch is solid even
+  // on MEDIUM imagery — only the AREA is unreliable.
+  //
+  // HIGH-imagery cases (Solar.imageryQuality === "HIGH") pass through
+  // unchanged because Solar is already accurate (Orlando: -2.3%,
+  // Oak Park: +1.6%, Winter Garden: trusted).
+  let correction: GeminiRoofResponseV3["correction"] = null;
+  let finalSlopedSqft = solarRawSloped;
+  let finalFootprintSqft = solarRawFootprint;
+
+  // Confidence proxy: HIGH = 0.85, MEDIUM = 0.70, LOW = 0.55. Same
+  // mapping as production solar-source.ts.
+  const solarConfidence =
+    solar?.imageryQuality === "HIGH"
+      ? 0.85
+      : solar?.imageryQuality === "MEDIUM"
+        ? 0.7
+        : solar?.imageryQuality === "LOW"
+          ? 0.55
+          : 0.5;
+  const solarBelowHigh = solarConfidence < 0.85;
+  const haveRawValues = solarRawSloped > 0 && solarRawFootprint > 0;
+  const solarFullyFailed = !solar || solarRawFootprint === 0;
+
+  // Branch A: Solar returned nothing at all (rural 404 / zero segments).
+  // Try GIS for a footprint; without Solar pitch we can't compute sloped
+  // sqft, so the response carries footprint-only + null pitch + null
+  // sloped sqft. UI surfaces "auto-pitch unavailable" so a rep can
+  // enter pitch manually in /dashboard/estimate. Correction is recorded
+  // so the audit trail is honest: footprint is real GIS truth, pitch
+  // is unknown — no fake data injected.
+  if (solarFullyFailed) {
+    try {
+      const gis = await fetchGisFootprint(lat, lng, undefined);
+      if (gis) {
+        const gisSqft = polygonAreaSqft(gis.polygon);
+        const cosLat = Math.cos((lat * Math.PI) / 180);
+        const gisCLat =
+          gis.polygon.reduce((s, p) => s + p.lat, 0) / gis.polygon.length;
+        const gisCLng =
+          gis.polygon.reduce((s, p) => s + p.lng, 0) / gis.polygon.length;
+        const dLatM = (gisCLat - lat) * 111_320;
+        const dLngM = (gisCLng - lng) * 111_320 * cosLat;
+        const gisOffsetM = Math.hypot(dLatM, dLngM);
+        const gisIsResidential = gisSqft >= 600 && gisSqft <= 12_000;
+        const gisCentroidNearPin = gisOffsetM <= 25;
+        if (gisIsResidential && gisCentroidNearPin) {
+          finalFootprintSqft = Math.round(gisSqft);
+          correction = {
+            applied: true,
+            reason:
+              `solar_unavailable: Solar API returned no data. ` +
+              `${gis.source} footprint ${Math.round(gisSqft)} sqft used; ` +
+              `pitch unknown — rep must enter manually.`,
+            solarRawSlopedSqft: 0,
+            solarRawFootprintSqft: 0,
+            gisSource: gis.source,
+            gisFootprintSqft: Math.round(gisSqft),
+            slopeFactor: null,
+          };
+          console.log(
+            `[gemini-roof v3] solar_unavailable_gis_only ` +
+              `gis=${gis.source} sqft=${Math.round(gisSqft)} offset_m=${gisOffsetM.toFixed(0)}`,
+          );
+        } else {
+          correction = {
+            applied: false,
+            reason:
+              `solar_unavailable + GIS rejected (` +
+              (!gisIsResidential
+                ? `${Math.round(gisSqft)} sqft outside [600,12000]`
+                : `centroid ${gisOffsetM.toFixed(0)}m from pin (>25m)`) +
+              `).`,
+            solarRawSlopedSqft: 0,
+            solarRawFootprintSqft: 0,
+            gisSource: gis.source,
+            gisFootprintSqft: Math.round(gisSqft),
+            slopeFactor: null,
+          };
+        }
+      } else {
+        correction = {
+          applied: false,
+          reason:
+            "solar_unavailable + no GIS footprint (OSM + MS Buildings both empty).",
+          solarRawSlopedSqft: 0,
+          solarRawFootprintSqft: 0,
+          gisSource: null,
+          gisFootprintSqft: null,
+          slopeFactor: null,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] solar_unavailable_gis_lookup_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  } else if (solarBelowHigh && haveRawValues) {
+    try {
+      const hn = undefined; // pin-confirmed flow has no street-number context
+      const gis = await fetchGisFootprint(lat, lng, hn);
+      if (gis) {
+        const gisSqft = polygonAreaSqft(gis.polygon);
+        const ratio = solarRawFootprint / gisSqft;
+
+        // Validate GIS polygon — residential bounds + centroid near pin.
+        const gisIsResidential = gisSqft >= 600 && gisSqft <= 12_000;
+        const cosLat = Math.cos((lat * Math.PI) / 180);
+        const gisCLat =
+          gis.polygon.reduce((s, p) => s + p.lat, 0) / gis.polygon.length;
+        const gisCLng =
+          gis.polygon.reduce((s, p) => s + p.lng, 0) / gis.polygon.length;
+        const dLatM = (gisCLat - lat) * 111_320;
+        const dLngM = (gisCLng - lng) * 111_320 * cosLat;
+        const gisOffsetM = Math.hypot(dLatM, dLngM);
+        const gisCentroidNearPin = gisOffsetM <= 25;
+        const solarUndercounting = ratio < 0.6;
+
+        if (gisIsResidential && gisCentroidNearPin && solarUndercounting) {
+          // Slope factor: ratio of sloped surface area to ground
+          // footprint. For a pitched roof, this MUST be >= 1.0
+          // (sloped surface is the hypotenuse). When Solar's
+          // imagery is bad, it sometimes returns `sloped < footprint`
+          // — physically impossible. Verified on Jupiter 2026-05-18:
+          // Solar returned sloped=1419 / footprint=1612 → 0.88,
+          // which then dragged OSM 3,336 × 0.88 = 2,937 instead of
+          // the correct ~3,594. Fix: detect the bad case and use the
+          // physical slope factor from avgPitchDeg.
+          const rawSlopeFactor = solarRawSloped / solarRawFootprint;
+          const physicalSlopeFactor =
+            avgPitchDeg != null && avgPitchDeg > 0 && avgPitchDeg < 80
+              ? 1 / Math.cos((avgPitchDeg * Math.PI) / 180)
+              : null;
+          let slopeFactor: number;
+          let slopeFactorSource: string;
+          if (rawSlopeFactor >= 1.0) {
+            slopeFactor = rawSlopeFactor;
+            slopeFactorSource = "solar raw ratio";
+          } else if (physicalSlopeFactor != null) {
+            // Solar gave a physically-impossible ratio. Recompute
+            // from average pitch (1 / cos(θ)).
+            slopeFactor = physicalSlopeFactor;
+            slopeFactorSource = `physical 1/cos(${avgPitchDeg!.toFixed(1)}°)`;
+          } else {
+            // No pitch data either — assume a 5/12 (22.6°) typical
+            // FL residential roof, slope factor ≈ 1.083.
+            slopeFactor = 1.083;
+            slopeFactorSource = "default 5/12";
+          }
+          const correctedSloped = Math.round(gisSqft * slopeFactor);
+          finalSlopedSqft = correctedSloped;
+          finalFootprintSqft = Math.round(gisSqft);
+          correction = {
+            applied: true,
+            reason:
+              `Solar imagery ${solar?.imageryQuality ?? "?"} undercounted: ` +
+              `${solarRawFootprint} sqft → ${Math.round(gisSqft)} sqft footprint ` +
+              `(${gis.source} GIS, slope ${slopeFactor.toFixed(3)} ` +
+              `from ${slopeFactorSource})`,
+            solarRawSlopedSqft: solarRawSloped,
+            solarRawFootprintSqft: solarRawFootprint,
+            gisSource: gis.source,
+            gisFootprintSqft: Math.round(gisSqft),
+            slopeFactor: Number(slopeFactor.toFixed(3)),
+          };
+          console.log(
+            `[gemini-roof v3] solar_undercount_corrected ` +
+              `gis=${gis.source} solar_footprint=${solarRawFootprint} ` +
+              `gis_sqft=${Math.round(gisSqft)} ratio=${ratio.toFixed(2)} ` +
+              `final_sqft=${correctedSloped}`,
+          );
+        } else if (gis) {
+          // GIS was fetched but didn't meet correction criteria. Record
+          // why so the audit trail explains the no-op.
+          const why = !gisIsResidential
+            ? `GIS ${Math.round(gisSqft)} sqft outside residential bounds [600,12000]`
+            : !gisCentroidNearPin
+              ? `GIS centroid ${gisOffsetM.toFixed(0)}m from pin (>25m)`
+              : `Solar not undercounting (ratio ${ratio.toFixed(2)} ≥ 0.6)`;
+          correction = {
+            applied: false,
+            reason: `Correction skipped: ${why}`,
+            solarRawSlopedSqft: solarRawSloped,
+            solarRawFootprintSqft: solarRawFootprint,
+            gisSource: gis.source,
+            gisFootprintSqft: Math.round(gisSqft),
+            slopeFactor: null,
+          };
+        }
+      } else {
+        correction = {
+          applied: false,
+          reason: "No GIS footprint available (OSM + MS Buildings both empty).",
+          solarRawSlopedSqft: solarRawSloped,
+          solarRawFootprintSqft: solarRawFootprint,
+          gisSource: null,
+          gisFootprintSqft: null,
+          slopeFactor: null,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] undercount_check_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // ─── Derived totals (penetrations, facets, edges, attic, stories) ──
+  //
+  // The customer-facing report needs to mirror EagleView's anatomy
+  // section. Everything below is computed deterministically from data
+  // we already have on the server — no extra API calls.
+
+  // Tile GSD (meters per pixel) at the pin location/zoom. Used to
+  // convert Gemini's pixel bboxes into feet for penetration totals.
+  const tileCosLat = Math.cos((lat * Math.PI) / 180);
+  const tileMPerPx =
+    (156_543.03392 * tileCosLat) / Math.pow(2, PIN_TILE_ZOOM + TILE_SCALE - 1);
+  const M_TO_FT = 3.28084;
+
+  // ─── Six-guard penetration filter ─────────────────────────────────────
+  //
+  // Replaces the prior flat 0.60 confidence floor with the layered chain
+  // in lib/penetration-filter.ts:
+  //   1. Type-specific confidence floors (chimney 0.80, vent 0.55, …)
+  //   2. Bbox-in-feet sanity (a vent is not 6 ft wide)
+  //   3. Cyan-mask geometric gate (object must sit on painted roof)
+  //   4. Two-pass agreement (raw-tile AND painted-image both saw it)
+  //   5. Dedup within 24" (the skylight + its cast shadow case)
+  //   6. Per-sqft type caps (roofs have plumbing physics, not infinite vents)
+  //
+  // Each guard returns its own audit trail in filterStats.rejections so
+  // the rep workbench can show "why isn't this skylight in the quote?".
+  const filterCtxSqft =
+    finalSlopedSqft > 0
+      ? finalSlopedSqft
+      : finalFootprintSqft > 0
+        ? finalFootprintSqft
+        : 2000;
+  const { kept: filteredObjects, stats: filterStats } = filterPenetrations(
+    rawObjects,
+    {
+      cyanMask,
+      tileMPerPx,
+      totalSqft: filterCtxSqft,
+      // Single-pass detection — the two-pass painted-image cross-check
+      // was cut for latency. The type-specific confidence floors +
+      // bbox-in-feet + cyan-mask gate in lib/penetration-filter still
+      // catch the headline false-positive cases without it.
+      secondaryDetections: null,
+    },
+  );
+  objects = filteredObjects.map((o) => ({
+    type: o.type,
+    centerPx: o.centerPx,
+    bboxPx: o.bboxPx,
+    confidence: o.confidence,
+  }));
+  console.log(
+    `[gemini-roof v3] filter_chain ` +
+      `raw=${filterStats.raw} ` +
+      `→conf=${filterStats.afterConfidence} ` +
+      `→bbox=${filterStats.afterBbox} ` +
+      `→mask=${filterStats.afterMask} ` +
+      `→2pass=${filterStats.afterTwoPass} ` +
+      `→dedup=${filterStats.afterDedup} ` +
+      `→caps=${filterStats.afterCaps} ` +
+      `(agreement=${filterStats.twoPassAgreementRate?.toFixed(2) ?? "n/a"})`,
+  );
+
+  // Penetration totals (perimeter + area) from Gemini's object bboxes.
+  let penetrationPerimeterFt = 0;
+  let penetrationAreaSqft = 0;
+  for (const o of objects) {
+    const wFt = o.bboxPx.width * tileMPerPx * M_TO_FT;
+    const hFt = o.bboxPx.height * tileMPerPx * M_TO_FT;
+    penetrationPerimeterFt += 2 * (wFt + hFt);
+    penetrationAreaSqft += wFt * hFt;
+  }
+  const penetrationTotals = {
+    count: objects.length,
+    perimeterFt: Math.round(penetrationPerimeterFt * 10) / 10,
+    areaSqft: Math.round(penetrationAreaSqft * 10) / 10,
+  };
+
+  // Per-facet breakdown from Solar's roofSegmentStats.
+  function azToCompass(az: number): string {
+    const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    return dirs[Math.round(((az % 360) + 360) % 360 / 45) % 8];
+  }
+  function degreesToOnTwelve(deg: number): string {
+    if (deg <= 0) return "flat";
+    if (deg >= 80) return "vertical";
+    const rise = Math.tan((deg * Math.PI) / 180) * 12;
+    return `${Math.max(1, Math.round(rise))}/12`;
+  }
+  // Use the same shingle-segments set so the rep workbench's facet
+  // list excludes pool cages / lanai planes that won't be shingled.
+  const facets: GeminiRoofResponseV3["facets"] = shingleSegments
+    .filter((s) => typeof s.pitchDegrees === "number")
+    .map((s) => {
+      const pitchDegrees = s.pitchDegrees ?? 0;
+      const azimuthDegrees = s.azimuthDegrees ?? 0;
+      const slopedSqft = Math.round(((s.stats?.areaMeters2 ?? 0) * 10.7639) * 10) / 10;
+      const footprintSqft = Math.round(((s.stats?.groundAreaMeters2 ?? 0) * 10.7639) * 10) / 10;
+      return {
+        pitchDegrees,
+        pitchOnTwelve: degreesToOnTwelve(pitchDegrees),
+        azimuthDegrees,
+        compassDirection: azToCompass(azimuthDegrees),
+        slopedSqft,
+        footprintSqft,
+      };
+    });
+
+  // EagleView-equivalent edge totals — derived from Solar's per-facet
+  // adjacency using the production roof-engine classifier.
+  //
+  // The classifier walks every facet polygon edge, detects pairs of
+  // edges shared between adjacent facets (those are interior:
+  // ridge/hip/valley), and classifies them using the building's
+  // dominant azimuth + the edge bearing. Open edges (no shared
+  // partner) become eave or rake based on whether they're parallel
+  // or perpendicular to the dominant axis.
+  //
+  // This is what production /estimate uses; we're just plumbing it
+  // through the V3 endpoint. On HIGH-imagery cases the numbers are
+  // accurate enough to use for material orders. On MEDIUM/LOW (e.g.
+  // Jupiter's 6 segments), Solar's per-facet geometry is coarser so
+  // these are approximations — but they're principled approximations
+  // rooted in actual photogrammetry rather than the prior heuristics.
+  const { facets: rawFacets, dominantAzimuthDeg } = buildFacetsFromSolar(solar);
+  const classifiedEdges = classifyEdges(rawFacets, dominantAzimuthDeg);
+  const edges: GeminiRoofResponseV3["edges"] =
+    classifiedEdges.length === 0
+      ? { ridgesHipsLf: null, valleysLf: null, rakesLf: null, eavesLf: null }
+      : sumEdgesByType(classifiedEdges);
+
+  // Predominant compass direction (area-weighted).
+  let predominantCompass: string | null = null;
+  if (facets.length > 0) {
+    const byDir = new Map<string, number>();
+    for (const f of facets) {
+      byDir.set(f.compassDirection, (byDir.get(f.compassDirection) ?? 0) + f.slopedSqft);
+    }
+    let best: string | null = null;
+    let bestArea = -1;
+    byDir.forEach((area, dir) => {
+      if (area > bestArea) {
+        best = dir;
+        bestArea = area;
+      }
+    });
+    predominantCompass = best;
+  }
+
+  // Stories heuristic — steep + compact → 2-story, sprawling shallow → 1.
+  const stories =
+    avgPitchDeg != null && avgPitchDeg >= 26.6 && finalFootprintSqft > 0 && finalFootprintSqft <= 2_000
+      ? 2
+      : 1;
+
+  // Estimated attic — footprint × 0.91 (chimney/utility chase allowance).
+  const estimatedAtticSqft =
+    finalFootprintSqft > 0 ? Math.round(finalFootprintSqft * 0.91) : null;
+
+  // Complexity (derived; prefer Gemini's call when available).
+  const complexity: "simple" | "moderate" | "complex" =
+    geminiAnalysis.facetCountEstimate?.complexity ??
+    (facets.length >= 11 ? "complex" : facets.length >= 5 ? "moderate" : "simple");
+
+  // ─── Geometric waste + penetration adders ────────────────────────────
+  //
+  // Both feed the customer-facing tier prices. Waste replaces the old
+  // flat 12% with a property-specific formula derived from facet count,
+  // azimuth clusters (number of distinct wings), painted-polygon
+  // compactness, average pitch, and the count of attached additions.
+  const azimuthClusters = countAzimuthClusters(
+    shingleSegments
+      .filter((s) => typeof s.azimuthDegrees === "number" && s.stats?.areaMeters2)
+      .map((s) => ({
+        azimuthDegrees: s.azimuthDegrees ?? 0,
+        areaSqft: (s.stats?.areaMeters2 ?? 0) * 10.7639,
+      })),
+  );
+  const geometricWaste = calculateGeometricWaste({
+    facetCount: geminiAnalysis.facetCountEstimate?.count ?? facets.length ?? null,
+    azimuthClusters,
+    compactness: cyanMask?.compactness ?? null,
+    avgPitchDeg,
+    secondaryStructuresCount: geminiAnalysis.secondaryStructures.length,
+    totalSqft: filterCtxSqft,
+  });
+  const penetrationAdders = calculatePenetrationAdders(objects);
+  console.log(
+    `[gemini-roof v3] waste=${geometricWaste.suggestedPercent}% ` +
+      `azimuth_clusters=${azimuthClusters} ` +
+      `compactness=${cyanMask?.compactness?.toFixed(2) ?? "null"} ` +
+      `penetration_adders=$${penetrationAdders.total}`,
+  );
+
+  // ─── Customer-facing composite (May 2026 fix) ──────────────────────
+  // Replace Gemini's full-frame generated paint with a TRUE composite:
+  // the real Google Static Maps aerial + the cyan polygon Gemini found.
+  // The customer sees their actual satellite photo with cyan tint only
+  // over the roof planes; Gemini's generative reinterpretation of the
+  // building (which can render fictional facets on complex hip roofs)
+  // never reaches the customer page.
+  //
+  // Gemini's raw paint is kept on `paintedImageRawBase64` for the rep
+  // workbench / debug, where seeing both is useful.
+  //
+  // Order of operations:
+  //   1. composite cyan-mask-over-raw-aerial → customer's painted image
+  //   2. watermark the composite (not the raw Gemini output anymore)
+  //   3. line-classification + downstream consumers already ran above
+  //      on the unwatermarked raw paint; no impact on measurement math
+  const paintedImageRawBase64 = paintedImageBase64;
+  // ─── Customer-facing composite ─────────────────────────────────────
+  // Two outcomes:
+  //   1. Mask has cyan → composite cyan polygon onto the RAW Google
+  //      aerial. Customer sees their actual photo with cyan only on
+  //      the measured roof planes. Pro Image's generative reinterpre-
+  //      tation of the facade never reaches the customer.
+  //   2. Mask is empty (Pro Image failed or returned no cyan) → show
+  //      the raw aerial alone. Customer still sees a real photo of
+  //      their house, just without the highlighted polygon.
+  //
+  // The prior "dual publisher" (commit 6e096dd) added a third path
+  // that shipped Pro Image's PNG directly when paint-verify said it
+  // was a clean edit. Reverted here — the marginal visual gain wasn't
+  // worth the complexity, and the verify gates were producing
+  // false-negative "raw_aerial" outcomes on legitimate complex roofs.
+  // Composite is robust; one path is easier to reason about.
+  let customerImageSource: "composite" | "raw_aerial";
+  if (paintedImageBase64 && cyanMask && cyanMask.areaPx > 0) {
+    paintedImageBase64 = await compositeCyanOnAerial(
+      tile.rawBase64,
+      cyanMask,
+    );
+    customerImageSource = "composite";
+    console.log(
+      `[gemini-roof v3] customer_image=composite ` +
+        `cyan_area=${cyanMask.areaPx}px ` +
+        `fill=${((cyanMask.areaPx / (cyanMask.width * cyanMask.height)) * 100).toFixed(0)}%`,
+    );
+  } else {
+    paintedImageBase64 = tile.rawBase64;
+    customerImageSource = "raw_aerial";
+    const reason = !paintedImageRawBase64
+      ? "paint_failed"
+      : !cyanMask
+        ? "mask_extract_failed"
+        : "mask_empty";
+    console.log(
+      `[gemini-roof v3] customer_image=raw_aerial reason=${reason}`,
+    );
+  }
+  // Stamp the brand watermark on whatever we ended up with. Soft-fails
+  // to the unwatermarked image — never breaks the response.
+  if (paintedImageBase64) {
+    paintedImageBase64 = await watermarkPaintedPng(paintedImageBase64);
+  }
+
+  // ─── Cyan-overlay PNG for interactive Google Maps display ────────────
+  // Generate a transparent-background PNG containing just the cyan
+  // polygon. The frontend renders an interactive `google.maps.Map` at
+  // the tile lat/lng/zoom and drapes this PNG over the satellite layer
+  // with `GroundOverlay`. Pan / zoom / type-toggle all work natively;
+  // the cyan stays geo-locked because the overlay is bounded by the
+  // tile's actual lat/lng corners.
+  //
+  // Falls back to null when Gemini didn't produce a usable cyan mask —
+  // the frontend renders the satellite map without the overlay in that
+  // case (still better than a static "couldn't paint" placeholder).
+  let cyanOverlay: GeminiRoofResponseV3["cyanOverlay"] = null;
+  if (!cyanMask || cyanMask.areaPx === 0) {
+    console.log(
+      `[gemini-roof v3] cyan_overlay_skipped reason=` +
+        (!cyanMask ? "no_cyan_mask" : "cyan_area_px=0") +
+        " (frontend will render bare satellite map without overlay)",
+    );
+  }
+  if (cyanMask && cyanMask.areaPx > 0) {
+    try {
+      // alphaScale 0.70 matches the static composite's ALPHA_SCALE
+      // (see lib/composite-cyan-overlay.ts). Keeps the interactive
+      // GroundOverlay tint the same intensity as the fallback static
+      // image so the map and the static fallback look identical.
+      const overlayPng = await maskToCyanOverlayPng(cyanMask, { alphaScale: 0.70 });
+      // Tile bounds: the static-maps tile is centered on `lat`/`lng`
+      // and spans `widthPx × tileMPerPx` meters east-west and the same
+      // north-south. Convert half-spans to lat/lng degrees using the
+      // standard 111,320 m-per-degree approximation (cos(lat) for lng).
+      const halfWidthM =
+        (TILE_SIZE_PX * TILE_SCALE * tileMPerPx) / 2;
+      const cosLatLocal = Math.cos((lat * Math.PI) / 180);
+      const dLat = halfWidthM / 111_320;
+      const dLng = halfWidthM / (111_320 * cosLatLocal);
+      cyanOverlay = {
+        base64: overlayPng.toString("base64"),
+        bounds: {
+          north: lat + dLat,
+          south: lat - dLat,
+          east: lng + dLng,
+          west: lng - dLng,
+        },
+        widthPx: cyanMask.width,
+        heightPx: cyanMask.height,
+      };
+      console.log(
+        `[gemini-roof v3] cyan_overlay_built area_px=${cyanMask.areaPx} ` +
+          `png_bytes=${overlayPng.length} bounds=` +
+          `[${dLat.toFixed(5)}°lat, ${dLng.toFixed(5)}°lng]`,
+      );
+    } catch (err) {
+      console.warn(
+        "[gemini-roof v3] cyan_overlay_build_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // Resolve the parcel lookup that fired in parallel with the Gemini
+  // fan-out. By this point it almost certainly settled minutes ago — we
+  // were waiting on Pro Image, not FDOR — so this is a cheap await.
+  // Wrapped defensively because `lookupParcel` is soft-fail by design,
+  // but a network-layer throw would otherwise reject the whole response.
+  const parcel = await parcelPromise.catch((err) => {
+    console.warn(
+      "[gemini-roof v3] parcel_lookup_failed",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  });
+  // Diagnostic: log what the lookup actually returned. Without this, a
+  // null result on a real residential parcel (FDOR record exists but
+  // ACT_YR_BLT came back 0, or the polygon didn't intersect the point)
+  // looks identical to "no FL parcel here at all" in production logs.
+  if (parcel) {
+    console.log(
+      `[gemini-roof v3] parcel_lookup_ok ` +
+        `query=(${parcelQueryPoint.lat.toFixed(5)},${parcelQueryPoint.lng.toFixed(5)}) ` +
+        `parcel_id=${parcel.parcelId || "n/a"} ` +
+        `county=${parcel.countyNumber || "n/a"} ` +
+        `dor_uc=${parcel.dorUseCode || "n/a"} ` +
+        `yr_built=${parcel.yearBuilt ?? "null"} ` +
+        `eff_yr=${parcel.effectiveYearBuilt ?? "null"} ` +
+        `living_sqft=${parcel.livingSqft ?? "null"} ` +
+        `lot_sqft=${parcel.lotSqft ?? "null"} ` +
+        `just_value=${parcel.justValue ?? "null"} ` +
+        `buildings=${parcel.buildingCount ?? "null"} ` +
+        `last_sale=${parcel.lastSale ? `$${Math.round(parcel.lastSale.priceUsd / 1000)}k@${parcel.lastSale.year}` : "null"}`,
+    );
+  } else {
+    console.log(
+      `[gemini-roof v3] parcel_lookup_null ` +
+        `query=(${parcelQueryPoint.lat.toFixed(5)},${parcelQueryPoint.lng.toFixed(5)}) ` +
+        `(no residential FL parcel intersects; non-FL property, gated tract, or FDOR returned 0 features)`,
+    );
+  }
+
+  // Customer-facing display sqft (wider, 3° filter) vs pricing-eligible
+  // shingle sqft (narrower, 12° filter). See the two-threshold comment
+  // up at the SHINGLE_MIN_PITCH_DEG declaration for the full reasoning.
+  //
+  // When undercount correction kicks in (Solar MEDIUM/LOW imagery →
+  // OSM × slope-factor swap), `finalSlopedSqft` IS the corrected
+  // full-roof estimate, so both display and pricing fall back to it
+  // rather than to the segment-level numbers Solar didn't trust enough
+  // to publish at full quality.
+  const displaySlopedSqftRaw =
+    displaySlopedM2 > 0 ? Math.round(displaySlopedM2 * 10.7639) : 0;
+  const customerDisplaySqft = correction?.applied
+    ? finalSlopedSqft
+    : displaySlopedSqftRaw > 0
+      ? displaySlopedSqftRaw
+      : finalSlopedSqft;
+
+  if (customerDisplaySqft !== finalSlopedSqft && customerDisplaySqft > 0) {
+    console.log(
+      `[gemini-roof v3] display_vs_quotable ` +
+        `display=${customerDisplaySqft}sqft (3°+) ` +
+        `quotable=${finalSlopedSqft}sqft (12°+) ` +
+        `delta=${customerDisplaySqft - finalSlopedSqft}sqft`,
+    );
+  }
+
+  const result: GeminiRoofResponseV3 = {
+    solar: {
+      sqft: customerDisplaySqft > 0 ? customerDisplaySqft : null,
+      quotableSqft: finalSlopedSqft > 0 ? finalSlopedSqft : null,
+      footprintSqft: finalFootprintSqft > 0 ? finalFootprintSqft : null,
+      pitchDegrees: avgPitchDeg,
+      segmentCount: shingleSegments.length,
+      imageryQuality: solar?.imageryQuality ?? null,
+      imageryDate: imageryDateString(solar?.imageryDate),
+    },
+    correction,
+    tile: {
+      centerLat: lat,
+      centerLng: lng,
+      zoom: PIN_TILE_ZOOM,
+      widthPx: TILE_SIZE_PX * TILE_SCALE,
+      heightPx: TILE_SIZE_PX * TILE_SCALE,
+    },
+    paintedImageBase64,
+    paintedImageRawBase64,
+    cyanOverlay,
+    customerImageSource,
+    objects,
+    penetrationTotals,
+    edges,
+    geminiEdges,
+    facets,
+    derived: {
+      stories,
+      estimatedAtticSqft,
+      predominantCompass,
+      complexity,
+    },
+    solarPotential: {
+      maxPanels: solar?.solarPotential?.maxArrayPanelsCount ?? null,
+      annualSunshineHours: solar?.solarPotential?.maxSunshineHoursPerYear ?? null,
+    },
+    geminiAnalysis,
+    paintVerify: null,
+    qualitySignals: {
+      compactness: cyanMask?.compactness ?? null,
+      azimuthClusters,
+      twoPassAgreementRate: filterStats.twoPassAgreementRate,
+      filterStats: {
+        raw: filterStats.raw,
+        afterConfidence: filterStats.afterConfidence,
+        afterBbox: filterStats.afterBbox,
+        afterMask: filterStats.afterMask,
+        afterTwoPass: filterStats.afterTwoPass,
+        afterDedup: filterStats.afterDedup,
+        afterCaps: filterStats.afterCaps,
+      },
+    },
+    pricing: {
+      recommendedWastePercent: geometricWaste.suggestedPercent,
+      wasteBreakdown: {
+        fromFacets: geometricWaste.breakdown.fromFacets,
+        fromAzimuthClusters: geometricWaste.breakdown.fromAzimuthClusters,
+        fromCompactness: geometricWaste.breakdown.fromCompactness,
+        fromSteepPitch: geometricWaste.breakdown.fromSteepPitch,
+        fromSecondaryStructures: geometricWaste.breakdown.fromSecondaryStructures,
+      },
+      penetrationAddersTotal: penetrationAdders.total,
+      penetrationAdderLines: penetrationAdders.lines,
+    },
+    parcel,
+    visualRoofAssessment,
+    modelVersion: GEMINI_MODEL,
+    computedAt: new Date().toISOString(),
+  };
+
+  // 30-day cache, written under TWO keys:
+  //   1. Exact lat/lng — for fast Tier-1 hits on identical pins
+  //   2. Parcel ID — for Tier-2 hits when the rep re-pins 30m
+  //      within the same FDOR parcel (saves a $0.08 Gemini call
+  //      per re-pin on the same property)
+  // The parcel ID comes from the FDOR result already inside the
+  // pipeline — we surface it on the result for opportunistic
+  // dual-key writes. If parcel resolution failed, we still write
+  // the lat/lng key as before; no regression.
+  await setCached(CACHE_SCOPE_V3, lat, lng, result, 60 * 60 * 24 * 30);
+  const resultParcelId =
+    (result as { parcel?: { parcelId?: string } | null }).parcel?.parcelId;
+  if (resultParcelId) {
+    void setCachedByParcel(
+      CACHE_SCOPE_V3,
+      resultParcelId,
+      result,
+      60 * 60 * 24 * 30,
+    );
+  }
+
+  // Mirror the result to the lead row so the rep workbench / lead
+  // drawer can render "See report" instantly without re-running the
+  // pipeline. Async via waitUntil() — customer response not blocked
+  // on Supabase write or Storage upload.
+  if (leadPublicId) {
+    waitUntil(persistEstimateToLead(leadPublicId, result).catch((err) => {
+      console.warn(
+        "[gemini-roof v3] persist_to_lead_failed",
+        err instanceof Error ? err.message : String(err),
+      );
+    }));
+  }
+
+  if (debug) {
+    // Echo the raw Gemini text + any caught error in the response.
+    // Diagnostic-only — never shown to customers, never cached.
+    return NextResponse.json({
+      ...result,
+      _debug: { geminiRawText, geminiRichErr },
+    });
+  }
+  return NextResponse.json(result);
+}
+
+async function handle(
+  lat: number,
+  lng: number,
+  skipCache: boolean,
+): Promise<NextResponse> {
+  if (!skipCache) {
+    const cached = await getCached<GeminiRoofResponse>(CACHE_SCOPE, lat, lng);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+  }
+
+  const googleKey =
+    process.env.GOOGLE_SERVER_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  if (!googleKey) {
+    return NextResponse.json(
+      { error: "missing_google_key" },
+      { status: 503 },
+    );
+  }
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return NextResponse.json(
+      { error: "missing_gemini_key" },
+      { status: 503 },
+    );
+  }
+
+  // 1. Call Solar FIRST. The Jupiter failure (2026-05-16) showed
+  //    that Gemini wanders to brighter neighboring roofs at the
+  //    default zoom 20 because the target building only occupies ~14%
+  //    of the tile. Solar's `boundingBox` + `center` let us pick a
+  //    tighter zoom (typically 21) and recenter the tile on the actual
+  //    photogrammetric building center — so the target building
+  //    dominates 50–65% of the frame and Gemini physically can't grab
+  //    a neighbor.
+  //
+  //    Solar is fast (~1–2s) and free. The Solar-first sequencing
+  //    costs a small amount of latency vs the prior parallel path but
+  //    is the only way to get the wrong-building failure under control.
+  //    If Solar fails (rural / no coverage), we fall back to the prior
+  //    geocoded-center + zoom 20 behavior.
+  const solar = await callSolar(lat, lng, googleKey);
+
+  let tileCenterLat = lat;
+  let tileCenterLng = lng;
+  let tileZoom = TILE_ZOOM;
+  if (solar?.boundingBox && solar?.center) {
+    tileCenterLat = solar.center.latitude;
+    tileCenterLng = solar.center.longitude;
+    tileZoom = pickOptimalZoom(solar.boundingBox, tileCenterLat);
+    console.log(
+      `[gemini-roof] solar_bbox_recenter from=(${lat.toFixed(5)},${lng.toFixed(5)}) ` +
+        `to=(${tileCenterLat.toFixed(5)},${tileCenterLng.toFixed(5)}) ` +
+        `zoom=${tileZoom} (was ${TILE_ZOOM})`,
+    );
+  } else {
+    console.warn(
+      "[gemini-roof] solar_bbox_unavailable — falling back to geocoded center + zoom 20",
+    );
+  }
+
+  // 2. Fetch the tile at the building-centered location/zoom.
+  const tile = await fetchGoogleStaticTile(
+    tileCenterLat,
+    tileCenterLng,
+    googleKey,
+    tileZoom,
+  );
+  const tileMeta = buildTileMetadata({
+    centerLat: tileCenterLat,
+    centerLng: tileCenterLng,
+    zoom: tileZoom,
+    scale: TILE_SCALE,
+    sizePx: TILE_SIZE_PX,
+  });
+
+  // 3. Call Gemini with the recentered/rezoomed tile.
+  const geminiResult = await callGemini(tile.base64, geminiKey).catch(
+    (err) => err instanceof Error ? err : new Error(String(err)),
+  );
+  if (geminiResult instanceof Error) {
+    console.warn("[gemini-roof] gemini_failed", geminiResult.message);
+    return NextResponse.json(
+      { error: "gemini_failed", detail: geminiResult.message },
+      { status: 502 },
+    );
+  }
+  const geminiRaw = geminiResult;
+
+  const vision = normalizeGeminiOutput(geminiRaw);
+  if (vision.outlinePx.length < 3) {
+    // The revised prompt (2026-05-16) tells Gemini to return empty
+    // arrays when no roof is identifiable within a 400-px radius of
+    // the tile center, instead of fabricating a polygon on a nearby
+    // wrong building. Honor that by surfacing a 422 with a clear
+    // "manual review needed" signal — caller treats this as a soft
+    // failure, not an error.
+    return NextResponse.json(
+      {
+        error: "no_roof_identifiable",
+        detail:
+          "Gemini could not identify a roof within 400px of the tile center. Manual review needed.",
+      },
+      { status: 422 },
+    );
+  }
+
+  // 3. Reconcile Gemini outline against Solar's ground truth BEFORE
+  //    running the geometry math. The reconciler either accepts
+  //    Gemini's polygon, clips it to Solar's bbox (over-trace recovery),
+  //    or replaces it entirely with Solar's bbox-derived polygon
+  //    (under-trace or wrong-building recovery). The result is always
+  //    a usable polygon.
+  let reconciliation: ReconciliationResult | null = null;
+  const wholeRoofAreaM2 = solar?.solarPotential?.wholeRoofStats?.groundAreaMeters2;
+  if (
+    solar?.center &&
+    solar?.boundingBox &&
+    typeof wholeRoofAreaM2 === "number" &&
+    wholeRoofAreaM2 > 0
+  ) {
+    const geminiOutlineLatLng = pixelPolygonToLatLng(vision.outlinePx, tileMeta);
+    reconciliation = reconcileGeminiAgainstSolar({
+      geminiOutline: geminiOutlineLatLng,
+      solarBuildingCenter: {
+        lat: solar.center.latitude,
+        lng: solar.center.longitude,
+      },
+      solarWholeRoofAreaSqft: wholeRoofAreaM2 * 10.7639,
+      solarBoundingBox: {
+        sw: {
+          lat: solar.boundingBox.sw.latitude,
+          lng: solar.boundingBox.sw.longitude,
+        },
+        ne: {
+          lat: solar.boundingBox.ne.latitude,
+          lng: solar.boundingBox.ne.longitude,
+        },
+      },
+    });
+    console.log(
+      `[gemini-roof] reconcile result=${reconciliation.outlineSource} ` +
+        `accept=${reconciliation.acceptedAsIs} ` +
+        `ratio=${reconciliation.diagnostics.areaRatio.toFixed(2)} ` +
+        `centroid_off=${reconciliation.diagnostics.centroidDistanceM.toFixed(1)}m`,
+    );
+  }
+
+  // 4. Process: pixels → measurements, enriched with Solar.
+  const solarPlanes = solarToPlaneMatches(solar);
+  const measurements = processVisionOutput({
+    vision,
+    tile: tileMeta,
+    solarPlanes,
+  });
+
+  // Override the geometry's outlinePolygon with the reconciled polygon
+  // when the reconciler ran. The facets / linear features / objects
+  // stay as Gemini produced them — they're additive intelligence even
+  // when the outline got rejected.
+  if (reconciliation) {
+    measurements.outlinePolygon = reconciliation.finalOutline;
+  }
+
+  const result: GeminiRoofResponse = {
+    measurements,
+    reconciliation: reconciliation ?? {
+      acceptedAsIs: true,
+      reason: "Solar wholeRoofStats unavailable — accepted Gemini outline by default.",
+      fallback: null,
+      finalOutline: measurements.outlinePolygon,
+      outlineSource: "gemini",
+      diagnostics: { geminiAreaSqft: 0, solarAreaSqft: 0, areaRatio: 0, centroidDistanceM: 0 },
+    },
+    imageryDate: imageryDateString(solar?.imageryDate),
+    imageryQuality: solar?.imageryQuality ?? null,
+    modelVersion: GEMINI_MODEL,
+    computedAt: new Date().toISOString(),
+  };
+
+  await setCached(CACHE_SCOPE, lat, lng, result, 60 * 60 * 24 * 30);
+  return NextResponse.json(result);
+}
+
+export async function GET(req: Request): Promise<NextResponse> {
+  const blocked = await guardGeminiRoofRequest(req);
+  if (blocked) return blocked;
+  const parsed = parseGeminiRoofInputs(req, null);
+  if (parsed instanceof NextResponse) return parsed;
+  parsed.debug = sanitizeGeminiRoofDebug(req, parsed.debug);
+  try {
+    return await (parsed.pinConfirmed
+      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
+      : handle(parsed.lat, parsed.lng, parsed.skipCache));
+  } catch (err) {
+    // Log the full error for operators (Sentry / Vercel logs); return a
+    // generic shape to the client so stack hints / prompt fragments /
+    // dependency names don't leak. The audit flagged this in 2026-05.
+    console.error("[gemini-roof] unhandled", err);
+    return NextResponse.json({ error: "internal" }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request): Promise<NextResponse> {
+  const blocked = await guardGeminiRoofRequest(req);
+  if (blocked) return blocked;
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json_body" }, { status: 400 });
+  }
+  const parsed = parseGeminiRoofInputs(req, body);
+  if (parsed instanceof NextResponse) return parsed;
+  parsed.debug = sanitizeGeminiRoofDebug(req, parsed.debug);
+  try {
+    return await (parsed.pinConfirmed
+      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
+      : handle(parsed.lat, parsed.lng, parsed.skipCache));
+  } catch (err) {
+    // Log the full error for operators (Sentry / Vercel logs); return a
+    // generic shape to the client so stack hints / prompt fragments /
+    // dependency names don't leak. The audit flagged this in 2026-05.
+    console.error("[gemini-roof] unhandled", err);
+    return NextResponse.json({ error: "internal" }, { status: 500 });
+  }
+}

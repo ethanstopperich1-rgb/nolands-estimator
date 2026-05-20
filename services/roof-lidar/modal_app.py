@@ -1,0 +1,318 @@
+"""
+services/roof-lidar/modal_app.py
+
+Modal stub that exposes the FastAPI roof-lidar service as a web endpoint.
+
+Deploy:
+    modal deploy services/roof-lidar/modal_app.py
+
+The URL is emitted on a successful deploy — set it as `LIDAR_SERVICE_URL`
+in the Next.js app's environment (.env.local / Vercel project env).
+
+Build cost: ~3-5 min cold image build (PDAL native libs + open3d + torch).
+Runtime cost: ~$0.05-0.20 per /extract-roof call depending on parcel size.
+"""
+
+from __future__ import annotations
+
+import os
+
+import modal
+
+# ----------------------------------------------------------------------------
+# Image: micromamba (conda-forge) Python 3.12 + native PDAL for COPC/EPT
+# spatial range reads. Switched from debian_slim to micromamba because PDAL
+# needs the native C++ library + GDAL/PROJ/etc. — pip alone can't install
+# these on Debian Bookworm (libpdal-dev is bookworm-backports only). Conda-
+# forge bundles everything cleanly.
+#
+# WHY PDAL: USGS publishes 3DEP data as Entwine Point Tile (EPT) sets
+# indexed in S3. PDAL's readers.ept supports bbox-bounded reads — we
+# fetch ~1-2 MB of points for a 60m parcel out of a 50 GB project,
+# instead of downloading 360MB LAZ tiles. Cold path goes from 6 min
+# → 30 sec.
+# ----------------------------------------------------------------------------
+
+image = (
+    # PDAL's official Docker image — known-good GDAL/PROJ/SQLite combo.
+    # micromamba kept producing sqlite version conflicts because the
+    # conda solver chose libgdal compiled against a newer sqlite than
+    # the one it pulled in. This image bakes a complete working stack.
+    modal.Image.from_registry("pdal/pdal:latest", add_python="3.12")
+    .apt_install(
+        # Open3D viewport deps
+        "libgl1",
+        "libglib2.0-0",
+        "libsm6",
+        "libxext6",
+        "libxrender-dev",
+        "libjpeg-dev",
+        "libpng-dev",
+        # Phase 2 — CGAL + dependencies for the PolyFit reconstruction
+        # SECONDARY tier. Point2Roof (deep-learning, MIT) is now the
+        # primary; CGAL kept as backup for when Point2Roof returns no
+        # confident output. Image size +~150 MB.
+        #
+        # NOTE: coinor-libscip-dev was removed from Ubuntu Noble (24.04)
+        # — the pdal/pdal:latest image is on Noble. SCIP is the MILP
+        # solver CGAL PolyFit uses for face-selection. Without it,
+        # CGAL PolyFit silently falls through to alpha-shape, which is
+        # already the tier C fallback. Point2Roof (primary) is unaffected.
+        # TODO(post-deploy): build SCIP from source or wire a Noble PPA
+        # if we want CGAL PolyFit as a real secondary tier.
+        "libcgal-dev",
+        "libgmp-dev",
+        "libmpfr-dev",
+        "libeigen3-dev",
+        "libboost-dev",
+        # Point2Roof — needs build tools to compile the vendored
+        # pc_util C++/CUDA extension (custom ops for ball_query, FPS,
+        # group_points, interpolate, sampling, cluster). nvcc comes
+        # from the CUDA toolkit installed alongside torch.
+        "build-essential",
+        "ninja-build",
+    )
+    # PDAL Python bindings — package is `pdal` on PyPI (different from
+    # conda's `python-pdal`). The official pdal/pdal Docker image has
+    # the native libs in /usr/local; this binds them to Python.
+    .pip_install("pdal>=3.5")
+    .pip_install_from_requirements("requirements.txt")
+    # Point2Roof — install PyTorch with CUDA support BEFORE building
+    # pc_util so the extension build sees the right torch + nvcc paths.
+    # The base pdal/pdal image doesn't ship CUDA dev tools by default,
+    # but torch's wheels include the runtime; for nvcc we pull the
+    # cuda-toolkit. Pinning torch to a version known to build cleanly
+    # with the pc_util sources from the vendored Point2Roof snapshot.
+    # PyTorch + torchvision with CUDA 12.1 wheels for Python 3.13.
+    # The pdal/pdal:latest base image ships Python 3.13; even with
+    # add_python="3.12" above, pip resolves against 3.13 first.
+    # torchvision 0.20.x has no cp313 wheel — the index jumps from
+    # 0.2.0 to 0.21.0. Pinned to the torch 2.7.x / torchvision 0.22.x
+    # pair (both have confirmed cp313+cu121 wheels and ship together
+    # in PyTorch's official release matrix).
+    # pc_util's C++ extension API (torch::Tensor, AT_DISPATCH_FLOATING_TYPES,
+    # parallel_for) is stable across the 2.x line — the Point2Roof
+    # CUDA ops build cleanly against this combo.
+    .pip_install(
+        "torch==2.7.1",
+        "torchvision==0.22.1",
+        extra_index_url="https://download.pytorch.org/whl/cu121",
+    )
+    # CUDA toolkit (nvcc) — needed to compile the pc_util CUDA
+    # extension. Ubuntu Noble's default repos don't carry cuda-toolkit-*
+    # packages; we add NVIDIA's official apt source via cuda-keyring.
+    #
+    # Pinned to cuda-toolkit-12-6 (not 12-1) because NVIDIA's Noble
+    # apt channel ships 12.6.x as the lowest 12.x they currently
+    # publish for noble — 12.1 isn't in this channel. CUDA is
+    # forward-compatible at the source level: nvcc 12.6 can build
+    # extensions that run against torch's cu121 runtime libraries.
+    # If pc_util compile fails on arch / header drift, the chained
+    # `|| echo 'WARN'` in the build step keeps the image shippable
+    # and Point2Roof falls through to the alpha-shape secondary.
+    #
+    # TODO(post-validate): refactor to use nvidia/cuda:12.1.1-devel as
+    # the base image instead of bolting CUDA onto pdal/pdal. PDAL is
+    # a Python wrapper that can apt-install on any Ubuntu base; CUDA
+    # toolkits are picky about their environment. Inverting the
+    # base lets us drop the keyring dance + version pin entirely.
+    .apt_install("wget", "ca-certificates", "gnupg")
+    .run_commands(
+        "wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb "
+        "-O /tmp/cuda-keyring.deb",
+        "dpkg -i /tmp/cuda-keyring.deb",
+        "rm /tmp/cuda-keyring.deb",
+        "apt-get update",
+    )
+    .apt_install("cuda-toolkit-12-6")
+    # Restore PDAL native lib visibility.
+    #
+    # pdal/pdal:latest stores PDAL in a conda env at
+    # /opt/conda/envs/pdal/lib (libpdalcpp.so.20 lives here). The
+    # base image activated that env's library path at startup; the
+    # cuda-toolkit apt install's apt-get update against NVIDIA's repo
+    # disrupted the conda env activation so the runtime linker now
+    # only searches default paths (/usr/lib etc.) and can't find
+    # libpdalcpp.so.20.
+    #
+    # Fix: register the conda env lib dir with ldconfig so it's
+    # globally discoverable regardless of conda activation state.
+    # Verified the .so files exist on disk via `find / -name
+    # 'libpdalcpp.so*'` — the lib is fine, only the path was lost.
+    .run_commands(
+        "echo '/opt/conda/envs/pdal/lib' > /etc/ld.so.conf.d/zz-pdal.conf",
+        "ldconfig",
+        # Sanity gate — if pdal still can't import after the ldconfig,
+        # fail loudly at build time instead of shipping a broken Tier A.
+        "python -c 'import pdal; print(\"pdal import OK, version:\", pdal.__version__)'",
+    )
+    .add_local_dir(".", "/app", copy=True)
+    .workdir("/app")
+    # Build the Point2Roof pc_util CUDA extension. The build is
+    # ~20-40s; runs once at image build, output is bundled into the
+    # image layer. If the build fails (CUDA version mismatch, missing
+    # nvcc), the build doesn't abort the image — pc_util import fails
+    # at runtime, point2roof_wrapper logs the failure, and the
+    # pipeline falls back to PolyFit / alpha-shape.
+    .run_commands(
+        "cd /app/vendor/point2roof/pc_util && "
+        "TORCH_CUDA_ARCH_LIST='7.5;8.0;8.6' python setup.py install || "
+        "echo 'WARN: pc_util build failed — Point2Roof tier will fall through'",
+    )
+)
+
+app = modal.App("voxaris-roof-lidar")
+
+# Volume for the 24h raw-LiDAR cache (parcel bbox → LAZ tiles). Modal volumes
+# are persistent across function invocations.
+lidar_cache_volume = modal.Volume.from_name(
+    "voxaris-lidar-cache", create_if_missing=True
+)
+
+VOLUME_PATH = "/cache/lidar"
+
+
+@app.function(
+    image=image,
+    volumes={VOLUME_PATH: lidar_cache_volume},
+    timeout=900,  # 15 min — covers cold 360MB LAZ download + processing
+    memory=16384,
+    cpu=2.0,
+    # Point2Roof inference requires CUDA. T4 is the cheapest Modal GPU
+    # that runs PyTorch CUDA — ~$0.59/hr active. With a 5-15s warm
+    # estimate and ~30s warm-container hold, marginal cost per estimate
+    # is ~$0.001-0.005. Acceptable for the accuracy gain. When CUDA
+    # is unavailable (e.g. local-dev), the wrapper logs and falls
+    # through to the CGAL PolyFit / alpha-shape tiers — no failure.
+    gpu="T4",
+    retries=0,
+    min_containers=1,
+)
+def run_extract(request_data: dict) -> dict:
+    """Long-running heavy function. Runs the full Tier A pipeline:
+    coverage check → LAZ pull (200-500MB tiles, ~2-4 min cold) →
+    isolate roof → segment planes → build facets → topology →
+    YOLO detect → compute flashing.
+
+    Invoked via `run_extract.spawn(...)` from the public-facing
+    submit/result endpoints below — never directly via HTTP because
+    Modal's HTTP gateway caps sync responses at 150s and a cold-cache
+    Tier A call routinely needs 300-500s.
+    """
+    from api import extract_roof_pipeline  # noqa: PLC0415
+
+    return extract_roof_pipeline(request_data, cache_root=VOLUME_PATH)
+
+
+@app.function(image=image, timeout=30, cpu=0.25)
+@modal.fastapi_endpoint(method="POST")
+def submit(request_data: dict) -> dict:
+    """POST /submit — spawns the Tier A pipeline as a background
+    function call and returns {call_id} immediately. Pair with GET
+    /result?call_id=... below to retrieve the result.
+
+    Body:  { lat, lng, address, parcelPolygon?, imageryDate? }
+    Resp:  { call_id: string }
+    """
+    call = run_extract.spawn(request_data)
+    return {"call_id": call.object_id}
+
+
+@app.function(image=image, timeout=30, cpu=0.25)
+@modal.fastapi_endpoint(method="GET")
+def result(call_id: str) -> dict:
+    """GET /result?call_id=... — non-blocking poll. Returns:
+      { status: "pending" }                            (HTTP 202-equivalent in body)
+      { status: "done", result: { roofData, ... } }    (HTTP 200)
+      { status: "error", error: string }               (HTTP 200, app-level error)
+    """
+    fc = modal.FunctionCall.from_id(call_id)
+    try:
+        result = fc.get(timeout=0)
+        return {"status": "done", "result": result}
+    except TimeoutError:
+        return {"status": "pending"}
+    except modal.exception.OutputExpiredError:
+        return {"status": "error", "error": "output_expired"}
+    except Exception as err:  # noqa: BLE001
+        return {"status": "error", "error": f"{type(err).__name__}: {err}"}
+
+
+@app.function(
+    image=image,
+    volumes={VOLUME_PATH: lidar_cache_volume},
+    timeout=900,
+    memory=4096,
+    cpu=2.0,
+)
+@modal.fastapi_endpoint(method="POST")
+def extract_roof(request_data: dict) -> dict:
+    """LEGACY synchronous endpoint — kept for backwards compatibility
+    with older TS adapters that haven't switched to submit/poll. New
+    callers should use POST /submit + GET /result.
+
+    This will 303-redirect after 150s of processing per Modal's HTTP
+    timeout; the TS adapter sees that as a failure and falls through
+    to Tier C. Not ideal but it's the documented async fallback.
+    """
+    from api import extract_roof_pipeline  # noqa: PLC0415
+
+    return extract_roof_pipeline(request_data, cache_root=VOLUME_PATH)
+
+
+@app.function(image=image, timeout=15, cpu=0.25)
+@modal.fastapi_endpoint(method="GET")
+def health() -> dict:
+    """Liveness check used by the Next.js side to skip-or-call decision."""
+    return {
+        "ok": True,
+        "service": "voxaris-roof-lidar",
+        "modal_env": os.environ.get("MODAL_ENVIRONMENT", "unknown"),
+    }
+
+
+@app.function(image=image, timeout=60, gpu="T4")
+@modal.fastapi_endpoint(method="GET")
+def pc_util_smoke() -> dict:
+    """One-shot validation that the Point2Roof pc_util CUDA extension
+    actually loads and launches kernels at runtime — not just that it
+    compiled at image-build time. Returns:
+      { ok: true, idx_sum: int, idx_nonzero_count: int, ... }   on success
+      { ok: false, stage: "import" | "kernel", err: str }       on failure
+    Hit this once after a Point2Roof-affecting deploy to verify the
+    extension is wired correctly. Costs ~$0.001 per call (T4 for ~2s)."""
+    out: dict = {"torch_version": None, "cuda_available": False}
+    try:
+        import torch  # noqa: PLC0415
+        out["torch_version"] = torch.__version__
+        out["cuda_available"] = bool(torch.cuda.is_available())
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "stage": "torch_import", "err": f"{type(e).__name__}: {e}", **out}
+    try:
+        import pc_util  # noqa: PLC0415, F401
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "stage": "pc_util_import", "err": f"{type(e).__name__}: {e}", **out}
+    try:
+        xyz = torch.randn(1, 100, 3).cuda()
+        new_xyz = torch.randn(1, 10, 3).cuda()
+        idx = torch.zeros(1, 10, 16, dtype=torch.int32).cuda()
+        # Python binding is `ball_query_wrapper` — pybind11 m.def() in
+        # pointnet2_api.cpp strips the `_fast` suffix from the C++ name.
+        pc_util.ball_query_wrapper(1, 100, 10, 0.2, 16, new_xyz, xyz, idx)
+        return {
+            "ok": True,
+            "idx_sum": int(idx.sum().item()),
+            "idx_shape": list(idx.shape),
+            "idx_nonzero_count": int((idx != 0).sum().item()),
+            **out,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "stage": "kernel_launch", "err": f"{type(e).__name__}: {e}", **out}
+
+
+if __name__ == "__main__":
+    # `python modal_app.py` runs the FastAPI app locally for dev w/o Modal.
+    import uvicorn
+    from api import build_local_app  # noqa: PLC0415
+
+    uvicorn.run(build_local_app(), host="0.0.0.0", port=8000)

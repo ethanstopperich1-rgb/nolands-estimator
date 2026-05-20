@@ -1,0 +1,3206 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-geist), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --color-ink-950: #07090d;
+  --color-ink-900: #0b0e14;
+  --color-ink-800: #10141c;
+  --color-ink-700: #161b25;
+  --color-ink-600: #1c2230;
+  --color-ink-500: #232b3c;
+
+  --color-slate-50:  #f0f5fc;
+  --color-slate-100: #e3eaf5;
+  --color-slate-200: #c2cdde;
+  --color-slate-300: #9ba8bf;
+  --color-slate-400: #6f7c93;
+  --color-slate-500: #4f596d;
+  --color-slate-600: #353c4d;
+
+  --color-cy-200: #b3edff;
+  --color-cy-300: #67dcff;
+  --color-cy-400: #38c5ee;
+  --color-cy-500: #18a6d6;
+  --color-cy-600: #0e7fa8;
+
+  --color-mint:  #5fe3b0;
+  --color-amber: #f3b14b;
+  --color-rose:  #ff7a8a;
+
+  /* ── Micro typography scale ──────────────────────────────────────────
+   * The dashboard glass-panel language uses three sub-text-xs sizes
+   * for monospace eyebrows, captions, and stat labels. Before these
+   * tokens existed, they lived as arbitrary `text-[10px]` / `[11px]`
+   * / `[13px]` values scattered across 170+ JSX sites. Centralizing
+   * them lets us tune the scale globally (a 1px change here lands
+   * everywhere) and surfaces them as proper Tailwind utilities:
+   *
+   *   --text-micro    →  text-micro     (10px — densest stat label)
+   *   --text-eyebrow  →  text-eyebrow   (11px — uppercase eyebrow)
+   *   --text-mini     →  text-mini      (13px — between xs and sm)
+   *
+   * Note: 12px = Tailwind's default `text-xs`, no custom token needed.
+   * Half-pixel sizes (`text-[10.5px]`, `text-[11.5px]`, etc.) are
+   * intentional sub-grid stops for specific surfaces — leave alone.
+   */
+  --text-micro: 10px;
+  --text-eyebrow: 11px;
+  --text-mini: 13px;
+
+  /* ── Noland's brand tokens (May 2026, locked) ────────────────────────
+   * Extracted from Noland's door hangers (deep black + red-orange +
+   * metallic silver). Used for the customer-facing /, /r/[publicId],
+   * and any homeowner-touched surface. Dashboard surfaces continue
+   * to use the existing ink-* / cy-* / slate-* tokens above so reps
+   * still see the operator-console glass language.
+   *
+   * If a homeowner-facing surface introduces a non-noland-* color,
+   * justify it in the PR description — restraint reads as "severe
+   * weather specialist". See AGENTS.md.
+   */
+  --color-noland-black:        #07080A;   /* hero bg, primary surface */
+  --color-noland-black-soft:   #0F1115;   /* card bg one notch up */
+  --color-noland-ink:          #1A1D24;   /* secondary surface */
+  --color-noland-fire:         #E84A1F;   /* the cursive "Roofing" red-orange — primary accent */
+  --color-noland-fire-light:   #FF6B3D;   /* hover / glow */
+  --color-noland-fire-deep:    #B5340E;   /* pressed / dark mode */
+  --color-noland-silver:       #C8C9CD;   /* the metallic NOLAND'S wordmark base */
+  --color-noland-silver-light: #E8E9ED;
+  --color-noland-silver-dark:  #6E7178;
+  --color-noland-medal:        #C5A87B;   /* "#1 Choice" seal accent */
+  --color-noland-storm:        #1A1F2B;   /* storm-sky photo overlays */
+  --color-noland-lightning:    #B8E0FF;   /* lightning blue-white accent */
+}
+
+/* ─── Base ────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { border-color: rgb(255 255 255 / 0.06); }
+
+html, body {
+  background: #07090d;
+  color: var(--color-slate-100);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11", "cv02";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  /* Radial accent washes — kept subtle so they read as a barely-there
+     atmospheric tint, not a foreground gradient. Customer-facing wizard
+     pages have white text over this background; opacities above ~0.05
+     started reading as a lavender overlay that hurt contrast. */
+  background:
+    radial-gradient(1100px 700px at 8% -10%,  rgba(56,197,238,0.04), transparent 55%),
+    radial-gradient(900px 600px  at 100% 5%,  rgba(95,227,176,0.02), transparent 60%),
+    radial-gradient(1400px 1000px at 50% 110%, rgba(24,166,214,0.025), transparent 60%),
+    #07090d;
+  position: relative;
+  min-height: 100vh;
+}
+
+/* ─── Voxaris brand scope ─────────────────────────────────────────────
+   Per Voxaris Brand System v1.0 (May 2026):
+     Cream + Ink, single terracotta accent reserved for moments that matter.
+     DragonEF (display) + Ambit SemiBold (UI).
+     Sharp corners on interactive elements; 2px on cards; hairline 1px
+     borders; one terracotta per screen maximum.
+
+   Scoped under `.voxaris` so it covers the customer estimator, public
+   pages, future white-label subdomains — but never the dashboard. */
+
+/* Self-hosted brand fonts are loaded via next/font/local in app/layout.tsx
+   so Next.js generates a metric-adjusted fallback family at build time.
+   That eliminates the layout shift that used to occur when the brand
+   font finished downloading (hero text reflowed vertical→horizontal on
+   first page load). Reference via the CSS variables in the type stack
+   below: var(--font-dragon) and var(--font-ambit). */
+
+.voxaris {
+  /* Color — locked to Voxaris Brand v1.0 */
+  --vx-ink:        #0F1B2D;
+  --vx-ink-soft:   #1A2A44;
+  --vx-cream:      #ECE3D0;
+  --vx-paper:      #F5EFE0;
+  --vx-muted:      #8A7E68;
+  --vx-terra:      #C76B3F;
+  --vx-terra-dark: #A8542E;
+  --vx-rule:       rgba(15, 27, 45, 0.18);
+  --vx-rule-soft:  rgba(15, 27, 45, 0.08);
+  /* Type — DragonEF display, Ambit SemiBold UI, with graceful fallback.
+     Both brand families are loaded via next/font/local (see layout.tsx)
+     so the fallback is metric-adjusted and the eventual swap doesn't
+     reflow the page. */
+  --vx-font-display: var(--font-dragon), var(--font-cormorant), Georgia, serif;
+  --vx-font-ui:      var(--font-ambit), var(--font-hanken), "Helvetica Neue", system-ui, sans-serif;
+  /* Radius — sharp by default; cards 2px */
+  --vx-radius-btn:   0;
+  --vx-radius-card:  2px;
+  /* Motion — quiet ease-out, no spring */
+  --vx-ease: cubic-bezier(0.2, 0, 0, 1);
+  --vx-fast: 150ms;
+  --vx-base: 200ms;
+
+  color-scheme: only light;
+  background: var(--vx-cream);
+  color: var(--vx-ink);
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  line-height: 1.55;
+  font-feature-settings: "kern";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  position: relative;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+.voxaris .font-serif { font-family: var(--vx-font-display); }
+.voxaris .font-body  { font-family: var(--vx-font-ui); }
+.voxaris .tabular    { font-variant-numeric: tabular-nums lining-nums; }
+/* Subtle paper grain — no purple, no gradient. */
+.voxaris::before {
+  content: "";
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0.06  0 0 0 0 0.11  0 0 0 0 0.18  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.45;
+  mix-blend-mode: multiply;
+}
+/* Ambient — no warmth gradients; cream is the only warmth (per discipline).
+   This block is intentionally minimal: a single low-opacity ink wash at
+   the bottom for compositional weight. */
+.voxaris .ambient {
+  position: absolute; inset: 0;
+  pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 100%, rgba(15, 27, 45, 0.06), transparent 70%);
+}
+.voxaris .crescent {
+  position: absolute; left: 50%; top: -180px;
+  transform: translateX(-50%);
+  width: 1900px; max-width: 170%;
+  pointer-events: none; z-index: 0; opacity: 0.45;
+}
+.voxaris .skyline {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  width: 100%; height: 120px;
+  pointer-events: none; z-index: 1;
+}
+@media (min-width: 640px) { .voxaris .skyline { height: 180px; } }
+.voxaris .ornament {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -52%);
+  width: 520px; height: 520px;
+  pointer-events: none; z-index: -1;
+  opacity: 0.05;
+}
+/* Decorative marker — DEMOTED to muted (vx-muted) per discipline:
+   "One terracotta accent per screen, maximum." Markers are decorative;
+   terracotta is reserved for the CTA + a single editorial rule. */
+.voxaris .marker {
+  width: 6px; height: 6px;
+  background: var(--vx-muted);
+  transform: rotate(45deg);
+  display: inline-block;
+}
+/* Editorial accent rule — the ONE terracotta moment per screen, used
+   sparingly under a section opening. */
+.voxaris .accent-rule {
+  display: block;
+  width: 56px; height: 2px;
+  background: var(--vx-terra);
+  margin: 0 auto;
+}
+/* Eyebrow — 8.5pt, 18% tracking, muted, uppercase. Per Brand §03. */
+.voxaris .eyebrow {
+  font-family: var(--vx-font-ui);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+.voxaris .field-label {
+  font-family: var(--vx-font-ui);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+/* Top-bar nav — flat hairline-divided items (no pill, no rounded
+   corners; pill shapes are forbidden by §06 discipline). */
+.voxaris .nav-row {
+  display: inline-flex;
+  align-items: center;
+  border-top: 1px solid var(--vx-rule);
+  border-bottom: 1px solid var(--vx-rule);
+  padding: 0;
+}
+.voxaris .nav-row a {
+  padding: 10px 22px;
+  display: inline-flex; align-items: center;
+  font-family: var(--vx-font-ui);
+  font-size: 11px; letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-ink-soft); font-weight: 600;
+  border-left: 1px solid var(--vx-rule);
+  transition: color var(--vx-fast) var(--vx-ease);
+}
+.voxaris .nav-row a:first-child { border-left: 0; }
+.voxaris .nav-row a:hover { color: var(--vx-ink); }
+/* Status badge — sharp, no pill. */
+.voxaris .badge {
+  display: inline-flex;
+  align-items: center; gap: 10px;
+  border: 1px solid var(--vx-rule);
+  background: var(--vx-cream);
+  padding: 8px 14px;
+  font-family: var(--vx-font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-ink-soft); font-weight: 600;
+}
+.voxaris .badge .dot {
+  width: 6px; height: 6px;
+  background: var(--vx-muted);
+  border-radius: 0;
+}
+/* Search card — paper surface, hairline border, 2px radius per spec. */
+.voxaris .search-card {
+  background: var(--vx-paper);
+  border: 1px solid var(--vx-rule);
+  border-radius: var(--vx-radius-card);
+  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06);
+  width: 100%;
+  position: relative;
+}
+.voxaris .addr-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center; gap: 14px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--vx-rule);
+}
+.voxaris .addr-input {
+  background: transparent; border: 0; outline: 0; width: 100%;
+  font-family: var(--vx-font-display);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--vx-ink); padding: 6px 0;
+}
+.voxaris .addr-input::placeholder { color: var(--vx-muted); font-style: italic; }
+.voxaris .slim-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--vx-rule);
+}
+.voxaris .slim-cell {
+  padding: 16px 24px;
+  border-left: 1px solid var(--vx-rule-soft);
+}
+.voxaris .slim-cell:first-child { border-left: 0; }
+.voxaris .slim-input {
+  background: transparent; border: 0; outline: 0; width: 100%;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--vx-ink); padding: 4px 0;
+}
+.voxaris .slim-input::placeholder { color: var(--vx-muted); font-weight: 600; }
+/* Chrome / Edge autofill tint override — without this, fields that
+   match the user's stored autofill (email, name, tel) get a pale
+   peach/yellow inner background that overrides our `background:
+   transparent` and breaks the seamless paper feel of the form.
+   The inset box-shadow trick is the standard webkit workaround:
+   inject a giant solid-color shadow into the input's interior so
+   the autofill yellow is hidden. The 5000s transition is a famous
+   hack — Chrome animates the autofill color over a transition, so
+   we just push the transition out beyond any realistic session. */
+.voxaris .slim-input:-webkit-autofill,
+.voxaris .slim-input:-webkit-autofill:hover,
+.voxaris .slim-input:-webkit-autofill:focus,
+.voxaris .slim-input:-webkit-autofill:active,
+.voxaris .addr-input:-webkit-autofill,
+.voxaris .addr-input:-webkit-autofill:hover,
+.voxaris .addr-input:-webkit-autofill:focus,
+.voxaris .addr-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--vx-paper) inset !important;
+  box-shadow: 0 0 0 1000px var(--vx-paper) inset !important;
+  -webkit-text-fill-color: var(--vx-ink) !important;
+  caret-color: var(--vx-ink);
+  transition: background-color 5000s ease-in-out 0s;
+}
+.voxaris .foot-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center; gap: 24px;
+  padding: 20px 24px;
+}
+@media (max-width: 720px) {
+  .voxaris .slim-row { grid-template-columns: 1fr; }
+  .voxaris .slim-cell { border-left: 0; border-top: 1px solid var(--vx-rule-soft); }
+  .voxaris .slim-cell:first-child { border-top: 0; }
+  .voxaris .foot-row { grid-template-columns: 1fr; gap: 14px; }
+  .voxaris .addr-input { font-size: 18px; }
+}
+.voxaris .checkbox {
+  width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;
+  appearance: none; -webkit-appearance: none;
+  border: 1px solid var(--vx-rule);
+  background: var(--vx-paper);
+  border-radius: 0;
+  display: inline-grid; place-content: center; cursor: pointer;
+  transition: background var(--vx-fast) var(--vx-ease), border-color var(--vx-fast) var(--vx-ease);
+}
+.voxaris .checkbox:hover { border-color: var(--vx-ink); }
+.voxaris .checkbox:checked { background: var(--vx-ink); border-color: var(--vx-ink); }
+.voxaris .checkbox:checked::before {
+  content: ""; width: 8px; height: 4px;
+  border-left: 1.5px solid var(--vx-cream);
+  border-bottom: 1.5px solid var(--vx-cream);
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+/* PRIMARY CTA — the one terracotta moment per screen. */
+.voxaris .btn-terra {
+  background: var(--vx-terra);
+  color: var(--vx-cream);
+  padding: 14px 28px;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border: 1px solid var(--vx-terra);
+  border-radius: var(--vx-radius-btn);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  white-space: nowrap;
+  transition: background var(--vx-base) var(--vx-ease);
+}
+.voxaris .btn-terra:hover { background: var(--vx-terra-dark); border-color: var(--vx-terra-dark); }
+.voxaris .btn-terra:focus-visible { outline: 2px solid var(--vx-ink); outline-offset: 3px; }
+.voxaris .btn-terra:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; }
+.voxaris .btn-terra .arrow { transition: transform var(--vx-base) var(--vx-ease); }
+.voxaris .btn-terra:hover:not(:disabled) .arrow { transform: translateX(4px); }
+/* SECONDARY — ink on cream. */
+.voxaris .btn-ink {
+  background: var(--vx-ink);
+  color: var(--vx-cream);
+  padding: 14px 28px;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border: 1px solid var(--vx-ink);
+  border-radius: var(--vx-radius-btn);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  white-space: nowrap;
+  transition: background var(--vx-base) var(--vx-ease);
+}
+.voxaris .btn-ink:hover { background: var(--vx-ink-soft); border-color: var(--vx-ink-soft); }
+.voxaris .btn-ink:focus-visible { outline: 2px solid var(--vx-terra); outline-offset: 3px; }
+.voxaris .btn-ink:disabled { background: var(--vx-muted); border-color: var(--vx-muted); cursor: not-allowed; opacity: 0.7; }
+.voxaris .btn-ink .arrow { transition: transform var(--vx-base) var(--vx-ease); }
+.voxaris .btn-ink:hover:not(:disabled) .arrow { transform: translateX(4px); }
+/* TERTIARY — ghost. */
+.voxaris .btn-ghost {
+  background: transparent;
+  color: var(--vx-ink);
+  padding: 13px 26px;
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border: 1px solid var(--vx-ink);
+  border-radius: var(--vx-radius-btn);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  white-space: nowrap;
+  transition: background var(--vx-base) var(--vx-ease);
+}
+.voxaris .btn-ghost:hover { background: var(--vx-ink); color: var(--vx-cream); }
+.voxaris a:focus-visible,
+.voxaris button:focus-visible,
+.voxaris summary:focus-visible {
+  outline: 2px solid var(--vx-terra);
+  outline-offset: 3px;
+  border-radius: 0;
+}
+@keyframes voxaris-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.voxaris .rise { opacity: 0; animation: voxaris-rise 0.9s var(--vx-ease) forwards; }
+.voxaris .rise[data-d="1"] { animation-delay: 0.05s; }
+.voxaris .rise[data-d="2"] { animation-delay: 0.18s; }
+.voxaris .rise[data-d="3"] { animation-delay: 0.32s; }
+.voxaris .rise[data-d="4"] { animation-delay: 0.46s; }
+@media (prefers-reduced-motion: reduce) {
+  .voxaris .rise, .voxaris .rise[data-d] { opacity: 1; animation: none; }
+  .voxaris .btn-ink, .voxaris .btn-terra, .voxaris .btn-ghost,
+  .voxaris .btn-ink .arrow, .voxaris .btn-terra .arrow { transition: none; }
+}
+.voxaris hr.hair        { border: 0; border-top: 1px solid var(--vx-rule-soft); margin: 0; }
+.voxaris hr.hair-strong { border: 0; border-top: 1px solid var(--vx-rule); margin: 0; }
+.voxaris ::selection { background: var(--vx-ink); color: var(--vx-cream); }
+/* Result/data card — paper surface, hairline border, 2px radius. */
+.voxaris .result-card {
+  background: var(--vx-paper);
+  border: 1px solid var(--vx-rule);
+  border-radius: var(--vx-radius-card);
+  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06);
+  position: relative;
+}
+/* Chip — sharp corners, hairline border, Ambit uppercase. */
+.voxaris .chip {
+  display: inline-flex; align-items: center; gap: 10px;
+  border: 1px solid var(--vx-rule);
+  background: var(--vx-paper);
+  padding: 9px 14px;
+  border-radius: var(--vx-radius-card);
+  font-family: var(--vx-font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+.voxaris .chip-value {
+  font-family: var(--vx-font-display);
+  font-weight: 400;
+  font-size: 17px;
+  letter-spacing: -0.005em;
+  line-height: 1;
+  text-transform: none;
+  color: var(--vx-ink);
+}
+.voxaris .chip-value.tabular { font-variant-numeric: tabular-nums lining-nums; }
+
+/* Legal-page typography — Ambit body, DragonEF display headings,
+   hairline section separators. Editorial column max-width 68ch. */
+.voxaris .legal-article {
+  font-family: var(--vx-font-ui);
+  color: var(--vx-ink-soft);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.7;
+  max-width: 68ch;
+}
+.voxaris .legal-article h1 {
+  font-family: var(--vx-font-display);
+  font-weight: 500;
+  font-size: clamp(40px, 5.5vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--vx-ink);
+  margin: 0 0 6px;
+}
+.voxaris .legal-article h2 {
+  font-family: var(--vx-font-display);
+  font-weight: 500;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--vx-ink);
+  margin: 56px 0 14px;
+}
+.voxaris .legal-article h3 {
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vx-ink);
+  margin: 24px 0 8px;
+}
+.voxaris .legal-article p { margin: 0 0 14px; }
+.voxaris .legal-article ul,
+.voxaris .legal-article ol {
+  margin: 0 0 18px;
+  padding-left: 22px;
+}
+.voxaris .legal-article li { margin: 6px 0; }
+.voxaris .legal-article ul { list-style-type: disc; }
+.voxaris .legal-article ol { list-style-type: decimal; }
+.voxaris .legal-article strong { color: var(--vx-ink); font-weight: 600; }
+.voxaris .legal-article a {
+  color: var(--vx-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--vx-terra);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color var(--vx-fast) var(--vx-ease);
+}
+.voxaris .legal-article a:hover { color: var(--vx-terra-dark); }
+.voxaris .legal-article code {
+  font-family: var(--vx-font-ui);
+  font-weight: 600;
+  font-size: 13px;
+  background: var(--vx-paper);
+  border: 1px solid var(--vx-rule-soft);
+  padding: 1px 6px;
+  border-radius: var(--vx-radius-card);
+  color: var(--vx-ink);
+}
+.voxaris .legal-article section { margin: 0; }
+.voxaris .legal-article .meta {
+  font-family: var(--vx-font-ui);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+.voxaris .legal-article .disclaimer {
+  font-family: var(--vx-font-ui);
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+
+/* Subtle grain to defeat banding on dark gradients */
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.04 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+}
+
+main, header { position: relative; z-index: 1; }
+
+::selection { background: rgba(103,220,255,0.30); color: #0c1118; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); background-clip: padding-box; }
+
+/* ─── Surface system ──────────────────────────────────────────────────── */
+
+.glass {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.012) 100%),
+    rgba(11,14,20,0.55);
+  border: 1px solid rgba(255,255,255,0.055);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 1px 0 rgba(0,0,0,0.4),
+    0 24px 48px -24px rgba(0,0,0,0.6);
+}
+
+.glass-strong {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.018) 100%),
+    rgba(13,17,24,0.7);
+  border: 1px solid rgba(255,255,255,0.075);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    0 1px 0 rgba(0,0,0,0.5),
+    0 32px 64px -32px rgba(0,0,0,0.75);
+}
+
+.hairline { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); height: 1px; }
+
+/* Subtle hover ring on cards */
+.card-hover { transition: border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease; }
+.card-hover:hover {
+  border-color: rgba(103,220,255,0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    0 1px 0 rgba(0,0,0,0.5),
+    0 28px 56px -28px rgba(24,166,214,0.18);
+}
+
+/* ─── Buttons ─────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 0.7rem;
+  font-weight: 540; letter-spacing: -0.005em;
+  font-size: 0.875rem;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.02);
+  color: var(--color-slate-100);
+  transition: background 160ms ease, border-color 160ms ease, transform 80ms ease, box-shadow 200ms ease;
+  user-select: none; cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.13); }
+.btn:active { transform: translateY(0.5px) scale(0.99); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:focus-visible { outline: 2px solid rgba(103,220,255,0.5); outline-offset: 2px; }
+
+.btn-primary {
+  background: linear-gradient(180deg, #67dcff 0%, #18a6d6 100%);
+  color: #051019;
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    inset 0 -1px 0 rgba(0,0,0,0.18),
+    0 12px 28px -10px rgba(24,166,214,0.55),
+    0 1px 0 rgba(0,0,0,0.4);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.18);
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, #7ce4ff 0%, #1eb6e8 100%);
+  border-color: rgba(255,255,255,0.28);
+}
+
+.btn-ghost { background: rgba(255,255,255,0.025); }
+.btn-ghost:hover { background: rgba(255,255,255,0.06); }
+
+/* ─── Inputs ──────────────────────────────────────────────────────────── */
+
+.input {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  border-radius: 0.7rem;
+  background: rgba(7,9,13,0.55);
+  border: 1px solid rgba(255,255,255,0.075);
+  color: var(--color-slate-100);
+  font-family: var(--font-sans);
+  font-size: 0.92rem;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+.input::placeholder { color: var(--color-slate-500); }
+.input:hover { border-color: rgba(255,255,255,0.12); }
+.input:focus {
+  border-color: rgba(103,220,255,0.55);
+  background: rgba(7,9,13,0.75);
+  box-shadow: 0 0 0 4px rgba(56,197,238,0.10);
+}
+
+textarea.input { resize: vertical; min-height: 90px; line-height: 1.5; }
+
+/* ─── Typography helpers ─────────────────────────────────────────────── */
+
+.font-display { font-family: var(--font-display); font-feature-settings: "ss01"; letter-spacing: -0.025em; }
+.font-mono    { font-family: var(--font-mono); font-feature-settings: "tnum", "zero"; letter-spacing: -0.01em; }
+.tabular      { font-variant-numeric: tabular-nums; }
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--color-slate-400);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.32rem;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-bottom-width: 2px;
+  color: var(--color-slate-300);
+  line-height: 1.4;
+}
+
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────── */
+
+@keyframes priceflash {
+  0%   { color: #5fe3b0; transform: translateY(-1px); text-shadow: 0 0 28px rgba(95,227,176,0.4); }
+  100% { color: var(--color-slate-50); transform: translateY(0); text-shadow: none; }
+}
+.price-flash { animation: priceflash 700ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 0%,
+    rgba(255,255,255,0.10) 50%,
+    rgba(255,255,255,0.04) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2.4s linear infinite;
+}
+
+@keyframes float-in {
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.float-in { animation: float-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.6; transform: scale(0.95); }
+  50%      { opacity: 1;    transform: scale(1.05); }
+}
+.pulse-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
+
+/* Stagger-in: identical motion shape to float-in but slightly longer
+   travel so the entrance carries more weight. Pair with inline
+   `animation-delay` for cascade effects (section A at 0ms, B at 80ms,
+   C at 160ms). Cubic-bezier matches Apple's springy "outback" curve. */
+@keyframes stagger-in {
+  0%   { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.stagger-in { animation: stagger-in 560ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* Shimmer-bar: a thin highlight that sweeps left-to-right across a
+   container's top edge while work is in flight. Paired with
+   `overflow-hidden` on the parent so the bar appears to wipe through
+   the surface. */
+@keyframes shimmer-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-shimmer { animation: shimmer-sweep 1.8s linear infinite; }
+
+/* ─── Quantum-pulse "Generating" loader ─────────────────────────────── */
+
+/* Lightweight version: translateY + opacity only. The previous version used
+   rotateX 3D transforms + animated text-shadow, both of which forced a new
+   compositor layer per letter and stuttered when Cesium / Maps WebGL was
+   busy on the same GPU. This stays smooth at 60fps even during generation. */
+@keyframes generating-loader-letter-anim {
+  0%   { opacity: 0; transform: translateY(8px); }
+  12%  { opacity: 1; transform: translateY(0); }
+  38%  { opacity: 1; transform: translateY(0); }
+  50%  { opacity: 0; transform: translateY(-8px); }
+  100% { opacity: 0; }
+}
+
+@keyframes generating-loader-bar-anim {
+  0%   { left: -100%; }
+  50%  { left: 100%; }
+  100% { left: -100%; }
+}
+
+.generating-loader-wrapper {
+  --qpl-accent: var(--color-cy-300, #67dcff);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1.5rem 2rem;
+  user-select: none;
+}
+
+.generating-loader-text {
+  display: inline-flex;
+  gap: 0.08em;
+  font-family: var(--font-display, ui-sans-serif), sans-serif;
+  font-weight: 600;
+  font-size: clamp(1.25rem, 2.4vw, 1.75rem);
+  letter-spacing: 0.04em;
+  color: var(--qpl-accent);
+  text-transform: uppercase;
+}
+
+.generating-loader-letter {
+  display: inline-block;
+  opacity: 0;
+  animation: generating-loader-letter-anim 2.4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.generating-loader-bar {
+  position: relative;
+  width: clamp(140px, 18vw, 220px);
+  height: 2px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.generating-loader-bar::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  left: -100%;
+  width: 50%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--qpl-accent),
+    transparent
+  );
+  filter: drop-shadow(0 0 6px var(--qpl-accent));
+  animation: generating-loader-bar-anim 2.4s ease-in-out infinite;
+}
+
+/* ─── Reduced-motion guard ────────────────────────────────────────────
+ *
+ * Honour the OS-level "Reduce motion" preference. Disables decorative
+ * animations (price flash, shimmer, float-in, pulse-dot, generating
+ * loader, animated dots) while keeping `transition-*` micro-interactions
+ * which read as instant feedback, not motion. Critical for vestibular
+ * users and also helps demo recordings stay visually calm.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .price-flash,
+  .shimmer,
+  .float-in,
+  .pulse-dot,
+  .generating-loader-letter,
+  .generating-loader-bar::before,
+  .generating-dots::after {
+    animation: none !important;
+  }
+  .float-in { opacity: 1; transform: none; }
+  .generating-loader-letter { opacity: 1; transform: none; }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Mobile form input zoom prevention ───────────────────────────────
+ *
+ * iOS Safari auto-zooms into any text input whose computed font-size is
+ * below 16px when the user focuses it. The zoom-in is fine; the problem
+ * is iOS doesn't reliably zoom back out when the input blurs, leaving
+ * the page in a weird half-zoomed state where touch targets misalign
+ * and the form layout reflows. Customers reported this as "the form
+ * resets and I have to type everything again" — what they're actually
+ * seeing is the layout shift, not a real reset.
+ *
+ * Fix: force every text-style input + textarea to >=16px on screens
+ * narrower than 768px (md breakpoint). Doesn't affect desktop styling
+ * (Tailwind's text-[14px]/etc. wins above 768px because we only target
+ * mobile). Applies to all the form inputs across /quote, /embed, /, and
+ * the rep estimator.
+ *
+ * `font-size: max(16px, 1em)` keeps the explicit-sized inputs that are
+ * already >16px (e.g. the address field at 16px on sm:) unchanged.
+ */
+@media (max-width: 767.98px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="search"],
+  input[type="number"],
+  input[type="url"],
+  input[type="password"],
+  input:not([type]),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* ─── Range slider ─────────────────────────────────────────────────── */
+
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  height: 4px;
+  background: linear-gradient(90deg, rgba(103,220,255,0.6) 0%, rgba(103,220,255,0.6) var(--pct, 50%), rgba(255,255,255,0.08) var(--pct, 50%));
+  border-radius: 999px; outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #f0f5fc;
+  border: 1px solid rgba(0,0,0,0.4);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4), 0 0 0 4px rgba(103,220,255,0.18);
+  cursor: grab;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.1); box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 0 6px rgba(103,220,255,0.22); }
+input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
+
+/* ─── Checkbox / chip ─────────────────────────────────────────────── */
+
+/* Canonical status pills.
+ *   .chip          neutral / informational           (slate)
+ *   .chip-accent   active / currently selected       (cyan)
+ *   .chip-mint     passed / verified / clean         (mint)
+ *   .chip-amber    caution / requires review         (amber)
+ *   .chip-rose     blocked / failed / required-fix   (rose)
+ *
+ * Use these everywhere a status badge is needed instead of hand-rolling
+ * `bg-X/15 border-X/30 text-X` triplets in JSX. Keeps the rep estimator
+ * scannable: one colour means one thing across every panel. */
+.chip {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  color: var(--color-slate-300);
+}
+.chip-accent {
+  background: rgba(56,197,238,0.10);
+  border-color: rgba(103,220,255,0.30);
+  color: #b3edff;
+}
+.chip-mint {
+  background: rgba(95,227,176,0.10);
+  border-color: rgba(95,227,176,0.32);
+  color: #5fe3b0;
+}
+.chip-amber {
+  background: rgba(243,177,75,0.10);
+  border-color: rgba(243,177,75,0.34);
+  color: #f3b14b;
+}
+.chip-rose {
+  background: rgba(255,122,138,0.10);
+  border-color: rgba(255,122,138,0.34);
+  color: #ff7a8a;
+}
+
+/* ─── Liquid Glass (visionOS) — scoped to /quote flow ──────────────────
+ *
+ * A coherent set of utilities that recreate Apple's visionOS "Liquid Glass"
+ * material on top of our existing dark base. Used only by the customer-
+ * facing /quote wizard — the internal rep app keeps its current dark
+ * cyber aesthetic. Pair with `.lg-env` on the page wrapper for the
+ * layered radial backdrop the glass cards float over.
+ */
+
+/* Background environment — animated aurora behind the glass.
+ *
+ * Three layers:
+ *   1. Slow-shifting radial gradients (the "atmosphere")
+ *   2. Diffuse blobs of saturated color that orbit on long loops
+ *   3. Subtle film grain overlay
+ *
+ * Without something interesting underneath, glass just looks like a tinted
+ * card. visionOS glass earns its name by refracting depth-blurred imagery —
+ * we approximate that with rich color movement the cards can blur over. */
+.lg-env {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(1400px 900px at 20% -8%,  rgba(99,102,241,0.18) 0%, transparent 55%),
+    radial-gradient(1100px 800px at 100% 8%,  rgba(125,156,255,0.10) 0%, transparent 55%),
+    radial-gradient(1000px 700px at 82% 100%, rgba(45,212,191,0.12) 0%, transparent 55%),
+    radial-gradient(800px 600px  at 8% 95%,   rgba(167,139,250,0.10) 0%, transparent 60%),
+    radial-gradient(900px 600px  at 50% 50%,  rgba(56,189,248,0.04) 0%, transparent 70%),
+    #060812;
+}
+/* Aurora blobs — slow-drifting saturated bloom that gives the glass
+ * something to actually refract. Sits behind all content (z:-1). */
+.lg-env::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(50% 40% at 30% 30%, rgba(125,211,252,0.20) 0%, transparent 60%),
+    radial-gradient(45% 38% at 75% 65%, rgba(167,139,250,0.18) 0%, transparent 60%),
+    radial-gradient(40% 35% at 50% 90%, rgba(56,189,248,0.14) 0%, transparent 60%),
+    radial-gradient(35% 30% at 90% 20%, rgba(94,234,212,0.14) 0%, transparent 60%);
+  filter: blur(80px) saturate(1.4);
+  animation: auroraDrift 28s ease-in-out infinite alternate;
+  /* will-change tells the browser to allocate a dedicated GPU
+   * compositor layer for the animated transform up front, instead of
+   * promoting/demoting the layer on every animation iteration. Without
+   * this hint, the `filter: blur(80px)` element (sized inset:-20% ≈
+   * 140vw × 140vh) re-rasterizes on the CPU on each frame on low-end
+   * Android, dropping FPS noticeably. transform-only listing avoids
+   * forcing layer-promotion on filter/opacity changes elsewhere. */
+  will-change: transform;
+}
+/* Film grain overlay — adds tactile noise so flat color regions don't
+ * look "dead." Subtle: ~3% opacity. */
+.lg-env::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.06 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: 0.45;
+  mix-blend-mode: overlay;
+}
+@keyframes auroraDrift {
+  0%   { transform: translate(-2%, -1%) rotate(0deg) scale(1); }
+  50%  { transform: translate(3%, 2%)  rotate(8deg) scale(1.05); }
+  100% { transform: translate(-1%, 3%) rotate(-6deg) scale(0.98); }
+}
+
+/* ─── Glass Panel System ──────────────────────────────────────────────
+ *
+ * Every glass panel has three visual layers:
+ *   1. Base — translucent gradient fill + heavy backdrop blur + rim light
+ *   2. ::before — diagonal specular sheen ribbon (the "lit edge" highlight)
+ *   3. ::after — soft tinted shadow bloom that pools below the card
+ *
+ * Together these give the panel a sense of being a real glass object
+ * floating over a luminous environment rather than a flat translucent
+ * rectangle. The shadow is tinted INDIGO-VIOLET (not flat black) because
+ * the environment underneath has those colors — light passes through
+ * the glass and pools in its complement. This is the single biggest
+ * visual cue separating "fake glass" from "Apple glass."
+ */
+.glass-panel {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 100%);
+  backdrop-filter: blur(48px) saturate(1.8) brightness(1.05);
+  -webkit-backdrop-filter: blur(48px) saturate(1.8) brightness(1.05);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 28px;
+  box-shadow:
+    /* rim light — bright top edge */
+    inset 0 1.5px 0 rgba(255,255,255,0.28),
+    /* bottom shading — slight darkening to simulate refracted depth */
+    inset 0 -1px 0 rgba(0,0,0,0.18),
+    /* outer hairline */
+    0 0 0 1px rgba(255,255,255,0.04),
+    /* close ambient */
+    0 8px 20px -8px rgba(0,0,0,0.4),
+    /* TINTED color bloom — this is the magic shadow */
+    0 28px 60px -18px rgba(67,75,184,0.35),
+    /* deep ambient */
+    0 40px 100px -32px rgba(0,0,0,0.55);
+  transition: transform 350ms cubic-bezier(.2,.8,.2,1),
+              border-color 300ms ease,
+              box-shadow 350ms ease,
+              background 300ms ease;
+}
+/* Specular sheen — diagonal "lit edge" highlight that arcs across the
+ * top of the panel like light catching the curve of a real glass surface.
+ * This is the single most visionOS-y detail. */
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg,
+      rgba(255,255,255,0.22) 0%,
+      rgba(255,255,255,0.06) 18%,
+      transparent 38%,
+      transparent 62%,
+      rgba(255,255,255,0.04) 82%,
+      rgba(255,255,255,0.10) 100%);
+  mix-blend-mode: overlay;
+  opacity: 0.85;
+}
+/* Subtle grain layer ON the glass — adds tactile texture so flat regions
+ * of the gradient don't look painted. */
+.glass-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+}
+.glass-panel.is-interactive {
+  cursor: pointer;
+}
+.glass-panel.is-interactive:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255,255,255,0.22);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.34),
+    inset 0 -1px 0 rgba(0,0,0,0.2),
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 10px 24px -8px rgba(0,0,0,0.45),
+    0 36px 76px -20px rgba(125,211,252,0.40),
+    0 50px 120px -36px rgba(0,0,0,0.6);
+}
+
+/* Hero / centerpiece glass — deeper blur, taller radius, dual color glow. */
+.glass-panel-hero {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 100%);
+  backdrop-filter: blur(80px) saturate(1.9) brightness(1.08);
+  -webkit-backdrop-filter: blur(80px) saturate(1.9) brightness(1.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 36px;
+  box-shadow:
+    inset 0 2px 0 rgba(255,255,255,0.36),
+    inset 0 -1px 0 rgba(0,0,0,0.22),
+    0 0 0 1px rgba(255,255,255,0.05),
+    0 12px 28px -10px rgba(0,0,0,0.45),
+    /* DOUBLE color bloom — cyan + violet for that visionOS aurora feel */
+    0 30px 80px -20px rgba(125,211,252,0.35),
+    0 48px 120px -30px rgba(167,139,250,0.30),
+    0 60px 160px -40px rgba(0,0,0,0.65);
+}
+.glass-panel-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg,
+      rgba(255,255,255,0.30) 0%,
+      rgba(255,255,255,0.08) 16%,
+      transparent 36%,
+      transparent 64%,
+      rgba(255,255,255,0.05) 84%,
+      rgba(255,255,255,0.14) 100%);
+  mix-blend-mode: overlay;
+}
+.glass-panel-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+}
+
+/* Selected variant — used by material cards / add-on rows in active state.
+ * Saturated cyan glow as if backlit. The inner glow simulates the way
+ * Apple's glass picks up the tint of the underlying highlighted content. */
+.glass-panel-selected {
+  background:
+    linear-gradient(180deg, rgba(125,211,252,0.22) 0%, rgba(167,139,250,0.10) 100%);
+  border-color: rgba(186,230,253,0.55);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.40),
+    inset 0 0 30px rgba(125,211,252,0.18),
+    inset 0 -1px 0 rgba(0,0,0,0.18),
+    0 0 0 1px rgba(186,230,253,0.25),
+    0 10px 24px -8px rgba(0,0,0,0.45),
+    /* saturated outward glow */
+    0 28px 70px -18px rgba(125,211,252,0.55),
+    0 48px 120px -32px rgba(167,139,250,0.30);
+}
+
+/* Inset glass input surface — slight negative inner shadow. */
+.glass-input {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background: rgba(8,11,17,0.55);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  color: var(--color-slate-100);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  outline: none;
+  box-shadow:
+    inset 0 1px 2px rgba(0,0,0,0.35),
+    inset 0 -1px 0 rgba(255,255,255,0.03);
+  transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
+}
+.glass-input::placeholder { color: rgba(255,255,255,0.35); }
+.glass-input:hover { border-color: rgba(255,255,255,0.14); }
+.glass-input:focus {
+  border-color: rgba(186,230,253,0.55);
+  background: rgba(8,11,17,0.7);
+  box-shadow:
+    inset 0 1px 2px rgba(0,0,0,0.35),
+    0 0 0 4px rgba(125,211,252,0.16),
+    0 0 24px -4px rgba(125,211,252,0.25);
+}
+
+/* Pill primary CTA — translucent Liquid Glass capsule with chromatic
+ * gradient fill. Behaves like a real glass tablet: brighter on top from
+ * the implied light source, with a wet specular sheen running along
+ * the top arc. */
+.glass-button-primary {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.72rem 1.4rem;
+  border-radius: 9999px;
+  font-weight: 580;
+  font-size: 0.93rem;
+  letter-spacing: -0.005em;
+  color: #051019;
+  background:
+    linear-gradient(180deg,
+      rgba(245,250,255,0.98) 0%,
+      rgba(186,230,253,0.95) 35%,
+      rgba(125,211,252,0.92) 65%,
+      rgba(167,200,255,0.94) 100%);
+  border: 1px solid rgba(255,255,255,0.45);
+  box-shadow:
+    /* dual-edge rim light */
+    inset 0 1.5px 0 rgba(255,255,255,0.85),
+    inset 0 -1px 0 rgba(0,0,0,0.15),
+    /* outer hairline */
+    0 0 0 1px rgba(186,230,253,0.25),
+    /* close ambient lift */
+    0 4px 12px -2px rgba(0,0,0,0.25),
+    /* color bloom — saturated cyan that picks up under the button */
+    0 14px 36px -10px rgba(125,211,252,0.65),
+    /* outer aurora */
+    0 24px 60px -18px rgba(167,139,250,0.30);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.45);
+  transition: transform 200ms ease, box-shadow 250ms ease, filter 200ms ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* Wet specular sheen — the arc of light running along the top edge,
+ * tighter than on the bigger panels. */
+.glass-button-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.55) 0%,
+    rgba(255,255,255,0.10) 35%,
+    transparent 55%);
+  mix-blend-mode: overlay;
+  opacity: 0.9;
+}
+.glass-button-primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.8),
+    inset 0 -1px 0 rgba(0,0,0,0.14),
+    0 18px 40px -12px rgba(125,211,252,0.65),
+    0 0 0 1px rgba(186,230,253,0.24);
+}
+.glass-button-primary:active:not(:disabled) { transform: translateY(0); }
+.glass-button-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+.glass-button-primary:focus-visible {
+  outline: 2px solid rgba(186,230,253,0.7);
+  outline-offset: 3px;
+}
+
+/* Secondary tight-glass button — translucent, subtle border. */
+.glass-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: 9999px;
+  font-weight: 510;
+  font-size: 0.88rem;
+  color: rgba(255,255,255,0.86);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    0 8px 24px -10px rgba(0,0,0,0.5);
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.glass-button-secondary:hover {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.18);
+}
+.glass-button-secondary:active { transform: translateY(0.5px); }
+.glass-button-secondary:focus-visible {
+  outline: 2px solid rgba(186,230,253,0.55);
+  outline-offset: 3px;
+}
+.glass-button-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Stepper pills — floating glass. */
+.glass-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: all 250ms ease;
+}
+.glass-pill-active {
+  color: #051019;
+  background:
+    linear-gradient(180deg, rgba(224,242,254,0.98) 0%, rgba(125,211,252,0.94) 100%);
+  border-color: rgba(255,255,255,0.4);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.7),
+    inset 0 -1px 0 rgba(0,0,0,0.12),
+    0 8px 22px -6px rgba(125,211,252,0.55);
+}
+.glass-pill-done {
+  color: #5fe3b0;
+  background: rgba(95,227,176,0.12);
+  border-color: rgba(95,227,176,0.32);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* Hairline divider tuned for glass surfaces. */
+.glass-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+}
+
+/* Iridescent text gradient — for accent labels + headings. */
+.iridescent-text {
+  background: linear-gradient(90deg, #7dd3fc 0%, #a7c4ff 50%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Tiny accent chip — Step label. */
+.glass-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(186,230,253,0.95);
+  background: rgba(125,211,252,0.08);
+  border: 1px solid rgba(186,230,253,0.22);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+/* Mint success / amber warning desaturated 20% for visionOS palette. */
+.glass-success {
+  background: rgba(95,227,176,0.10);
+  border: 1px solid rgba(95,227,176,0.28);
+  color: #8aeec5;
+}
+
+/* ─── Operator console: section rule, marquee KPI, live ribbon ───────
+ *
+ * Extends the existing Liquid Glass system with three new primitives the
+ * dashboard hero relies on for "mission control" presence:
+ *
+ *   .console-section-rule — labeled chapter divider that breaks the page
+ *     into rhythm (HERO / OPERATIONS / PIPELINE) without dropping
+ *     floor-glass weight on every section header
+ *
+ *   .marquee-kpi-value — the dominant tabular numeric in the hero. Big
+ *     enough to read across the room during a demo; subtle scan-line
+ *     texture overlay so it reads as "telemetry", not "billboard"
+ *
+ *   .live-ribbon-cell — repeating row of compact KPIs under the marquee.
+ *     Mono tabular. Inherits the hairline-divider language
+ *
+ *   .console-eyebrow — like .glass-eyebrow but tighter and uppercase
+ *     mono, paired with a left-side accent bar. Used for section labels
+ */
+
+.console-section-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 0.25rem 0;
+}
+.console-section-rule::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(103,220,255,0.55), rgba(103,220,255,0.05));
+  flex-shrink: 0;
+}
+.console-section-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.10), transparent);
+}
+.console-section-rule > span {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  white-space: nowrap;
+}
+.console-section-rule > .pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-mint);
+  box-shadow: 0 0 8px rgba(95,227,176,0.6);
+  flex-shrink: 0;
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+.marquee-kpi-value {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum", "zero";
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  background: linear-gradient(180deg, #f5fbff 0%, #c4ddef 50%, #7dd3fc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.02);
+  position: relative;
+  line-height: 0.95;
+}
+.marquee-kpi-value::after {
+  /* Subtle horizontal scan-line texture overlay — gives the big numeric
+   * "telemetry display" feel without dropping legibility */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(255,255,255,0.025) 2px,
+    rgba(255,255,255,0.025) 3px
+  );
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+.live-ribbon {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.live-ribbon-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border-right: 1px solid rgba(255,255,255,0.04);
+  position: relative;
+}
+.live-ribbon-cell:last-child { border-right: none; }
+.live-ribbon-cell .label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.42);
+  font-weight: 500;
+}
+.live-ribbon-cell .value {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum", "zero";
+  font-variant-numeric: tabular-nums;
+  font-size: 1.45rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.96);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.live-ribbon-cell .delta {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum";
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  margin-top: 0.15rem;
+}
+.live-ribbon-cell .delta.up   { color: var(--color-mint); }
+.live-ribbon-cell .delta.down { color: var(--color-rose); }
+
+/* Line panel — Tier-3 surface with NO heavy glass. A hairline frame and
+ * the inset gradient only. Used for dense data lists where stacking
+ * full glass-panels would over-foam the page. */
+.line-panel {
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.018) 0%, rgba(255,255,255,0.004) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+}
+
+/* Toast notifier — used by the office switcher to surface failures so
+ * a sales demo doesn't dead-end in silence. Slides in top-right. */
+@keyframes toast-in {
+  0%   { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.console-toast {
+  animation: toast-in 280ms cubic-bezier(.2,.8,.2,1) backwards;
+}
+
+/* ─── Theme: Terminal ──────────────────────────────────────────────────
+ *
+ * Alternative dashboard skin — keeps the cyan/mint/amber palette but
+ * strips the visionOS Liquid Glass language for a denser, tactical SaaS
+ * look. Applied by replacing `.lg-env` with `.theme-terminal` on the
+ * dashboard wrapper (see app/dashboard/layout.tsx).
+ *
+ * Design intent: feels like a real ops console, not a marketing site.
+ * - True dark canvas with a dot-grid backdrop instead of aurora
+ * - Hairline cyan-tinted borders, NO backdrop-filter (huge perf win)
+ * - Sharp 8–12px radii (down from 28–36px)
+ * - Solid type (no iridescent gradient), heavy mono numerics
+ * - Brackets [LIVE] and arrow ▸ markers instead of glass pills
+ * - Cyan is THE accent; mint reserved for verified-positive states only
+ *
+ * Implementation: scoped overrides on the existing glass-* utility names.
+ * Every dashboard page renders identically markup-wise — only the
+ * wrapper class changes.
+ */
+.theme-terminal {
+  position: relative;
+  isolation: isolate;
+  background: #06080c;
+  color: rgb(229 234 245 / 0.92);
+}
+/* Dot-grid backdrop — sits behind all content, low-contrast. Gives the
+ * "engineering drawing / oscilloscope" texture without being noisy. */
+.theme-terminal::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at center, rgba(103,220,255,0.06) 0.7px, transparent 0.8px);
+  background-size: 22px 22px;
+  background-position: 0 0;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 30%, transparent 100%);
+}
+/* Faint horizon glow at the bottom — a single soft cyan band so the dot
+ * grid doesn't terminate abruptly. Keeps the page anchored. */
+.theme-terminal::after {
+  content: "";
+  position: fixed;
+  inset: auto 0 0 0;
+  height: 360px;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 70% 100% at 50% 110%, rgba(56,197,238,0.10) 0%, transparent 70%);
+}
+/* Subtle film grain — fixed full-viewport overlay sitting above the
+ * background layers but below content. Defeats the "vector flat" feel
+ * of digital surfaces. Inline SVG noise (no asset request). */
+.theme-terminal > * { position: relative; z-index: 1; }
+.theme-terminal {
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.035 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-blend-mode: overlay;
+}
+
+/* ── Panel overrides ── */
+.theme-terminal .glass-panel,
+.theme-terminal .glass-panel-hero {
+  background: rgba(13,16,22,0.65);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid rgba(103,220,255,0.10);
+  border-radius: 10px;
+  /* Tinted cyan drop-shadow instead of flat black — adds depth that
+   * matches the accent rather than a generic neutral shadow */
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.025),
+    0 1px 0 rgba(0,0,0,0.4),
+    0 16px 40px -24px rgba(56,197,238,0.18);
+  transition: border-color 200ms ease, background 200ms ease,
+              box-shadow 200ms ease, transform 120ms ease;
+}
+.theme-terminal .glass-panel::before,
+.theme-terminal .glass-panel::after,
+.theme-terminal .glass-panel-hero::before,
+.theme-terminal .glass-panel-hero::after {
+  display: none;
+}
+.theme-terminal .glass-panel-hero {
+  border-radius: 12px;
+  background: rgba(11,14,20,0.78);
+  /* Kill the inset rim-light (a 36% white edge that read as a harsh
+   * bright line once the aurora was removed from behind it) */
+  box-shadow:
+    0 1px 0 rgba(0,0,0,0.5),
+    0 0 0 1px rgba(103,220,255,0.06);
+  position: relative;
+}
+.theme-terminal .glass-panel.is-interactive:hover {
+  transform: none;
+  border-color: rgba(103,220,255,0.30);
+  background: rgba(15,19,28,0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.03),
+    0 0 0 1px rgba(103,220,255,0.06),
+    0 8px 24px -12px rgba(56,197,238,0.20);
+}
+
+/* ── Selected variant — solid cyan tint, not a glow bloom ── */
+.theme-terminal .glass-panel-selected {
+  background: rgba(103,220,255,0.06);
+  border-color: rgba(103,220,255,0.40);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 0 0 1px rgba(103,220,255,0.12);
+}
+
+/* ── Eyebrow → bracket label ── */
+.theme-terminal .glass-eyebrow {
+  background: transparent;
+  border: 1px solid rgba(103,220,255,0.22);
+  border-radius: 4px;
+  padding: 0.2rem 0.55rem;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: rgba(179,237,255,0.85);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  box-shadow: none;
+}
+.theme-terminal .glass-eyebrow::before {
+  content: "▸ ";
+  opacity: 0.7;
+  margin-right: 0.15em;
+}
+
+/* ── Text gradient → solid tinted white ── */
+.theme-terminal .iridescent-text {
+  background: none;
+  -webkit-text-fill-color: rgb(243 250 255);
+  color: rgb(243 250 255);
+}
+
+/* ── Marquee KPI: solid color, no scan-line overlay, cyan underline ── */
+.theme-terminal .marquee-kpi-value {
+  background: none;
+  -webkit-text-fill-color: rgb(245 252 255);
+  color: rgb(245 252 255);
+  letter-spacing: -0.04em;
+  font-weight: 500;
+}
+.theme-terminal .marquee-kpi-value::after { display: none; }
+
+/* ── Live ribbon: tighter, no rounded ends, cyan vertical separators ── */
+.theme-terminal .live-ribbon {
+  border-top: 1px solid rgba(103,220,255,0.14);
+  border-bottom: 1px solid rgba(103,220,255,0.14);
+  background: rgba(7,9,13,0.55);
+}
+.theme-terminal .live-ribbon-cell {
+  border-right: 1px solid rgba(103,220,255,0.08);
+  padding: 0.85rem 1.15rem;
+}
+.theme-terminal .live-ribbon-cell .label {
+  color: rgba(179,237,255,0.55);
+  letter-spacing: 0.20em;
+}
+.theme-terminal .live-ribbon-cell .value {
+  font-weight: 500;
+  color: rgb(245 252 255);
+}
+
+/* ── Section rule: ASCII tape style ── */
+.theme-terminal .console-section-rule > span:not(.pulse) {
+  color: rgba(179,237,255,0.70);
+  font-size: 10px;
+}
+.theme-terminal .console-section-rule > span:not(.pulse)::before {
+  content: "[ ";
+  color: rgba(103,220,255,0.55);
+}
+.theme-terminal .console-section-rule > span:not(.pulse)::after {
+  content: " ]";
+  color: rgba(103,220,255,0.55);
+}
+.theme-terminal .console-section-rule::before {
+  background: linear-gradient(90deg, rgba(103,220,255,0.65), rgba(103,220,255,0.05));
+  width: 32px;
+}
+.theme-terminal .console-section-rule::after {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(103,220,255,0.20) 0px,
+    rgba(103,220,255,0.20) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  height: 1px;
+}
+
+/* ── Buttons → solid filled / outlined, no glass ── */
+.theme-terminal .glass-button-primary {
+  background: rgb(103 220 255);
+  color: #051019;
+  border: 1px solid rgba(103,220,255,0.8);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.35),
+    inset 0 -1px 0 rgba(0,0,0,0.15),
+    0 4px 14px -6px rgba(56,197,238,0.55);
+  text-shadow: none;
+  font-weight: 600;
+}
+.theme-terminal .glass-button-primary::before { display: none; }
+.theme-terminal .glass-button-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.35),
+    0 6px 18px -6px rgba(56,197,238,0.70);
+}
+.theme-terminal .glass-button-secondary {
+  background: transparent;
+  border: 1px solid rgba(103,220,255,0.22);
+  border-radius: 6px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: rgba(229,247,255,0.88);
+  box-shadow: none;
+}
+.theme-terminal .glass-button-secondary:hover {
+  background: rgba(103,220,255,0.06);
+  border-color: rgba(103,220,255,0.40);
+}
+
+/* ── Steppers / pills ── */
+.theme-terminal .glass-pill {
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.theme-terminal .glass-pill-active {
+  background: rgb(103 220 255);
+  color: #051019;
+  border-color: rgba(103,220,255,0.85);
+  box-shadow: 0 0 0 1px rgba(103,220,255,0.25);
+}
+
+/* ── Input ── */
+.theme-terminal .glass-input {
+  background: rgba(7,9,13,0.7);
+  border: 1px solid rgba(103,220,255,0.14);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.25);
+}
+.theme-terminal .glass-input:focus {
+  border-color: rgba(103,220,255,0.55);
+  box-shadow: 0 0 0 3px rgba(56,197,238,0.10);
+}
+
+/* ── Divider hairline ── */
+.theme-terminal .glass-divider {
+  background: linear-gradient(90deg, transparent, rgba(103,220,255,0.20), transparent);
+}
+
+/* ── Chips: sharper, smaller radius ── */
+.theme-terminal .chip,
+.theme-terminal .chip-accent,
+.theme-terminal .chip-mint,
+.theme-terminal .chip-amber,
+.theme-terminal .chip-rose {
+  border-radius: 4px;
+}
+
+/* ── Tighten the existing pulse-ping rings (less marketing, more telemetry) ── */
+.theme-terminal .animate-ping {
+  animation-duration: 2.4s;
+}
+
+/* ── Scoreboard tile grid — replaces the hero+stat-grid composition.
+ * Six tiles in a 3x2 (desktop) / 2x3 (tablet) / 1x6 (mobile) frame.
+ * Hard cyan dividers between tiles, no glass blur, no rounded inside. */
+.theme-terminal .scoreboard {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid rgba(103,220,255,0.14);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(11,14,20,0.78);
+}
+@media (min-width: 640px) {
+  .theme-terminal .scoreboard {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (min-width: 1024px) {
+  /* Asymmetric column widths: the Pipeline tile (3rd) is the headline
+   * KPI in our layout, so it gets ~1.4x the width. Breaks the
+   * four-equal-columns AI-default look (per taste-skill audit). */
+  .theme-terminal .scoreboard {
+    grid-template-columns: 1fr 1fr 1.4fr 1fr;
+  }
+}
+.theme-terminal .scoreboard-tile {
+  position: relative;
+  padding: 1.4rem 1.4rem 1.5rem;
+  border-right: 1px solid rgba(103,220,255,0.08);
+  border-bottom: 1px solid rgba(103,220,255,0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 152px;
+  isolation: isolate;
+  transition: background 200ms ease, box-shadow 240ms ease, transform 120ms ease;
+}
+/* Link-style tiles get a subtle cyan spotlight on hover — the
+ * radial-gradient sits behind content via z-index:-1 so it never
+ * affects text legibility */
+.theme-terminal a.scoreboard-tile:hover {
+  background:
+    radial-gradient(circle at 28% 0%, rgba(103,220,255,0.06) 0%, transparent 55%),
+    rgba(15,19,28,0.55);
+  box-shadow: inset 0 0 0 1px rgba(103,220,255,0.16);
+}
+.theme-terminal a.scoreboard-tile:active {
+  transform: translateY(1px);
+}
+.theme-terminal a.scoreboard-tile.accent-mint:hover {
+  background:
+    radial-gradient(circle at 28% 0%, rgba(95,227,176,0.06) 0%, transparent 55%),
+    rgba(15,19,28,0.55);
+  box-shadow: inset 0 0 0 1px rgba(95,227,176,0.16);
+}
+.theme-terminal a.scoreboard-tile.accent-amber:hover {
+  background:
+    radial-gradient(circle at 28% 0%, rgba(243,177,75,0.06) 0%, transparent 55%),
+    rgba(15,19,28,0.55);
+  box-shadow: inset 0 0 0 1px rgba(243,177,75,0.18);
+}
+@media (min-width: 1024px) {
+  .theme-terminal .scoreboard-tile {
+    padding: 1.7rem 1.7rem 1.8rem;
+    min-height: 170px;
+  }
+  /* Single row at desktop: every tile right-bordered except the last,
+   * no tile gets a bottom border */
+  .theme-terminal .scoreboard-tile { border-bottom: none; }
+  .theme-terminal .scoreboard-tile:nth-child(4n) { border-right: none; }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  /* 2x2 tablet — tiles 2 & 4 lose right; tiles 3 & 4 lose bottom */
+  .theme-terminal .scoreboard-tile:nth-child(2n) { border-right: none; }
+  .theme-terminal .scoreboard-tile:nth-last-child(-n+2) { border-bottom: none; }
+}
+@media (max-width: 639.98px) {
+  .theme-terminal .scoreboard-tile { border-right: none; }
+  .theme-terminal .scoreboard-tile:last-child { border-bottom: none; }
+}
+/* Left-side cyan accent bar — what makes each tile read as a "channel" */
+.theme-terminal .scoreboard-tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12%;
+  bottom: 12%;
+  width: 2px;
+  background: linear-gradient(180deg,
+    rgba(103,220,255,0.55) 0%,
+    rgba(103,220,255,0.15) 100%);
+  box-shadow: 0 0 12px rgba(103,220,255,0.35);
+}
+.theme-terminal .scoreboard-tile.accent-mint::before {
+  background: linear-gradient(180deg, rgba(95,227,176,0.65) 0%, rgba(95,227,176,0.18) 100%);
+  box-shadow: 0 0 12px rgba(95,227,176,0.35);
+}
+.theme-terminal .scoreboard-tile.accent-amber::before {
+  background: linear-gradient(180deg, rgba(243,177,75,0.65) 0%, rgba(243,177,75,0.18) 100%);
+  box-shadow: 0 0 12px rgba(243,177,75,0.30);
+}
+.theme-terminal .scoreboard-tile .label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(179,237,255,0.62);
+  font-weight: 500;
+}
+.theme-terminal .scoreboard-tile .value {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum", "zero";
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.1rem, 4.2vw, 3.4rem);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  color: rgb(248 253 255);
+  line-height: 0.92;
+}
+.theme-terminal .scoreboard-tile.size-hero .value {
+  font-size: clamp(2.8rem, 5.2vw, 4.4rem);
+  letter-spacing: -0.045em;
+}
+.theme-terminal .scoreboard-tile .sublabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  letter-spacing: 0.04em;
+  margin-top: auto;
+}
+.theme-terminal .scoreboard-tile .delta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+.theme-terminal .scoreboard-tile .delta.up   { color: var(--color-mint); }
+.theme-terminal .scoreboard-tile .delta.down { color: var(--color-rose); }
+
+/* Tape strip — a single-row scrolling ticker that anchors the top of
+ * the page. Reads like a stock-ticker / news-bar. */
+.theme-terminal .tape-strip {
+  border: 1px solid rgba(103,220,255,0.14);
+  border-radius: 8px;
+  background: rgba(7,9,13,0.85);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+}
+.theme-terminal .tape-strip .tape-prefix {
+  flex-shrink: 0;
+  padding: 0 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgb(103 220 255);
+  background: rgba(103,220,255,0.06);
+  border-right: 1px solid rgba(103,220,255,0.14);
+}
+.theme-terminal .tape-strip .tape-track {
+  display: flex;
+  align-items: center;
+  gap: 2.4rem;
+  padding-left: 1.4rem;
+  white-space: nowrap;
+  animation: tape-scroll 38s linear infinite;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.80);
+  flex-shrink: 0;
+}
+.theme-terminal .tape-strip .tape-track .tape-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+.theme-terminal .tape-strip .tape-track .tape-cell .k {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(179,237,255,0.55);
+}
+.theme-terminal .tape-strip .tape-track .tape-cell .v {
+  font-feature-settings: "tnum", "zero";
+  font-variant-numeric: tabular-nums;
+  color: rgb(248 253 255);
+}
+.theme-terminal .tape-strip .tape-track .tape-cell .d.up   { color: var(--color-mint); font-size: 10.5px; }
+.theme-terminal .tape-strip .tape-track .tape-cell .d.down { color: var(--color-rose); font-size: 10.5px; }
+.theme-terminal .tape-strip .tape-track .tape-sep {
+  color: rgba(103,220,255,0.40);
+}
+@keyframes tape-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-terminal .tape-strip .tape-track { animation: none; }
+}
+
+/* Log-style activity rows — mono timestamp, kind tag, payload */
+.theme-terminal .log-row {
+  display: grid;
+  grid-template-columns: 84px 86px 1fr auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.55rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-bottom: 1px dashed rgba(103,220,255,0.08);
+  color: rgba(255,255,255,0.82);
+}
+.theme-terminal .log-row:last-child { border-bottom: none; }
+.theme-terminal .log-row:hover { background: rgba(103,220,255,0.03); }
+.theme-terminal .log-row .ts {
+  color: rgba(179,237,255,0.55);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.theme-terminal .log-row .kind {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.theme-terminal .log-row .kind.lead     { color: rgb(103 220 255); }
+.theme-terminal .log-row .kind.call     { color: rgb(95 227 176); }
+.theme-terminal .log-row .kind.proposal { color: rgb(243 177 75); }
+.theme-terminal .log-row .kind.event    { color: rgba(255,255,255,0.55); }
+.theme-terminal .log-row .kind::before {
+  content: "▸ ";
+  opacity: 0.55;
+}
+.theme-terminal .log-row .body {
+  color: rgba(255,255,255,0.92);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.theme-terminal .log-row .meta {
+  color: rgba(255,255,255,0.42);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+@media (max-width: 767.98px) {
+  .theme-terminal .log-row {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+  .theme-terminal .log-row .meta { display: none; }
+}
+
+/* Terminal-style "jump in" rows — sharp, hairline, no inner panels */
+.theme-terminal .jump-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.7rem 0.9rem;
+  border-left: 2px solid rgba(103,220,255,0.30);
+  border-bottom: 1px dashed rgba(103,220,255,0.10);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.theme-terminal .jump-row:last-child { border-bottom: none; }
+.theme-terminal .jump-row:hover {
+  background: rgba(103,220,255,0.05);
+  border-left-color: rgb(103 220 255);
+}
+.theme-terminal .jump-row .glyph {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: rgb(103 220 255);
+}
+
+/* ── Make the topbar / sidebar match: terminal frame, not glass ── */
+.theme-terminal .lg-env { background: transparent; }
+.theme-terminal main,
+.theme-terminal aside {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.theme-terminal aside.lg\:flex {
+  border-right: 1px solid rgba(103,220,255,0.10);
+  background: rgba(8,11,17,0.40) !important;
+}
+.theme-terminal main > div:first-child {
+  /* topbar */
+  border-bottom: 1px solid rgba(103,220,255,0.10);
+}
+
+/* ─── Theme: Nothing ────────────────────────────────────────────────
+ *
+ * Alternative dashboard skin inspired by the Nothing design language —
+ * Doto dot-matrix display, Space Grotesk body, Space Mono labels,
+ * OLED black, single red signal-light accent. All caps, hairline borders,
+ * square corners, segmented progress bars, no shadows, no glass.
+ *
+ * Tokens are scoped to .theme-nothing so a single wrapper class can swap
+ * the entire visual language without touching markup.
+ */
+.theme-nothing {
+  /* Nothing palette */
+  --ndg-black: #000000;
+  --ndg-surface: #0a0a0a;
+  --ndg-surface-raised: #141414;
+  --ndg-border: #1f1f1f;
+  --ndg-border-visible: #2e2e2e;
+  --ndg-text-disabled: #555555;
+  --ndg-text-secondary: #999999;
+  --ndg-text-primary: #e8e8e8;
+  --ndg-text-display: #ffffff;
+  --ndg-accent: #d71921; /* signal-light red */
+  --ndg-success: #4a9e5c;
+  --ndg-warning: #d4a843;
+
+  position: relative;
+  isolation: isolate;
+  background: var(--ndg-black);
+  color: var(--ndg-text-primary);
+  font-family: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+}
+/* No backdrop noise — Nothing is OLED black, period */
+.theme-nothing::before,
+.theme-nothing::after { display: none !important; }
+
+/* ── Panels: flat surfaces, hairline borders, no glass ── */
+.theme-nothing .glass-panel,
+.theme-nothing .glass-panel-hero {
+  background: var(--ndg-surface);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--ndg-border);
+  border-radius: 4px;
+  box-shadow: none;
+}
+.theme-nothing .glass-panel::before,
+.theme-nothing .glass-panel::after,
+.theme-nothing .glass-panel-hero::before,
+.theme-nothing .glass-panel-hero::after { display: none; }
+.theme-nothing .glass-panel.is-interactive:hover {
+  transform: none;
+  background: var(--ndg-surface-raised);
+  border-color: var(--ndg-border-visible);
+  box-shadow: none;
+}
+.theme-nothing .glass-panel-selected {
+  background: var(--ndg-surface-raised);
+  border-color: var(--ndg-text-display);
+  box-shadow: none;
+}
+
+/* ── Eyebrow → bracketed Space Mono label ── */
+.theme-nothing .glass-eyebrow {
+  background: transparent;
+  border: 1px solid var(--ndg-border-visible);
+  border-radius: 0;
+  padding: 0.25rem 0.65rem;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: var(--ndg-text-secondary);
+  font-family: var(--font-space-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  font-weight: 400;
+  box-shadow: none;
+}
+.theme-nothing .glass-eyebrow::before { content: none; }
+
+/* ── Iridescent text → solid display white ── */
+.theme-nothing .iridescent-text {
+  background: none;
+  -webkit-text-fill-color: var(--ndg-text-display);
+  color: var(--ndg-text-display);
+  font-family: var(--font-space-grotesk), sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* ── Marquee KPI: Space Mono tabular, no dot-matrix ── */
+.theme-nothing .marquee-kpi-value {
+  background: none;
+  -webkit-text-fill-color: var(--ndg-text-display);
+  color: var(--ndg-text-display);
+  font-family: var(--font-space-mono), ui-monospace, monospace;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.theme-nothing .marquee-kpi-value::after { display: none; }
+
+/* ── Scoreboard: hard-edged tiles, Doto numerics, no accent bars ── */
+.theme-nothing .scoreboard {
+  background: var(--ndg-surface);
+  border: 1px solid var(--ndg-border);
+  border-radius: 4px;
+}
+.theme-nothing .scoreboard-tile {
+  border-right: 1px solid var(--ndg-border);
+  border-bottom: 1px solid var(--ndg-border);
+  padding: 1.6rem 1.6rem 1.8rem;
+}
+.theme-nothing .scoreboard-tile::before { display: none; }
+.theme-nothing .scoreboard-tile .label {
+  font-family: var(--font-space-mono), monospace;
+  color: var(--ndg-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  font-weight: 400;
+}
+.theme-nothing .scoreboard-tile .value {
+  font-family: var(--font-space-mono), ui-monospace, monospace;
+  color: var(--ndg-text-display);
+  font-size: clamp(2.2rem, 4.2vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.theme-nothing .scoreboard-tile .sublabel {
+  font-family: var(--font-space-mono), monospace;
+  color: var(--ndg-text-secondary);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+/* The "signal-light" red — used ONCE, on the alert tile only.
+ * In our layout, .accent-amber maps to Pipeline (the headline KPI). */
+.theme-nothing .scoreboard-tile.accent-amber .value { color: var(--ndg-text-display); }
+.theme-nothing .scoreboard-tile.accent-mint .value { color: var(--ndg-success); }
+.theme-nothing .scoreboard-tile .delta.up   { color: var(--ndg-success); }
+.theme-nothing .scoreboard-tile .delta.down { color: var(--ndg-accent); }
+
+/* ── Console section rule → bracketed ALL-CAPS row with thin line ── */
+.theme-nothing .console-section-rule { gap: 1rem; }
+.theme-nothing .console-section-rule > span:not(.pulse) {
+  font-family: var(--font-space-mono), monospace;
+  color: var(--ndg-text-secondary);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  font-weight: 400;
+}
+.theme-nothing .console-section-rule > span:not(.pulse)::before { content: ""; }
+.theme-nothing .console-section-rule > span:not(.pulse)::after { content: ""; }
+.theme-nothing .console-section-rule::before {
+  background: var(--ndg-text-display);
+  height: 1px;
+  width: 18px;
+}
+.theme-nothing .console-section-rule::after {
+  background: var(--ndg-border-visible);
+  height: 1px;
+}
+.theme-nothing .console-section-rule .pulse {
+  background: var(--ndg-success);
+  box-shadow: none;
+}
+
+/* ── Log rows: pipe-separated columns, no colored pill tags ── */
+.theme-nothing .log-row {
+  font-family: var(--font-space-mono), monospace;
+  border-bottom: 1px solid var(--ndg-border);
+  color: var(--ndg-text-primary);
+  padding: 0.7rem 1.1rem;
+}
+.theme-nothing .log-row:hover { background: var(--ndg-surface-raised); }
+.theme-nothing .log-row .ts {
+  color: var(--ndg-text-secondary);
+  letter-spacing: 0.04em;
+}
+.theme-nothing .log-row .kind {
+  color: var(--ndg-text-display);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.theme-nothing .log-row .kind::before { content: ""; }
+.theme-nothing .log-row .kind.lead     { color: var(--ndg-text-display); }
+.theme-nothing .log-row .kind.call     { color: var(--ndg-success); }
+.theme-nothing .log-row .kind.proposal { color: var(--ndg-warning); }
+.theme-nothing .log-row .kind.event    { color: var(--ndg-text-disabled); }
+.theme-nothing .log-row .body  { color: var(--ndg-text-primary); }
+.theme-nothing .log-row .meta  { color: var(--ndg-text-secondary); }
+
+/* ── Jump rows: no left accent bar, just hairline divider + arrow ── */
+.theme-nothing .jump-row {
+  border-left: none;
+  border-bottom: 1px solid var(--ndg-border);
+  padding: 0.95rem 1rem;
+}
+.theme-nothing .jump-row:hover {
+  background: var(--ndg-surface-raised);
+  border-left-color: transparent;
+}
+.theme-nothing .jump-row .glyph { color: var(--ndg-text-secondary); font-size: 12px; }
+
+/* ── Buttons: pill outline, Space Mono ALL CAPS ── */
+.theme-nothing .glass-button-primary {
+  background: var(--ndg-text-display);
+  color: var(--ndg-black);
+  border: none;
+  border-radius: 999px;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  box-shadow: none;
+  text-shadow: none;
+  padding: 0.7rem 1.4rem;
+}
+.theme-nothing .glass-button-primary::before { display: none; }
+.theme-nothing .glass-button-primary:hover:not(:disabled) {
+  filter: none;
+  transform: none;
+  background: rgba(255,255,255,0.85);
+}
+.theme-nothing .glass-button-secondary {
+  background: transparent;
+  border: 1px solid var(--ndg-border-visible);
+  border-radius: 999px;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 400;
+  color: var(--ndg-text-primary);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.theme-nothing .glass-button-secondary:hover {
+  background: var(--ndg-surface-raised);
+  border-color: var(--ndg-text-primary);
+}
+
+/* ── Status chips: square, hairline, ALL CAPS, no fill ── */
+.theme-nothing .chip,
+.theme-nothing .chip-accent,
+.theme-nothing .chip-mint,
+.theme-nothing .chip-amber,
+.theme-nothing .chip-rose {
+  background: transparent;
+  border-radius: 2px;
+  font-family: var(--font-space-mono), monospace;
+  letter-spacing: 0.1em;
+  font-weight: 400;
+}
+.theme-nothing .chip          { border-color: var(--ndg-border-visible); color: var(--ndg-text-secondary); }
+.theme-nothing .chip-accent   { border-color: var(--ndg-text-display); color: var(--ndg-text-display); }
+.theme-nothing .chip-mint     { border-color: var(--ndg-success); color: var(--ndg-success); }
+.theme-nothing .chip-amber    { border-color: var(--ndg-warning); color: var(--ndg-warning); }
+.theme-nothing .chip-rose     { border-color: var(--ndg-accent); color: var(--ndg-accent); }
+
+/* ── Inputs ── */
+.theme-nothing .glass-input {
+  background: var(--ndg-surface);
+  border: 1px solid var(--ndg-border-visible);
+  border-radius: 0;
+  box-shadow: none;
+  font-family: var(--font-space-mono), monospace;
+}
+.theme-nothing .glass-input:focus {
+  border-color: var(--ndg-text-display);
+  box-shadow: none;
+}
+
+/* ── Divider, hairline ── */
+.theme-nothing .glass-divider {
+  background: var(--ndg-border-visible);
+}
+
+/* ── Sidebar / chrome ── */
+.theme-nothing aside.lg\:flex {
+  background: var(--ndg-black) !important;
+  border-right: 1px solid var(--ndg-border);
+}
+.theme-nothing main {
+  background: transparent !important;
+}
+.theme-nothing main > div:first-child { /* topbar */
+  border-bottom: 1px solid var(--ndg-border);
+}
+
+/* Sydney pulse — recolor the floating mint dots in the chrome to the
+ * Nothing palette so the brand cyan/mint glow doesn't bleed through */
+.theme-nothing .bg-mint        { background-color: var(--ndg-success) !important; }
+.theme-nothing .text-mint      { color: var(--ndg-success) !important; }
+.theme-nothing .text-mint\/80,
+.theme-nothing .text-mint\/85  { color: var(--ndg-success) !important; }
+.theme-nothing .bg-cy-300\/10,
+.theme-nothing .bg-cy-300\/15  { background-color: rgba(255,255,255,0.05) !important; }
+.theme-nothing .text-cy-300,
+.theme-nothing .text-cy-300\/80,
+.theme-nothing .text-cy-300\/85 { color: var(--ndg-text-display) !important; }
+
+/* ─── Animated dots used by Roof3DViewer "Generating…" pill ─────────── */
+.generating-dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.3em;
+  text-align: left;
+  animation: generatingDots 1.4s steps(4, end) infinite;
+}
+@keyframes generatingDots {
+  0%   { content: ""; }
+  25%  { content: "."; }
+  50%  { content: ".."; }
+  75%  { content: "..."; }
+  100% { content: ""; }
+}
+
+/* ─── Print stylesheet ────────────────────────────────────────────────
+ *
+ * Customers PRINT the /p/[id] proposal page — they bring it to the
+ * in-person inspection or hand it to a spouse. Without these rules,
+ * print output renders the body's dark background, the lg-env aurora
+ * blobs (as muddy gray washes), the noise grain overlay (as gray fog),
+ * and the navigation chrome on every page — none of which is useful
+ * on paper and all of which wastes toner.
+ *
+ * Rules:
+ *   1. Hide anything marked `.no-print` (action buttons, headers, footers).
+ *   2. Strip the lg-env background entirely (no aurora, no noise overlay).
+ *   3. Force white background + dark text so the proposal reads cleanly.
+ *   4. Disable the glass-panel translucency — backdrop-blur is meaningless
+ *      on paper and the alpha base just renders as a soft gray rectangle.
+ *
+ * Applied via @media print so screen rendering is unaffected. Targets
+ * the proposal page primarily but also benefits any other route a
+ * customer might print (eg an emailed estimate). */
+@media print {
+  /* Hide explicit no-print elements (nav chrome, action buttons). */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Force a light, paper-friendly background.
+   * !important is unfortunately required to override Tailwind's
+   * arbitrary-value bg-* utilities that win on specificity. */
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  /* Strip the lg-env atmosphere: aurora drift + radial blobs + noise. */
+  .lg-env,
+  .lg-env::before,
+  .lg-env::after {
+    background: #ffffff !important;
+    animation: none !important;
+    filter: none !important;
+  }
+  .lg-env::before,
+  .lg-env::after {
+    content: none !important;
+    display: none !important;
+  }
+
+  /* Glass panels: keep their shape (border + radius) but drop the
+   * translucent fill, backdrop blur, and shadow bloom. The proposal
+   * cards still read as distinct sections, they just print legibly. */
+  .glass,
+  .glass-strong {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border-color: #d4d4d8 !important;
+  }
+  .glass::before,
+  .glass::after,
+  .glass-strong::before,
+  .glass-strong::after {
+    content: none !important;
+    display: none !important;
+  }
+
+  /* Tighten page break behavior so a single proposal card doesn't get
+   * sliced across two pages mid-section. */
+  .glass,
+  .glass-strong {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* The big total-price headline at 64px–88px is gorgeous on screen
+   * but eats a quarter of the print page. Knock it down. */
+  .proposal-print-root .font-display.tabular {
+    font-size: 36px !important;
+  }
+}
+
+/* ─── Display-headline text balance ───────────────────────────────────
+ *
+ * text-wrap: balance — distributes words across lines of multi-line
+ * headlines so no single word orphans on its own line. Particularly
+ * helpful on responsive viewports where a headline that fits two lines
+ * cleanly on desktop ends up three lines on mobile with one word
+ * dangling.
+ *
+ * text-wrap: pretty — for body paragraphs, prevents awkward last-line
+ * single-word widows.
+ *
+ * Both are progressive-enhancement only: browsers that don't support
+ * them just fall back to default wrapping. Supported in Chrome 114+,
+ * Safari 17.5+, Firefox 121+ — covers ~95%+ of 2026 traffic.
+ *
+ * Scoped to display headlines + paragraphs in legal articles so we
+ * don't accidentally affect data-dense UI labels where balance can
+ * actually hurt readability. */
+h1, h2, .font-display {
+  text-wrap: balance;
+}
+article p,
+.prose p {
+  text-wrap: pretty;
+}
+
+/* ─── Dashboard & Login — Voxaris brand override ──────────────────────
+ *
+ * The customer-facing root (/) was rebuilt with the Patek-style cream +
+ * serif + brass aesthetic. The dashboard + login pages were originally
+ * built in a visionOS Liquid Glass dark theme — entirely different
+ * design vocabulary. Rather than rewrite every component, we wrap the
+ * dashboard layout + login page in a `.voxaris` parent and remap the
+ * dark-theme utility classes onto the brand tokens.
+ *
+ * All overrides are scoped under `.voxaris` so they cannot leak into
+ * the public customer surfaces (which use the customer-side classes
+ * directly without this wrapper).
+ *
+ * Authoring rules:
+ *   - !important is permitted ONLY here, because we are intentionally
+ *     overriding Tailwind utilities applied on the elements below.
+ *   - Keep every override commented so future maintainers can see why
+ *     a class is being remapped.
+ *   - Match the customer side's discipline: sharp corners (no rounded
+ *     pills), hairline borders, one terra accent per screen MAX,
+ *     no glass-blur, no glow shadows.
+ */
+
+/* Glass surfaces → cream paper cards.
+   `glass-panel` and friends are the dashboard's primary container.
+   Mirror the customer side's .search-card / .result-card: paper bg,
+   hairline border, 2px radius, tiny shadow only. */
+.voxaris .glass-panel,
+.voxaris .glass-panel-hero,
+.voxaris .glass-strong {
+  background: var(--vx-paper) !important;
+  border: 1px solid var(--vx-rule) !important;
+  border-radius: var(--vx-radius-card) !important;
+  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.voxaris .glass-panel.is-interactive:hover {
+  border-color: var(--vx-ink) !important;
+}
+.voxaris .glass-input {
+  background: var(--vx-cream) !important;
+  border: 1px solid var(--vx-rule) !important;
+  border-radius: 0 !important;
+  color: var(--vx-ink) !important;
+}
+.voxaris .glass-input::placeholder { color: var(--vx-muted) !important; }
+.voxaris .glass-button,
+.voxaris .glass-button-secondary {
+  background: var(--vx-paper) !important;
+  border: 1px solid var(--vx-rule) !important;
+  border-radius: 0 !important;
+  color: var(--vx-ink) !important;
+  transition: background var(--vx-base) var(--vx-ease) !important;
+}
+.voxaris .glass-button:hover,
+.voxaris .glass-button-secondary:hover {
+  background: var(--vx-ink) !important;
+  color: var(--vx-cream) !important;
+}
+.voxaris .glass-eyebrow {
+  font-family: var(--vx-font-ui) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  color: var(--vx-muted) !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+/* Iridescent gradient text → flat ink + serif.
+   Iridescent rainbow text-fill on a cream background reads as broken
+   AI-slop; the brand says "no gradient text". */
+.voxaris .iridescent-text {
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: var(--vx-ink) !important;
+  color: var(--vx-ink) !important;
+  font-family: var(--vx-font-display) !important;
+}
+
+/* font-display under .voxaris should always resolve to DragonEF serif
+   (overrides any Tailwind font-display utility someone wired up). */
+.voxaris .font-display {
+  font-family: var(--vx-font-display) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Text colors — remap the dark-theme white tints onto the ink scale.
+ * Mid-range tints (35–55) previously mapped to --vx-muted (#8A7E68) which
+ * scored ~3.4:1 on cream — barely legible. Lifted to ink-soft so body
+ * text in dashboard sections (overview eyebrows, call-detail labels,
+ * etc.) is actually readable. */
+.voxaris .text-white { color: var(--vx-ink) !important; }
+.voxaris .text-white\/95 { color: var(--vx-ink) !important; }
+.voxaris .text-white\/90 { color: var(--vx-ink) !important; }
+.voxaris .text-white\/85 { color: var(--vx-ink) !important; }
+.voxaris .text-white\/80 { color: var(--vx-ink) !important; }
+.voxaris .text-white\/75 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/70 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/65 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/60 { color: var(--vx-ink-soft) !important; }
+.voxaris .text-white\/55 { color: var(--vx-ink-soft) !important; opacity: 0.92; }
+.voxaris .text-white\/50 { color: var(--vx-ink-soft) !important; opacity: 0.88; }
+.voxaris .text-white\/45 { color: var(--vx-ink-soft) !important; opacity: 0.82; }
+.voxaris .text-white\/40 { color: var(--vx-ink-soft) !important; opacity: 0.75; }
+.voxaris .text-white\/35 { color: var(--vx-ink-soft) !important; opacity: 0.65; }
+.voxaris .text-white\/30 { color: var(--vx-ink-soft) !important; opacity: 0.55; }
+
+/* Glass-panel bg-white/* tints — the dashboard's "lighter than the
+ * background" inner cards. On cream we want them to look like raised
+ * paper, not invisible. Map to vx-paper (a slightly cooler cream). */
+.voxaris .bg-white\/\[0\.02\],
+.voxaris .bg-white\/\[0\.03\],
+.voxaris .bg-white\/\[0\.04\],
+.voxaris .bg-white\/\[0\.05\],
+.voxaris .bg-white\/\[0\.06\],
+.voxaris .bg-white\/\[0\.08\] {
+  background-color: var(--vx-paper) !important;
+}
+
+/* Borders — flat hairline at brand opacity. */
+.voxaris [class*="border-white/[0.0"],
+.voxaris .border-white\/\[0\.04\],
+.voxaris .border-white\/\[0\.05\],
+.voxaris .border-white\/\[0\.06\],
+.voxaris .border-white\/\[0\.08\],
+.voxaris .border-white\/\[0\.12\],
+.voxaris .border-white\/\[0\.16\] { border-color: var(--vx-rule) !important; }
+
+/* Cyan accent → terracotta. ONE accent per screen, never glowing. */
+.voxaris .text-cy-300,
+.voxaris .text-cy-400 { color: var(--vx-terra) !important; }
+.voxaris .bg-cy-300,
+.voxaris .bg-cy-400 { background-color: var(--vx-terra) !important; color: var(--vx-cream) !important; }
+.voxaris [class*="bg-cy-300/"],
+.voxaris [class*="bg-cy-400/"] { background-color: rgba(199, 107, 63, 0.08) !important; }
+.voxaris [class*="border-cy-300/"],
+.voxaris [class*="border-cy-400/"] { border-color: rgba(199, 107, 63, 0.35) !important; }
+.voxaris .text-mint { color: var(--vx-muted) !important; }
+.voxaris [class*="bg-mint/"] { background-color: rgba(138, 126, 104, 0.10) !important; }
+.voxaris [class*="border-mint/"] { border-color: rgba(138, 126, 104, 0.30) !important; }
+.voxaris .text-amber,
+.voxaris [class*="text-amber/"] { color: var(--vx-terra-dark) !important; }
+.voxaris [class*="bg-amber/"] { background-color: rgba(199, 107, 63, 0.10) !important; }
+.voxaris [class*="border-amber/"] { border-color: rgba(199, 107, 63, 0.30) !important; }
+
+/* Drop the dark-theme aurora / cosmic background. */
+.voxaris .lg-env,
+.voxaris .theme-terminal { background: var(--vx-cream) !important; }
+.voxaris .lg-env::before,
+.voxaris .lg-env::after,
+.voxaris .theme-terminal::before,
+.voxaris .theme-terminal::after { display: none !important; }
+
+/* Dashboard inputs + cards — sweep the legacy `ink-*` palette.
+ *
+ * /dashboard/estimate (the rep workbench) was painting itself with the
+ * dark-theme `ink-*` custom tokens — bg-ink-900/80 cards, bg-ink-800
+ * inputs, border-ink-700, text-slate-100, placeholder-slate-500. None
+ * of those matched the existing `white/*`-opacity remaps, so under
+ * .voxaris they rendered as dark-navy chunks on cream paper. Looked
+ * broken (user's screenshot, 2026-05).
+ *
+ * Map them onto the brand surface system + drop pill radii to the
+ * 2px card radius brand spec calls for. Targets the workbench inputs,
+ * notes textarea, material dropdown, pitch number field, etc.
+ */
+.voxaris [class*="bg-ink-"] {
+  background: var(--vx-paper) !important;
+}
+.voxaris [class*="border-ink-"] {
+  border-color: var(--vx-rule) !important;
+}
+.voxaris .text-slate-50,
+.voxaris .text-slate-100,
+.voxaris .text-slate-200,
+.voxaris .text-slate-300 { color: var(--vx-ink) !important; }
+.voxaris .text-slate-400,
+.voxaris .text-slate-500,
+.voxaris .text-slate-600 { color: var(--vx-muted) !important; }
+.voxaris [class*="placeholder-slate-"]::placeholder {
+  color: var(--vx-muted) !important;
+  opacity: 0.7;
+}
+
+/* Form controls — cream surface + hairline border + sharp corners
+ * (brand spec). Focus state darkens the border to ink. */
+.voxaris input[type="text"],
+.voxaris input[type="number"],
+.voxaris input[type="email"],
+.voxaris input[type="tel"],
+.voxaris input[type="search"],
+.voxaris input[type="password"],
+.voxaris select,
+.voxaris textarea {
+  background: var(--vx-cream) !important;
+  border-color: var(--vx-rule) !important;
+  color: var(--vx-ink) !important;
+  border-radius: 0 !important;
+  font-family: var(--vx-font-ui) !important;
+}
+.voxaris input:focus,
+.voxaris select:focus,
+.voxaris textarea:focus {
+  border-color: var(--vx-ink) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Pill / 2xl radii → 2px. Brand spec is sharp corners on interactive
+ * elements + 2px on cards. .rounded-full is left alone because it's
+ * used for true circular elements (live pulse dot, office-initial
+ * avatar, active-nav marker) where sharpness would look broken. */
+.voxaris .rounded-2xl,
+.voxaris .rounded-xl,
+.voxaris .rounded-lg,
+.voxaris .rounded-md,
+.voxaris .rounded {
+  border-radius: var(--vx-radius-card) !important;
+}
+
+/* Two-tone background fix.
+ *
+ * The dashboard chrome (sidebar `<aside>` + desktop topbar + mobile
+ * topbar + drawer + footer) was painted with inline Tailwind classes
+ * like `bg-[rgba(8,11,17,0.32)] backdrop-blur-2xl` for the dark-glass
+ * aesthetic. Under the .voxaris cream remap those translucent dark
+ * fills bleed THROUGH the cream parent and render as a muddy khaki
+ * strip beside the cream content, making the layout look like two
+ * different background colors slammed together.
+ *
+ * Force every chrome surface onto the same cream + drop the blur.
+ * Hairline borders (already mapped to --vx-rule) carry the
+ * separation; we don't need a second background.
+ *
+ * Targeting `aside` (the sidebar) + every `backdrop-blur-*` class
+ * catches all current chrome surfaces AND future ones that drag in
+ * the dark-glass utility — single rule, no class-name fragility. */
+.voxaris aside,
+.voxaris [class*="backdrop-blur"] {
+  background: var(--vx-cream) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Strip any neon shadow / glow that escaped. Brand says no glow. */
+.voxaris [class*="shadow-[0_0_"] { box-shadow: none !important; }
+
+/* Buttons styled with the dark-theme cy gradient become brand terra. */
+.voxaris .bg-gradient-to-br {
+  background-image: none !important;
+}
+.voxaris .from-cy-300,
+.voxaris .from-cy-400 { --tw-gradient-from: var(--vx-terra) !important; }
+.voxaris .to-cy-300,
+.voxaris .to-cy-400 { --tw-gradient-to: var(--vx-terra-dark) !important; }
+
+/* Selection — match customer site (ink on cream). */
+.voxaris ::selection { background: var(--vx-ink); color: var(--vx-cream); }
+
+/* Console-section-rule → hairline + label.
+ * Was previously stripped to text-only (`display:none` on both pseudo-
+ * elements + zero padding) which left "Live feed · last 60 minutes"
+ * floating without any anchor. The audit flagged it as "no visual
+ * anchor". This restores a single right-hand rule line so the label
+ * reads as a chapter divider, not a floating eyebrow. Brand discipline
+ * still forbids the animated cyan pulse — that stays hidden. */
+.voxaris .console-section-rule {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.85rem !important;
+  color: var(--vx-muted) !important;
+  font-family: var(--vx-font-ui) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  font-weight: 600 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  padding: 0.4rem 0 !important;
+}
+.voxaris .console-section-rule::before { display: none !important; }
+.voxaris .console-section-rule::after {
+  content: "" !important;
+  flex: 1 !important;
+  height: 1px !important;
+  background: var(--vx-rule) !important;
+  display: block !important;
+  position: static !important;
+}
+.voxaris .console-section-rule .pulse,
+.voxaris .animate-ping { display: none !important; }
+
+/* ─── Sidebar / chrome contrast bumps ────────────────────────────────
+ * The dashboard chrome (sidebar + topbar) uses text-white/40 and
+ * text-white/45 for labels like OPERATOR CONSOLE, "Active office",
+ * inactive nav items, etc. Under the .voxaris remap those map to
+ * --vx-muted (#8A7E68 ≈ warm gray) which on cream has a contrast
+ * ratio of ~3.4:1 — borderline-failing WCAG AA on small text and
+ * "barely visible" in real use.
+ *
+ * These selectors target the sidebar / topbar specifically and lift
+ * those tints to --vx-ink-soft (#1A2A44 navy) for chrome surfaces.
+ * Body-content text-white/* keeps the brand-correct muted look. */
+.voxaris aside .text-white\/40,
+.voxaris aside .text-white\/45,
+.voxaris header .text-white\/40,
+.voxaris header .text-white\/45 {
+  color: var(--vx-ink-soft) !important;
+  opacity: 1 !important;
+}
+
+/* Sidebar nav items — inactive state. Default Tailwind hover/text
+ * tokens render too pale on cream. Boost both icon and label to
+ * full ink-soft so each row is legible without a hover. */
+.voxaris aside nav a,
+.voxaris aside nav button {
+  color: var(--vx-ink-soft) !important;
+}
+.voxaris aside nav a svg,
+.voxaris aside nav button svg {
+  color: var(--vx-ink-soft) !important;
+  opacity: 1 !important;
+}
+.voxaris aside nav a:hover,
+.voxaris aside nav button:hover {
+  color: var(--vx-ink) !important;
+}
+.voxaris aside nav a:hover svg,
+.voxaris aside nav button:hover svg {
+  color: var(--vx-ink) !important;
+}
+
+/* The legacy `.voxaris aside img[src="/brand/voxaris-ai-wordmark.png"]`
+ * rule used to bump the sidebar wordmark to 48px and strip its
+ * sky-blue drop-shadow. The image was retired in favor of a text
+ * wordmark (`components/Wordmark.tsx`) so that selector now has no
+ * targets and is dropped. */
+
+/* Active sidebar nav — the original markup paints a cy-300 dot + glow
+ * for the active state. Cyan glow on cream is the same dark-theme leak
+ * we stripped from the wordmark. Re-paint as a flat terra marker. */
+.voxaris aside nav a[class*="bg-white"] {
+  background: var(--vx-paper) !important;
+  border-color: var(--vx-rule) !important;
+  box-shadow: none !important;
+  color: var(--vx-ink) !important;
+}
+.voxaris aside nav a[class*="bg-cy-"] {
+  background: rgba(199, 107, 63, 0.08) !important;
+  border-color: rgba(199, 107, 63, 0.35) !important;
+  box-shadow: none !important;
+  color: var(--vx-ink) !important;
+}
+.voxaris aside nav a[class*="bg-cy-"] span[class*="bg-cy-"] {
+  background: rgba(199, 107, 63, 0.18) !important;
+  border-color: rgba(199, 107, 63, 0.40) !important;
+  color: var(--vx-terra) !important;
+  box-shadow: none !important;
+}
+.voxaris aside nav a span[class*="bg-cy-300"]:last-child {
+  /* The trailing 4px dot that marks the active page — terra, no glow. */
+  background: var(--vx-terra) !important;
+  box-shadow: none !important;
+}
+
+/* Sidebar "Sydney online" card — brand owner asked for a blue block
+ * with contrasting text (2026-05). Renders the card in the brand
+ * navy ink (`--vx-ink: #0F1B2D`) with cream type on top so the panel
+ * carries its own weight in the sidebar rhythm instead of fading
+ * into the cream surrounding nav. The mint pulse dot keeps its green
+ * so "online" still reads as a live signal — that's the one accent
+ * that crosses the navy boundary intentionally. */
+.voxaris aside .vx-sydney-card {
+  background: var(--vx-ink) !important;
+  border: 1px solid var(--vx-ink-soft) !important;
+  border-radius: 6px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 12px 14px !important;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-name {
+  color: var(--vx-cream) !important;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-status {
+  color: rgba(236, 227, 208, 0.85) !important;
+  letter-spacing: 0.18em;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-body {
+  color: rgba(236, 227, 208, 0.7) !important;
+}
+.voxaris aside .vx-sydney-card .vx-sydney-dot {
+  background: #5fe3b0 !important;
+  box-shadow: 0 0 10px rgba(95, 227, 176, 0.8) !important;
+}
+
+/* Footer ribbon — strip the dark backdrop-blur and the redundant
+ * "Operator Console" tail. The brand wordmark in the sidebar is
+ * already a third source of the same string; the footer doesn't need
+ * to be the fifth. */
+.voxaris main > div:last-child[class*="border-t"] {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-top: 1px solid var(--vx-rule) !important;
+}
+.voxaris main > div:last-child .animate-pulse {
+  animation: none !important;
+}
+
+/* ─── Dashboard overview surfaces ────────────────────────────────────
+ * The overview page's KPI scoreboard + activity log + jump-in cards
+ * were styled ONLY under .theme-terminal — which means under .voxaris
+ * they fell back to no styling at all, rendering as bare label/value
+ * pairs (the user's "broken text" screenshot). These rules give those
+ * same DOM structures a clean cream-on-cream card look that fits the
+ * brand. */
+.voxaris .scoreboard {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--vx-rule);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--vx-paper);
+}
+@media (min-width: 640px) {
+  .voxaris .scoreboard {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (min-width: 1024px) {
+  .voxaris .scoreboard {
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+  }
+}
+.voxaris .scoreboard-tile {
+  position: relative;
+  padding: 1.5rem 1.5rem 1.6rem;
+  border-right: 1px solid var(--vx-rule);
+  border-bottom: 1px solid var(--vx-rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 152px;
+  isolation: isolate;
+  transition: background 200ms ease, transform 120ms ease;
+  text-decoration: none;
+  color: inherit;
+}
+.voxaris a.scoreboard-tile:hover {
+  background: var(--vx-cream);
+}
+.voxaris a.scoreboard-tile:hover .value {
+  color: var(--vx-ink);
+}
+.voxaris a.scoreboard-tile:active {
+  transform: translateY(1px);
+}
+@media (min-width: 1024px) {
+  .voxaris .scoreboard-tile {
+    padding: 1.75rem 1.75rem 1.85rem;
+    min-height: 170px;
+  }
+  .voxaris .scoreboard-tile { border-bottom: none; }
+  .voxaris .scoreboard-tile:nth-child(4n) { border-right: none; }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .voxaris .scoreboard-tile:nth-child(2n) { border-right: none; }
+  .voxaris .scoreboard-tile:nth-last-child(-n+2) { border-bottom: none; }
+}
+@media (max-width: 639.98px) {
+  .voxaris .scoreboard-tile { border-right: none; }
+  .voxaris .scoreboard-tile:last-child { border-bottom: none; }
+}
+/* Top hairline accent — the previous left-side 2px-at-14%-inset bar
+ * rendered as a dust speck on cream. Top-edge full-width hairline reads
+ * as intentional, sits on the existing tile divider, and lets the
+ * accent tiles (amber/mint) trade color without changing position. */
+.voxaris .scoreboard-tile::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--vx-terra);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.voxaris a.scoreboard-tile:hover::before { opacity: 0.85; }
+.voxaris .scoreboard-tile.accent-mint::before { background: var(--vx-muted); opacity: 0.55; }
+.voxaris .scoreboard-tile.accent-amber::before { background: var(--vx-terra); opacity: 0.85; }
+
+.voxaris .scoreboard-tile .label {
+  font-family: var(--vx-font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--vx-muted);
+  font-weight: 600;
+}
+.voxaris .scoreboard-tile .value {
+  font-family: var(--vx-font-display);
+  font-feature-settings: "tnum", "zero";
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.1rem, 4.2vw, 3.2rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--vx-ink);
+  line-height: 0.95;
+}
+.voxaris .scoreboard-tile .sublabel {
+  font-family: var(--vx-font-ui);
+  font-size: 11.5px;
+  color: var(--vx-ink-soft);
+  opacity: 0.78;
+  letter-spacing: 0.02em;
+  margin-top: auto;
+}
+.voxaris .scoreboard-tile .delta {
+  font-family: var(--vx-font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+.voxaris .scoreboard-tile .delta.up   { color: #2a6f4f; }
+.voxaris .scoreboard-tile .delta.down { color: #8a2c2c; }
+
+/* Activity feed rows */
+.voxaris .log-row {
+  display: grid;
+  grid-template-columns: 84px 86px 1fr auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.65rem 1.1rem;
+  font-family: var(--vx-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  border-bottom: 1px dashed var(--vx-rule);
+  color: var(--vx-ink);
+}
+.voxaris .log-row:last-child { border-bottom: none; }
+.voxaris .log-row:hover { background: var(--vx-cream); }
+.voxaris .log-row .ts {
+  color: var(--vx-ink-soft);
+  opacity: 0.65;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.voxaris .log-row .kind {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.voxaris .log-row .kind.lead     { color: var(--vx-terra); }
+.voxaris .log-row .kind.call     { color: #2a6f4f; }
+.voxaris .log-row .kind.proposal { color: var(--vx-terra-dark); }
+.voxaris .log-row .kind.event    { color: var(--vx-ink-soft); opacity: 0.65; }
+/* The `▸` glyph prefix used to ride in front of every kind. Visually
+ * it shouted "log row, log row, log row" — six identical glyphs down
+ * the column. The kind label itself is enough; the colored text (terra
+ * for lead, green for call, etc.) carries the affordance. Removed
+ * per 2026-05 audit. */
+.voxaris .log-row .body {
+  color: var(--vx-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voxaris .log-row .meta {
+  color: var(--vx-ink-soft);
+  opacity: 0.6;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+@media (max-width: 767.98px) {
+  .voxaris .log-row {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+  .voxaris .log-row .meta { display: none; }
+}
+
+/* Jump-in cards (the right rail on the overview page) */
+.voxaris .jump-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.95rem 1.1rem;
+  border-bottom: 1px solid var(--vx-rule);
+  color: var(--vx-ink);
+  text-decoration: none;
+  transition: background 150ms ease;
+  position: relative;
+}
+.voxaris .jump-row:last-child { border-bottom: none; }
+.voxaris .jump-row:hover { background: var(--vx-cream); }
+.voxaris .jump-row:hover .jump-label { color: var(--vx-terra); }
+.voxaris .jump-row .jump-label {
+  font-family: var(--vx-font-display);
+  font-size: 15px;
+  color: var(--vx-ink);
+  font-weight: 500;
+  flex: 1;
+  letter-spacing: -0.005em;
+  transition: color 150ms ease;
+}
+.voxaris .jump-row .jump-sub {
+  font-family: var(--vx-font-ui);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--vx-muted);
+  margin-top: 0.15rem;
+}
+
+/* Hide the floating reCAPTCHA v3 badge — Google permits hiding it as
+   long as the brand-attribution copy ("This site is protected by
+   reCAPTCHA…") appears near the form. We put that copy on the lead
+   consent line in app/page.tsx; this rule removes the corner sticker
+   so it doesn't fight the brand. */
+.grecaptcha-badge {
+  visibility: hidden;
+  /* Belt + suspenders: hidden + positioned out of view in case Google
+     ever changes how the visibility flag interacts with their iframe. */
+  position: fixed !important;
+  bottom: -200px !important;
+  right: -200px !important;
+}

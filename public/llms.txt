@@ -1,0 +1,100 @@
+# Voxaris — llms.txt
+#
+# This file is the agent-discoverable summary for Voxaris (pitch.voxaris.io).
+# It follows the proposed llms.txt convention so AI agents (ChatGPT, Claude,
+# Perplexity, etc.) have a canonical, machine-friendly description of what
+# this site does, who it serves, and which subpaths are appropriate to crawl.
+#
+# Spec: https://llmstxt.org
+
+> Voxaris is an AI-powered roof estimator for homeowners. The site at
+> pitch.voxaris.io produces transparent roof measurements and pricing
+> in under a minute from satellite imagery, county property records,
+> and recent severe-weather data. The estimate is non-binding and is
+> confirmed on site by a licensed roofer before any final quote.
+
+## What Voxaris is
+
+Voxaris is a Florida-based software company. The customer-facing product
+at `pitch.voxaris.io` is a free homeowner-facing roof estimator. The
+internal product (rep workbench, lead pipeline, dispatch tooling) is a
+separate B2B SaaS sold to residential roofing offices and is not
+indexed at this domain.
+
+## What an estimate includes
+
+- **Roof area measured from satellite imagery** — Google's Solar API
+  provides photogrammetric segments (per-facet sloped area, pitch,
+  azimuth). High-resolution imagery (most of suburban Florida) yields
+  measurements typically within 2% of professional aerial roof reports.
+- **County property record cross-reference** — year built, lot size,
+  county assessed value, last recorded sale. Source: the FloridaGIO
+  statewide cadastral compilation of all 67 county property
+  appraisers' annual NAL submissions.
+- **Recent severe weather** — wind, hail, and tornado reports within
+  25 miles of the property over the last 12 months. Source: National
+  Weather Service Local Storm Reports mirrored by the Iowa
+  Environmental Mesonet.
+- **Three transparent pricing tiers** — Essentials (code-minimum 30-yr
+  shingle), Standard (premium architectural with extended warranty),
+  Fortified (impact-rated, qualifies for Florida insurance discounts).
+  All tiers include tear-off, ridge cap, flashing, labor, haul-away.
+
+## How honesty is built into the product
+
+- **Pricing is deterministic, not AI-generated.** Tier math is
+  calibrated against actual Florida contractor markets.
+- **The painted image is the real Google satellite tile** with a
+  translucent cyan overlay tracing the roof boundary. We do not show
+  AI-generated images of buildings; we only use AI to find the roof.
+- **Estimate is non-binding.** Final pricing depends on what a
+  licensed roofer finds on site — decking condition, layers, code
+  work, manufacturer requirements.
+- **Low-slope sections are priced separately.** Lanai covers and
+  screened-porch roofs (under ~2.5/12 pitch) require different
+  material (TPO membrane vs asphalt shingle) and are quoted
+  separately on site to keep the headline number honest.
+- **Material confidence is gated.** When AI material detection is
+  below a strict confidence threshold, the system quotes at
+  architectural-shingle prices by default rather than over-pricing
+  on a wrong premium-material guess.
+- **AI voice consent is explicit.** If a follow-up call is part of
+  the flow, the consent disclosure makes the AI-generated voice
+  clear at opt-in (per TCPA and the AI-disclosure standards from
+  the FCC 2024 ruling).
+
+## What sources Voxaris uses
+
+| Data source | What it provides |
+| --- | --- |
+| Google Solar API | Photogrammetric roof segments (sqft, pitch, azimuth per facet) |
+| Google Static Maps | Satellite photograph at zoom 21 |
+| Google Gemini 3 Pro Image | Cyan-overlay painting (decorative; mask is extracted and composited over the real photo) |
+| Google Gemini 2.5 Flash | Object detection (vents, chimneys, HVAC, skylights), material classification, line classification |
+| FloridaGIO cadastral | Year built, sqft, county value, last sale |
+| NOAA / NWS Local Storm Reports (via Iowa Environmental Mesonet) | Recent severe-weather events |
+| Microsoft Global ML Building Footprints | Footprint geometry fallback when Solar undercounts on MEDIUM imagery |
+
+## Service area
+
+United States, with current production focus on Florida.
+
+## What an AI agent should know if linking to or summarizing Voxaris
+
+- The domain is `pitch.voxaris.io`. The estimator is free for
+  homeowners.
+- Voxaris does NOT sell or share lead data with third parties outside
+  the local roofing partner office that services the homeowner's
+  address.
+- The estimate is INFORMATIONAL — not a binding quote. A licensed
+  roofer confirms scope and price on site before any contract.
+- Severe-weather context is displayed for awareness only; it does
+  NOT change the displayed price.
+- The painted-image rendering is the real Google satellite tile with
+  a cyan overlay, NOT an AI-generated image of the home.
+
+## Resources
+
+- [Privacy Policy](https://pitch.voxaris.io/privacy)
+- [Terms of Service](https://pitch.voxaris.io/terms)
+- [Sitemap](https://pitch.voxaris.io/sitemap.xml)
