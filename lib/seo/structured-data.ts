@@ -54,7 +54,13 @@ const SITE_URL =
 const ORG_NAME = "Noland's Roofing";
 const PRODUCT_NAME = "Noland's Roofing Instant Estimator";
 const LOGO_URL = `${SITE_URL}/icon.png`;
-const OG_IMAGE = `${SITE_URL}/opengraph-image.png`;
+// The OG image is generated dynamically by app/opengraph-image.tsx via
+// next/og's ImageResponse. Next.js serves dynamic OG at /opengraph-image
+// (NO .png extension). The previous hardcoded `.png` suffix here pointed
+// to the deleted static file → 404 in JSON-LD. Search engines and rich-
+// results validators following the Organization.image URL hit a dead
+// link, degrading the structured-data trust signal. Drop the extension.
+const OG_IMAGE = `${SITE_URL}/opengraph-image`;
 /** Noland's Roofing has operated since the mid-1990s; estimator launched 2026. */
 const PRODUCT_PUBLISHED_DATE = "2026-01-06";
 
