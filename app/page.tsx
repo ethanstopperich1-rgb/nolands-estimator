@@ -760,7 +760,7 @@ function HeroScreen({
             <Link
               href="/"
               className="leading-none"
-              aria-label="Voxaris — home"
+              aria-label="Noland's Roofing — home"
             >
               {/* Header wordmark now matches the footer's `size="lg"`
                   for symmetric brand bookends. Earlier corner-mark
