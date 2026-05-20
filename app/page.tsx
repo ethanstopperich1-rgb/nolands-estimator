@@ -826,12 +826,12 @@ function HeroScreen({
               maxWidth: "14ch",
             }}
           >
-            What will it cost
+            {t("hero.headline.line1", lang)}
             <span
               className="block italic"
               style={{ fontWeight: 300, color: "var(--vx-ink-soft)" }}
             >
-              to replace your roof?
+              {t("hero.headline.line2", lang)}
             </span>
           </h1>
           <p
@@ -845,10 +845,9 @@ function HeroScreen({
               fontWeight: 300,
             }}
           >
-            We measure your roof from satellite imagery and price it in thirty
-            seconds. Proprietary model. A real number.{" "}
+            {t("hero.subhead.lead", lang)}{" "}
             <span className="font-serif italic" style={{ color: "var(--vx-ink)" }}>
-              No calls until you ask.
+              {t("hero.subhead.close", lang)}
             </span>
           </p>
         </div>
@@ -882,16 +881,16 @@ function HeroScreen({
                 </svg>
               </span>
               <label htmlFor="voxaris-address-input" className="sr-only">
-                Property street address
+                {t("form.address.label", lang)}
               </label>
               <input
                 ref={addrRef}
                 id="voxaris-address-input"
                 type="text"
                 className="addr-input"
-                placeholder="Begin typing your address…"
+                placeholder={t("form.address.placeholder", lang)}
                 autoComplete="street-address"
-                aria-label="Property street address"
+                aria-label={t("form.address.label", lang)}
                 required
                 spellCheck={false}
               />
@@ -904,7 +903,7 @@ function HeroScreen({
                   color: "var(--vx-muted)",
                 }}
               >
-                ≈ 30 sec
+                {t("form.address.eta", lang)}
               </span>
             </div>
 
@@ -922,21 +921,21 @@ function HeroScreen({
             <div className="slim-row">
               <div className="slim-cell">
                 <label htmlFor="nm" className="sr-only">
-                  Full name
+                  {t("form.name.label", lang)}
                 </label>
                 <input
                   id="nm"
                   className="slim-input"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
+                  placeholder={t("form.name.placeholder", lang)}
                   autoComplete="name"
                   required
                 />
               </div>
               <div className="slim-cell">
                 <label htmlFor="em" className="sr-only">
-                  Email address
+                  {t("form.email.label", lang)}
                 </label>
                 <input
                   id="em"
@@ -944,21 +943,21 @@ function HeroScreen({
                   className="slim-input"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Your email"
+                  placeholder={t("form.email.placeholder", lang)}
                   autoComplete="email"
                   required
                 />
               </div>
               <div className="slim-cell">
                 <label htmlFor="ph" className="sr-only">
-                  Phone number
+                  {t("form.phone.label", lang)}
                 </label>
                 <input
                   id="ph"
                   className="slim-input tabular"
                   value={phone}
                   onChange={(e) => setPhone(formatPhone(e.target.value))}
-                  placeholder="Your number"
+                  placeholder={t("form.phone.placeholder", lang)}
                   inputMode="tel"
                   autoComplete="tel"
                   maxLength={14}
@@ -987,7 +986,7 @@ function HeroScreen({
                     className="underline"
                     style={{ textDecorationColor: "var(--vx-muted)", textUnderlineOffset: "2px" }}
                   >
-                    Privacy Policy
+                    {t("consent.privacy_link", lang)}
                   </Link>{" "}
                   ·{" "}
                   <Link
@@ -995,7 +994,7 @@ function HeroScreen({
                     className="underline"
                     style={{ textDecorationColor: "var(--vx-muted)", textUnderlineOffset: "2px" }}
                   >
-                    Terms of Service
+                    {t("consent.terms_link", lang)}
                   </Link>
                   .{" "}
                   {/* reCAPTCHA brand-attribution disclosure. Required by
@@ -1051,10 +1050,12 @@ function HeroScreen({
                 }}
               >
                 <span className="marker" aria-hidden="true" />
-                <span>Non-binding estimate · We never sell your info</span>
+                <span>{t("form.foot.tagline", lang)}</span>
               </div>
               <button type="submit" className="btn-terra" disabled={submitting}>
-                {submitting ? "Loading…" : "See my estimate"}
+                {submitting
+                  ? t("form.cta.estimating", lang)
+                  : t("form.cta.estimate", lang)}
                 <span className="arrow" aria-hidden="true">→</span>
               </button>
             </div>

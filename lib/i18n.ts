@@ -84,20 +84,31 @@ export function parseLang(input: unknown): Lang | null {
 // ─── Translation dictionaries ─────────────────────────────────────
 
 const en = {
-  // Hero / brand
+  // Hero / brand — match the actual customer page copy verbatim so
+  // wiring t() in is a 1:1 swap with no copy regression. The headline
+  // splits across two spans (the second is italic) by design.
   "hero.eyebrow": "Price · in as little as 30 seconds",
-  "hero.headline": "Your roof, measured from satellite.",
-  "hero.subhead":
-    "Type your address. We'll paint your roof, measure the sqft, and give you three replacement options in 30 seconds. Free, no signup.",
+  "hero.headline.line1": "What will it cost",
+  "hero.headline.line2": "to replace your roof?",
+  "hero.subhead.lead":
+    "We measure your roof from satellite imagery and price it in thirty seconds. Proprietary model. A real number.",
+  "hero.subhead.close": "No calls until you ask.",
 
-  // Address form
-  "form.address.label": "Property address",
-  "form.address.placeholder": "Start typing your address...",
-  "form.name.label": "Your name",
-  "form.email.label": "Email",
-  "form.phone.label": "Phone",
-  "form.cta.estimate": "Get my estimate",
-  "form.cta.estimating": "Measuring your roof...",
+  // Address form — labels are sr-only (screen reader / autofill
+  // heuristics) so they still need to translate even though sighted
+  // homeowners don't see them.
+  "form.address.label": "Property street address",
+  "form.address.placeholder": "Begin typing your address…",
+  "form.address.eta": "≈ 30 sec",
+  "form.name.label": "Full name",
+  "form.name.placeholder": "Your name",
+  "form.email.label": "Email address",
+  "form.email.placeholder": "Your email",
+  "form.phone.label": "Phone number",
+  "form.phone.placeholder": "Your number",
+  "form.cta.estimate": "See my estimate",
+  "form.cta.estimating": "Loading…",
+  "form.foot.tagline": "Non-binding estimate · We never sell your info",
 
   // Consent
   "consent.marketing":
@@ -105,6 +116,10 @@ const en = {
   "consent.voice.label":
     "Yes, call me with an AI voice assistant to schedule. I can hang up, say \"remove me,\" or reply STOP anytime.",
   "consent.stop": "Reply STOP to opt out.",
+  "consent.privacy_link": "Privacy Policy",
+  "consent.terms_link": "Terms of Service",
+  "consent.recaptcha":
+    "This site is protected by reCAPTCHA and the Google {privacyLink} and {termsLink} apply.",
 
   // Result page
   "result.eyebrow": "Your estimate",
@@ -161,20 +176,30 @@ const en = {
 type StringKey = keyof typeof en;
 
 const es: Record<StringKey, string> = {
-  // Hero / brand
+  // Hero / brand — Florida-natural Spanish, "tu" not "usted",
+  // "techo" not "tejado". Headline splits across two spans (second
+  // italic) — same composition as English.
   "hero.eyebrow": "Precio · en hasta 30 segundos",
-  "hero.headline": "Tu techo, medido por satélite.",
-  "hero.subhead":
-    "Escribe tu dirección. Pintamos tu techo, medimos los pies cuadrados y te damos tres opciones en 30 segundos. Gratis, sin registro.",
+  "hero.headline.line1": "¿Cuánto costará",
+  "hero.headline.line2": "reemplazar tu techo?",
+  "hero.subhead.lead":
+    "Medimos tu techo desde imágenes satelitales y te damos el precio en treinta segundos. Modelo propio. Un número real.",
+  "hero.subhead.close": "Sin llamadas hasta que las pidas.",
 
   // Address form
   "form.address.label": "Dirección de la propiedad",
-  "form.address.placeholder": "Escribe tu dirección...",
-  "form.name.label": "Tu nombre",
+  "form.address.placeholder": "Escribe tu dirección…",
+  "form.address.eta": "≈ 30 seg",
+  "form.name.label": "Nombre completo",
+  "form.name.placeholder": "Tu nombre",
   "form.email.label": "Correo electrónico",
+  "form.email.placeholder": "Tu correo",
   "form.phone.label": "Teléfono",
+  "form.phone.placeholder": "Tu teléfono",
   "form.cta.estimate": "Ver mi estimado",
-  "form.cta.estimating": "Midiendo tu techo...",
+  "form.cta.estimating": "Cargando…",
+  "form.foot.tagline":
+    "Estimado no vinculante · Nunca vendemos tu información",
 
   // Consent
   "consent.marketing":
@@ -182,6 +207,10 @@ const es: Record<StringKey, string> = {
   "consent.voice.label":
     "Sí, llámame con un asistente de voz AI para agendar. Puedo colgar, decir \"quítenme\" o responder STOP en cualquier momento.",
   "consent.stop": "Responde STOP para no recibir más mensajes.",
+  "consent.privacy_link": "Política de Privacidad",
+  "consent.terms_link": "Términos de Servicio",
+  "consent.recaptcha":
+    "Este sitio está protegido por reCAPTCHA y aplican la {privacyLink} y los {termsLink} de Google.",
 
   // Result page
   "result.eyebrow": "Tu estimado",
