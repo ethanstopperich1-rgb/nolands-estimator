@@ -45,7 +45,7 @@ export interface PublicHeaderProps {
 }
 
 const DEFAULT_RIGHT_SLOT: ReactNode = (
-  <div className="hidden sm:flex items-center gap-3 text-[12px] text-white/75 justify-self-end">
+  <div className="hidden sm:flex items-center gap-3 text-xs text-white/75 justify-self-end">
     <Check size={13} className="text-mint" />
     <span>Free · No-obligation</span>
   </div>
@@ -97,7 +97,7 @@ export default function PublicHeader({
         >
           <Wordmark size="md" tone="ink" />
           {chip && (
-            <span className={chipClassName ?? "hidden md:inline-block ml-1 chip text-[10px]"}>
+            <span className={chipClassName ?? "hidden md:inline-block ml-1 chip text-micro"}>
               {chip}
             </span>
           )}

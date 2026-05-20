@@ -130,7 +130,7 @@ const Tab = ({
     >
       <Link
         href={href}
-        className={`block cursor-pointer px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] font-mono md:px-5 md:py-2.5 md:text-[12px] transition-colors ${
+        className={`block cursor-pointer px-3 py-1.5 text-eyebrow uppercase tracking-[0.14em] font-mono md:px-5 md:py-2.5 md:text-xs transition-colors ${
           isActive ? "text-[#051019]" : "text-slate-300 hover:text-white"
         }`}
       >

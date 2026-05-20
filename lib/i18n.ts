@@ -171,6 +171,33 @@ const en = {
   "duplicate.body":
     "Your roof report is ready and a rep will be in touch. Tap below to re-open it.",
   "duplicate.cta": "Open my report",
+
+  // /r/[publicId] homeowner share surface — copy the homeowner sees
+  // when they open the white-labeled report link from SMS.
+  "share.eyebrow_lead": "{firstName}, here's your roof report",
+  "share.estimate_disclaimer":
+    "Quick estimate range from satellite. Final price depends on what we find on site.",
+  "share.measurements.sqft_measured": "Sqft (measured)",
+  "share.measurements.current_material": "Current material",
+  "share.tiers.title": "Three replacement options",
+  "share.storms.events_within_25mi": "Events within 25 mi",
+  "share.storms.hail_reports": "Hail reports",
+  "share.storms.wind_reports": "Damaging-wind reports",
+  "share.parcel.year_built": "Year built",
+  "share.parcel.living_area": "Living area",
+  "share.parcel.lot_size": "Lot size",
+  "share.cta.kicker": "Ready for the real number?",
+  "share.cta.headline": "Lock in a free 20-minute walkthrough",
+  "share.cta.call_button": "Call {officeName}",
+  "share.header.call_button": "Call {phone}",
+  "share.footer.generated": "Report generated {date}",
+  "share.footer.powered_by": "Powered by",
+  "share.painted.alt": "Roof outlined from satellite imagery",
+  "share.meta.title_fallback": "Roof report",
+  "share.meta.title": "{address} — Roof report",
+  "share.meta.description":
+    "{officeName} measured this roof from satellite. Estimate range: {range}.",
+  "share.meta.range_fallback": "your estimate",
 } as const;
 
 type StringKey = keyof typeof en;
@@ -262,6 +289,33 @@ const es: Record<StringKey, string> = {
   "duplicate.body":
     "Tu reporte de techo está listo y un representante se comunicará contigo. Toca aquí para volver a abrirlo.",
   "duplicate.cta": "Abrir mi reporte",
+
+  // /r/[publicId] homeowner share surface — Florida-natural Spanish.
+  // "techo" not "tejado", "tu" not "usted".
+  "share.eyebrow_lead": "{firstName}, aquí está tu reporte de techo",
+  "share.estimate_disclaimer":
+    "Rango estimado rápido desde satélite. El precio final depende de lo que encontremos en sitio.",
+  "share.measurements.sqft_measured": "Pies cuadrados (medidos)",
+  "share.measurements.current_material": "Material actual",
+  "share.tiers.title": "Tres opciones de reemplazo",
+  "share.storms.events_within_25mi": "Eventos en 25 millas",
+  "share.storms.hail_reports": "Reportes de granizo",
+  "share.storms.wind_reports": "Reportes de viento dañino",
+  "share.parcel.year_built": "Año de construcción",
+  "share.parcel.living_area": "Área habitable",
+  "share.parcel.lot_size": "Tamaño del lote",
+  "share.cta.kicker": "¿Listo para el número real?",
+  "share.cta.headline": "Agenda una visita gratis de 20 minutos",
+  "share.cta.call_button": "Llamar a {officeName}",
+  "share.header.call_button": "Llamar {phone}",
+  "share.footer.generated": "Reporte generado {date}",
+  "share.footer.powered_by": "Desarrollado por",
+  "share.painted.alt": "Techo delineado desde imágenes satelitales",
+  "share.meta.title_fallback": "Reporte de techo",
+  "share.meta.title": "{address} — Reporte de techo",
+  "share.meta.description":
+    "{officeName} midió este techo desde satélite. Rango estimado: {range}.",
+  "share.meta.range_fallback": "tu estimado",
 };
 
 const DICTIONARIES: Record<Lang, Record<StringKey, string>> = { en, es };

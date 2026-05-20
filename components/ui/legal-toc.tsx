@@ -55,7 +55,7 @@ export default function LegalTOC() {
       className="mb-10 rounded-2xl border border-white/[0.06] bg-white/[0.02] no-print"
       open
     >
-      <summary className="cursor-pointer list-none px-5 py-3 text-[11px] font-mono uppercase tracking-[0.16em] text-slate-400 hover:text-cy-300 transition-colors flex items-center justify-between gap-3">
+      <summary className="cursor-pointer list-none px-5 py-3 text-eyebrow font-mono uppercase tracking-[0.16em] text-slate-400 hover:text-cy-300 transition-colors flex items-center justify-between gap-3">
         <span>Jump to section</span>
         <span className="text-slate-600" aria-hidden>
           ▾
@@ -65,7 +65,7 @@ export default function LegalTOC() {
         aria-label="Section navigation"
         className="px-5 pb-4 border-t border-white/[0.04]"
       >
-        <ol className="text-[13px] text-slate-300 space-y-1.5 mt-3 list-decimal list-inside marker:text-slate-600">
+        <ol className="text-mini text-slate-300 space-y-1.5 mt-3 list-decimal list-inside marker:text-slate-600">
           {headings.map((h) => (
             <li key={h.id}>
               <a
