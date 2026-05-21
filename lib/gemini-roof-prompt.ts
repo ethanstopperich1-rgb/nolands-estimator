@@ -118,7 +118,10 @@ Slightly incomplete is correct when uncertain. Over-painting onto lawn/trees is 
 
 If you cannot name the candidate boundary as one of the six legal edges (eave/ridge/hip/valley/rake/gable end), it is a shadow. Paint through it.
 
-Reminder: your output is the supplied photo with cyan paint added. Do not regenerate the scene. Do not invent a new image. Add cyan where the rules above say cyan goes; leave every other pixel as the input had it.`;
+## CLOSING ANCHOR — affirmative output identity
+Your output IS the supplied photo with cyan paint added on top of it. Restate this to yourself before generating: the input pixels are the canvas; cyan is the only ink. The pixels outside your cyan polygons are identical to the input pixels at the same coordinates.
+
+When you cannot identify a roof to paint with high confidence (heavy cloud cover, dense tree canopy obscuring the central pixel, or the pin sits on a non-building like a pool), the correct output is the input image with zero cyan pixels added. Returning the input unchanged is a SUCCESSFUL outcome, not a failure — the downstream system handles the no-paint case gracefully.`;
 
 /**
  * USER TRIGGER — minimal anchor phrase that follows the image part in
@@ -369,4 +372,22 @@ export const GEMINI_ROOF_SCHEMA = {
   // the optional sub-objects if it can't confidently fill them. We want
   // partial responses to still parse cleanly.
   required: ["objects"],
+  // propertyOrdering (Gemini-specific schema extension, May 2026):
+  // controls the ORDER in which the model emits fields. Generating the
+  // required `objects` first means partial responses always carry the
+  // most-important payload. Subsequent fields generate in the order
+  // listed here, which gives the model a stable scaffold rather than
+  // emitting fields in unpredictable order based on attention.
+  // Per Vertex AI structured-output guide: improves JSON consistency
+  // measurably on Gemini 2.5+ at zero token cost.
+  propertyOrdering: [
+    "objects",
+    "facet_count_estimate",
+    "roof_material",
+    "condition_hints",
+    "visible_damage",
+    "secondary_structures",
+    "site_obstacles",
+    "apparent_age_band",
+  ],
 } as const;

@@ -1096,6 +1096,9 @@ const GEMINI_OBJECTS_PROMPT = `Analyze this 1280×1280 aerial satellite image of
 
 Return eight fields. Per-field rules below. Confidence on every field is float 0.0–1.0 reflecting your ACTUAL certainty (1.0 = sure; 0.7–0.9 = typical confident observation; <0.5 = genuine uncertainty).
 
+## BOX_2D FORMAT (restated even though responseSchema enforces it)
+Every box_2d MUST be [ymin, xmin, ymax, xmax] normalized to 0-1000 (Y FIRST, not X). Swapping the axis order causes silent performance collapse per Google's image-understanding benchmarks. We descale to 1280-pixel tile space server-side.
+
 ## 1. objects[] — physical rooftop fixtures
 Identify every physical fixture sitting on the central building's roof. Return ONLY what you can clearly identify.
 
