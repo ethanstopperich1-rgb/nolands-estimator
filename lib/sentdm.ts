@@ -142,3 +142,82 @@ export async function sendUnifiedMessage(
 export function sentDmConfigured(): boolean {
   return Boolean(process.env.SENT_API_KEY);
 }
+
+// ─── Internal operator notifications ──────────────────────────────────
+//
+// notifyOwner() is the "Claude / the system pings Ethan" channel.
+// Distinct from customer messaging — not subject to TCPA marketing
+// consent (it's operator-to-operator), no opt-out flow, no compliance
+// disclosure. The recipient is YOU, hardcoded via OWNER_PHONE_E164.
+//
+// Use this for:
+//   - "Deploy complete" pings after vercel deploy --prod
+//   - Cron-job summaries (storm pulse fired, parcel ingestion done)
+//   - Incident alerts (the silent-403 case would have paged here)
+//   - Long-running task completion (parallel agents finished)
+//   - "A real lead just came in" out-of-band notification
+//   - Anything you want to know about without watching the terminal
+//
+// Setup the user owes (one-time):
+//   1. vercel env add SENT_API_KEY production    (grab from app.sent.dm)
+//   2. vercel env add OWNER_PHONE_E164 production (your number, +1XXXXXXXXXX)
+//   3. Create a template in the sent.dm dashboard:
+//        - Name: ops_alert
+//        - Body: "{{message}}"
+//        - Channels: SMS + RCS (auto-routes per recipient device)
+//      Copy the template UUID, then:
+//   4. vercel env add SENT_DM_OPS_TEMPLATE_ID production
+//
+// Until those are set, every notifyOwner() call no-ops gracefully.
+
+export interface NotifyOwnerOptions {
+  /** Short label that appears as a tag/prefix. e.g. "deploy", "incident",
+   *  "lead". Helps you mentally route the ping at a glance. */
+  tag?: string;
+  /** When true, sandbox the send so you can test the call path without
+   *  actually buzzing your phone. */
+  sandbox?: boolean;
+  /** Idempotency key — pass the same value to suppress double-sends
+   *  (e.g. the deployment ID, the lead ID, the cron tick). */
+  idempotencyKey?: string;
+  /** Optional override for the recipient. Defaults to OWNER_PHONE_E164. */
+  to?: string;
+}
+
+/**
+ * Ping the operator. Always returns — never throws.
+ *
+ * Skipped silently when any of these aren't configured:
+ *   - SENT_API_KEY              (wrapper is dormant)
+ *   - OWNER_PHONE_E164          (no recipient)
+ *   - SENT_DM_OPS_TEMPLATE_ID   (no template UUID)
+ *
+ * This lets you sprinkle notifyOwner() calls liberally — they're
+ * inert in dev / preview / partner forks where the operator
+ * notification channel isn't wired up.
+ */
+export async function notifyOwner(
+  message: string,
+  opts: NotifyOwnerOptions = {},
+): Promise<SendMessageResult> {
+  const recipient = opts.to ?? process.env.OWNER_PHONE_E164;
+  const templateId = process.env.SENT_DM_OPS_TEMPLATE_ID;
+  if (!recipient || !templateId) {
+    return { sent: false, reason: "not_configured" };
+  }
+
+  // Cap message length to a single SMS-equivalent so we don't blow up
+  // the operator phone with multi-part messages. Tagged messages get
+  // a tighter cap to leave room for the prefix.
+  const body = opts.tag
+    ? `[${opts.tag}] ${message}`.slice(0, 160)
+    : message.slice(0, 160);
+
+  return sendUnifiedMessage({
+    to: recipient,
+    template: { id: templateId, name: "ops_alert" },
+    variables: { message: body },
+    sandbox: opts.sandbox,
+    idempotencyKey: opts.idempotencyKey,
+  });
+}

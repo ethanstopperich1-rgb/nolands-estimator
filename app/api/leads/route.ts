@@ -957,6 +957,24 @@ export async function POST(req: Request) {
     );
   }
 
+  // Operator notification — fire-and-forget ping to the owner's phone
+  // via sent.dm. Out-of-band channel so Ethan gets a buzz the moment
+  // a lead lands, without watching dashboards. No-ops cleanly when
+  // SENT_API_KEY / OWNER_PHONE_E164 / SENT_DM_OPS_TEMPLATE_ID are
+  // unset. NOT customer-facing — strictly operator-to-operator,
+  // outside the TCPA marketing channel. Dedup matches stay silent
+  // (already-known lead = no ping needed).
+  if (!dedupMatch) {
+    void import("@/lib/sentdm").then(({ notifyOwner }) =>
+      notifyOwner(
+        `New lead · ${body.name.split(/\s+/)[0]} · ${body.address.split(",")[0]}`,
+        { tag: "lead", idempotencyKey: `lead-${leadId}` },
+      ),
+    ).catch(() => {
+      // Notification failure must never break the customer response.
+    });
+  }
+
   // When the submission was a dedup match, surface the parent's
   // publicId so the customer page can redirect/inline the existing
   // report instead of treating this as a brand-new lead.
@@ -968,7 +986,7 @@ export async function POST(req: Request) {
     submittedAt,
     message: dedupMatch
       ? "We already have your request — your roof report is ready."
-      : "Thanks — a Voxaris partner will contact you within 1 business hour.",
+      : "Thanks — a Noland's Roofing rep will contact you within 1 business hour.",
     ...(dedupMatch
       ? {
           isDuplicate: true,
