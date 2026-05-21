@@ -143,6 +143,109 @@ export function sentDmConfigured(): boolean {
   return Boolean(process.env.SENT_API_KEY);
 }
 
+// ─── Customer-facing estimate-ready follow-up ─────────────────────────
+//
+// sendEstimateReady() fires after the painted-roof V3 pipeline succeeds
+// for a lead. It's the SECOND message the homeowner receives (the
+// first is the Twilio TCPA-locked confirmation SMS — unchanged here,
+// regulator-grade). This one is the engagement-rich follow-up:
+//
+//   - On RCS-capable devices (iOS, modern Android): Rich Card with
+//     the painted-roof image inline, three-tier teaser bullet, "View
+//     estimate" and "Call Noland's" CTAs
+//   - Everywhere else: plain SMS with the share URL + estimate range
+//
+// Why this pattern (Twilio THEN sent.dm, not replace):
+//   - The TCPA consent text in lib/tcpa-consent.ts is locked to
+//     Twilio as the named carrier in the recorded consent disclosure.
+//     Switching the consent channel requires legal re-validation and
+//     a fresh 10DLC registration on sent.dm's side. Out of scope.
+//   - This second message is "service follow-up" under TCPA — the
+//     homeowner already opted in, this is informational fulfillment
+//     of their request. The disclosure burden is lower.
+//   - sent.dm STILL enforces its own opt-out flow ("Reply STOP")
+//     independent of Twilio's, so a customer who opts out via either
+//     channel is honored by both.
+//
+// Required sent.dm template (one-time setup in dashboard):
+//   Name:     estimate_ready
+//   Channels: SMS, RCS, WhatsApp
+//   Variables:
+//     firstName       — customer's first name
+//     address         — short address (street, e.g. "8450 Oak Park Ave")
+//     shareUrl        — full URL to /r/{leadPublicId}
+//     paintedImageUrl — pre-signed Supabase Storage URL to the
+//                       painted-roof PNG (TTL >= 7 days)
+//     lowEstimate     — low end of monthly estimate (e.g. "318")
+//     highEstimate    — high end (e.g. "576")
+//   SMS body:
+//     "Hi {{firstName}}, your Noland's Roofing estimate for {{address}}
+//      is ready: {{shareUrl}}. Reply STOP to opt out."
+//   RCS Rich Card:
+//     image:       {{paintedImageUrl}}
+//     title:       "{{firstName}}, your roof estimate is ready"
+//     body:        "Three ways to roof your home, $${{lowEstimate}}–
+//                   ${{highEstimate}}/mo financed."
+//     button 1:    "View estimate" → {{shareUrl}}
+//     button 2:    "Call Noland's" → tel:+13522424322
+//   Copy the UUID and set:
+//     vercel env add SENT_DM_ESTIMATE_TEMPLATE_ID production
+
+export interface SendEstimateReadyInput {
+  /** Customer's E.164 phone number — must already have voiceConsent. */
+  customerPhone: string;
+  customerFirstName: string;
+  /** Short address, e.g. "8450 Oak Park Ave" — without city/state. */
+  address: string;
+  /** Pre-signed URL to the painted-roof PNG. Must be HTTPS-accessible
+   *  for at least 7 days (RCS scrapers re-fetch). Use lib/painted-url.ts
+   *  to mint this with a long-enough TTL. */
+  paintedImageUrl: string;
+  /** Public share URL — typically https://nolands-estimator.vercel.app/r/{leadPublicId} */
+  shareUrl: string;
+  /** Estimate range in WHOLE DOLLARS per month (financed). */
+  lowEstimate: number;
+  highEstimate: number;
+  /** Lead UUID — used as the idempotency key so retry loops don't
+   *  double-buzz the customer. */
+  leadPublicId: string;
+}
+
+/**
+ * Send the estimate-ready Rich Card to the customer.
+ *
+ * Soft-fails when SENT_API_KEY or SENT_DM_ESTIMATE_TEMPLATE_ID are
+ * unset — production code can call this freely; partner forks without
+ * a sent.dm account stay green.
+ */
+export async function sendEstimateReady(
+  input: SendEstimateReadyInput,
+): Promise<SendMessageResult> {
+  const templateId = process.env.SENT_DM_ESTIMATE_TEMPLATE_ID;
+  if (!templateId) {
+    return { sent: false, reason: "not_configured" };
+  }
+
+  return sendUnifiedMessage({
+    to: input.customerPhone,
+    template: { id: templateId, name: "estimate_ready" },
+    variables: {
+      firstName: input.customerFirstName,
+      address: input.address,
+      shareUrl: input.shareUrl,
+      paintedImageUrl: input.paintedImageUrl,
+      lowEstimate: input.lowEstimate,
+      highEstimate: input.highEstimate,
+    },
+    // Channel order: try RCS first (rich card), fall to SMS for
+    // devices that don't support it. WhatsApp included for Spanish-
+    // speaking FL homeowners who prefer it. sent.dm picks one per
+    // recipient based on availability + cost.
+    channels: ["rcs", "sms", "whatsapp"],
+    idempotencyKey: `estimate-${input.leadPublicId}`,
+  });
+}
+
 // ─── Internal operator notifications ──────────────────────────────────
 //
 // notifyOwner() is the "Claude / the system pings Ethan" channel.

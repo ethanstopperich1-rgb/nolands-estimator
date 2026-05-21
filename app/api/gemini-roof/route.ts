@@ -1449,7 +1449,7 @@ async function persistEstimateToLead(
   // invariant documented in lib/supabase.ts says "Always tag office_id".
   const { data: priorLead } = await supabase
     .from("leads")
-    .select("office_id")
+    .select("office_id, name, phone, address")
     .eq("public_id", leadPublicId)
     .maybeSingle();
   if (!priorLead) {
@@ -1536,6 +1536,60 @@ async function persistEstimateToLead(
   console.log(
     `[gemini-roof v3] persisted_to_lead publicId=${leadPublicId} painted=${paintedUrl ? "yes" : "no"}`,
   );
+
+  // Customer estimate-ready follow-up via sent.dm. Fires AFTER the
+  // painted PNG is rendered + the lead row is updated with the dollar
+  // range — so the message lands with everything the customer needs:
+  // the painted roof image, the estimate range, the share-link CTA.
+  //
+  // This is the SECOND message the customer sees. The first is the
+  // Twilio TCPA-locked confirmation SMS at /api/leads. Twilio handles
+  // compliance; sent.dm handles engagement. See lib/sentdm.ts for the
+  // full TCPA framing.
+  //
+  // Gates:
+  //   - phone must exist on the lead — implicit TCPA opt-in proxy.
+  //     Form-submit at /api/leads rejects without marketingConsent
+  //     (see app/api/leads/route.ts line ~196), so any persisted lead
+  //     with a phone has consented to receive messages from us.
+  //   - paintedUrl must exist (no point sending without the image)
+  //   - estimateLow + estimateHigh must exist (no point without the
+  //     teaser numbers)
+  //
+  // Skipped silently when sent.dm env vars aren't set (see
+  // lib/sentdm.ts soft-fail behavior). Fire-and-forget — failure
+  // never affects the painted-roof response to the customer.
+  if (
+    priorLead.phone &&
+    paintedUrl &&
+    estimateLow != null &&
+    estimateHigh != null
+  ) {
+    const firstName = (priorLead.name ?? "").split(/\s+/)[0] || "there";
+    const shortAddress = (priorLead.address ?? "").split(",")[0].trim();
+    const siteOrigin =
+      process.env.NEXT_PUBLIC_SITE_ORIGIN ?? "https://nolands-estimator.vercel.app";
+    const customerPhone = priorLead.phone;
+    void import("@/lib/sentdm")
+      .then(({ sendEstimateReady }) =>
+        sendEstimateReady({
+          customerPhone,
+          customerFirstName: firstName,
+          address: shortAddress,
+          paintedImageUrl: paintedUrl,
+          shareUrl: `${siteOrigin}/r/${leadPublicId}`,
+          lowEstimate: estimateLow!,
+          highEstimate: estimateHigh!,
+          leadPublicId,
+        }),
+      )
+      .catch((err) => {
+        console.warn(
+          "[gemini-roof v3] sentdm_estimate_failed",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+  }
 }
 
 /**
