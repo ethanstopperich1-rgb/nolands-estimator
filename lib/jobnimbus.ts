@@ -82,6 +82,74 @@ export interface JNJob {
   jnid: string;
 }
 
+export interface JNJobSummary {
+  jnid: string;
+  /** UNIX seconds — convert to ms for JS Date. */
+  dateStart: number | null;
+  /** Primary contact jnid (matches leads.jobnimbus_contact_id). */
+  primaryContactId: string | null;
+  displayName: string;
+  statusName: string | null;
+}
+
+export interface SearchJobsResult {
+  ok: true;
+  jobs: JNJobSummary[];
+}
+
+/**
+ * Search JobNimbus jobs whose date_start falls in [startUnix, endUnix].
+ * Used by /api/cron/podium-reminders to discover newly-booked
+ * appointments and cache them on the leads row for the reminder cron.
+ *
+ * JobNimbus's filter param is Elasticsearch DSL — see the Sydney
+ * Python client (voxaris-pitch/agents/sydney/jobnimbus.py) for the
+ * canonical filter shape this mirrors.
+ */
+export async function searchJobsByDateRange(
+  startUnix: number,
+  endUnix: number,
+  limit = 200,
+): Promise<SearchJobsResult | JobNimbusError> {
+  if (!jobNimbusConfigured()) {
+    return { ok: false, reason: "not_configured" };
+  }
+  try {
+    const url = new URL(`${BASE_URL}/jobs`);
+    url.searchParams.set(
+      "filter",
+      JSON.stringify({
+        must: [{ range: { date_start: { gte: startUnix, lte: endUnix } } }],
+      }),
+    );
+    url.searchParams.set("size", String(limit));
+    const res = await jnFetch(url.toString(), { method: "GET" });
+    if (!res.ok) return res;
+    const raw = res.json as
+      | { results?: Array<Record<string, unknown>>; data?: Array<Record<string, unknown>> }
+      | Array<Record<string, unknown>>;
+    const rows: Array<Record<string, unknown>> = Array.isArray(raw)
+      ? raw
+      : raw.results ?? raw.data ?? [];
+    const jobs: JNJobSummary[] = rows.map((row) => {
+      const primary = row.primary as { id?: string } | undefined;
+      return {
+        jnid: String(row.jnid ?? ""),
+        dateStart:
+          typeof row.date_start === "number" && Number.isFinite(row.date_start)
+            ? (row.date_start as number)
+            : null,
+        primaryContactId: primary?.id ? String(primary.id) : null,
+        displayName: String(row.display_name ?? ""),
+        statusName: row.status_name ? String(row.status_name) : null,
+      };
+    });
+    return { ok: true, jobs };
+  } catch (err) {
+    return jnUnexpected(err);
+  }
+}
+
 export interface AttachNoteInput {
   contactId: string;
   /** Note body. The painted-roof URL + share-link + estimate range live here. */

@@ -12,6 +12,14 @@
     {
       "path": "/api/cron/competitor-scrape",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/podium-reminders",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/podium-abandoners",
+      "schedule": "0 * * * *"
     }
   ]
 }
