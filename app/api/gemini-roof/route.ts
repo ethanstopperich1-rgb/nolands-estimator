@@ -1537,15 +1537,21 @@ async function persistEstimateToLead(
     `[gemini-roof v3] persisted_to_lead publicId=${leadPublicId} painted=${paintedUrl ? "yes" : "no"}`,
   );
 
-  // Customer estimate-ready follow-up via sent.dm. Fires AFTER the
+  // Customer estimate-ready follow-up via Podium. Fires AFTER the
   // painted PNG is rendered + the lead row is updated with the dollar
-  // range — so the message lands with everything the customer needs:
-  // the painted roof image, the estimate range, the share-link CTA.
+  // range. Lands in Noland's existing Podium inbox so reps reply
+  // where they already work — single workflow, no inbox fragmentation.
   //
   // This is the SECOND message the customer sees. The first is the
   // Twilio TCPA-locked confirmation SMS at /api/leads. Twilio handles
-  // compliance; sent.dm handles engagement. See lib/sentdm.ts for the
-  // full TCPA framing.
+  // compliance; Podium handles engagement + ongoing conversation.
+  //
+  // Why Podium not sent.dm here: Noland's already runs Podium as their
+  // customer-messaging hub. Pushing leads into any other channel would
+  // fragment their workflow — reps would have to monitor two inboxes
+  // and reply threading would break. The sent.dm wrapper remains in
+  // lib/sentdm.ts for OPERATOR-side notifications (notifyOwner) which
+  // are out-of-band pings to Ethan, not customer-facing.
   //
   // Gates:
   //   - phone must exist on the lead — implicit TCPA opt-in proxy.
@@ -1556,8 +1562,8 @@ async function persistEstimateToLead(
   //   - estimateLow + estimateHigh must exist (no point without the
   //     teaser numbers)
   //
-  // Skipped silently when sent.dm env vars aren't set (see
-  // lib/sentdm.ts soft-fail behavior). Fire-and-forget — failure
+  // Skipped silently when Podium env vars aren't set (see
+  // lib/podium.ts soft-fail behavior). Fire-and-forget — failure
   // never affects the painted-roof response to the customer.
   if (
     priorLead.phone &&
@@ -1565,16 +1571,16 @@ async function persistEstimateToLead(
     estimateLow != null &&
     estimateHigh != null
   ) {
-    const firstName = (priorLead.name ?? "").split(/\s+/)[0] || "there";
+    const customerName = priorLead.name ?? "there";
     const shortAddress = (priorLead.address ?? "").split(",")[0].trim();
     const siteOrigin =
       process.env.NEXT_PUBLIC_SITE_ORIGIN ?? "https://nolands-estimator.vercel.app";
     const customerPhone = priorLead.phone;
-    void import("@/lib/sentdm")
-      .then(({ sendEstimateReady }) =>
-        sendEstimateReady({
+    void import("@/lib/podium")
+      .then(({ sendEstimateReadyViaPodium }) =>
+        sendEstimateReadyViaPodium({
           customerPhone,
-          customerFirstName: firstName,
+          customerName,
           address: shortAddress,
           paintedImageUrl: paintedUrl,
           shareUrl: `${siteOrigin}/r/${leadPublicId}`,
@@ -1583,9 +1589,20 @@ async function persistEstimateToLead(
           leadPublicId,
         }),
       )
+      .then((result) => {
+        if (result.sent) {
+          console.log(
+            `[gemini-roof v3] podium_estimate_sent uid=${result.messageUid} lead=${leadPublicId}`,
+          );
+        } else if (result.reason !== "not_configured") {
+          console.warn(
+            `[gemini-roof v3] podium_estimate_failed reason=${result.reason} ${result.error ?? ""}`,
+          );
+        }
+      })
       .catch((err) => {
         console.warn(
-          "[gemini-roof v3] sentdm_estimate_failed",
+          "[gemini-roof v3] podium_estimate_unexpected",
           err instanceof Error ? err.message : String(err),
         );
       });
