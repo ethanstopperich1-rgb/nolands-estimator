@@ -530,13 +530,32 @@ body {
 .voxaris hr.hair        { border: 0; border-top: 1px solid var(--vx-rule-soft); margin: 0; }
 .voxaris hr.hair-strong { border: 0; border-top: 1px solid var(--vx-rule); margin: 0; }
 .voxaris ::selection { background: var(--vx-ink); color: var(--vx-cream); }
-/* Result/data card — paper surface, hairline border, 2px radius. */
+/* Result/data card — paper surface, hairline border, square corners.
+   Inherits the search-card's interaction language so the result page's
+   Lock-In-Real-Number CTA card glows fire-orange on hover/focus, just
+   like the address-search card on the hero. Reads as one product. */
 .voxaris .result-card {
   background: var(--vx-paper);
   border: 1px solid var(--vx-rule);
   border-radius: var(--vx-radius-card);
-  box-shadow: 0 1px 2px rgba(15, 27, 45, 0.06);
+  box-shadow:
+    0 1px 0 rgba(232, 233, 237, 0.04) inset,
+    0 24px 48px -16px rgba(0, 0, 0, 0.6),
+    0 0 24px -8px rgba(232, 74, 31, 0.15);
   position: relative;
+  transition: all var(--vx-base) var(--vx-ease);
+}
+/* Hover and focus-within both fire the orange-border glow so users
+   discover the interaction whether they're mouse-driven or keyboard-
+   driven (the consent checkbox inside is the focusable trigger). */
+.voxaris .result-card:hover,
+.voxaris .result-card:focus-within {
+  border-color: rgba(232, 74, 31, 0.4);
+  box-shadow:
+    0 1px 0 rgba(232, 233, 237, 0.06) inset,
+    0 28px 60px -16px rgba(0, 0, 0, 0.7),
+    0 0 48px -8px rgba(232, 74, 31, 0.28);
+  transform: translateY(-1px);
 }
 /* Chip — sharp corners, hairline border, Ambit uppercase. */
 .voxaris .chip {
