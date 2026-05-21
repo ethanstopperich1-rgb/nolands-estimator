@@ -107,6 +107,48 @@ def _log_tool_call(title: str, redacted_summary: dict) -> None:
     logger.info("tool_fired tool=%s summary=%s", title, redacted_summary)
 
 
+def _existing_jobnimbus_contact_id() -> str | None:
+    """Pull `jobnimbusContactId` from the current job's metadata.
+
+    The estimator pushes new leads into JobNimbus on form-submit + V3
+    paint success (see nolands-estimator/app/api/gemini-roof/route.ts).
+    The returned `jnid` is stored on the lead row and threaded through
+    /api/dispatch-outbound into Sydney's job metadata.
+
+    When this returns a non-empty string, book_inspection / log_lead
+    SKIP the create_contact step and use this existing contact —
+    preventing duplicate JobNimbus records for the same homeowner.
+
+    Returns None when:
+      - not running inside a LiveKit job (unit tests, inbound calls
+        where no estimator push happened)
+      - lead_context wasn't passed in metadata (inbound dispatch)
+      - jobnimbusContactId field is empty/null (estimator-side push
+        failed or JOBNIMBUS_API_KEY was unset on the estimator side)
+
+    Soft-fail philosophy: any failure here returns None and the tool
+    creates a fresh contact, same as before. No crashes.
+    """
+    try:
+        ctx = agents.get_job_context()
+        if ctx is None:
+            return None
+        raw_meta = getattr(getattr(ctx, "job", None), "metadata", None) or ""
+        if not raw_meta:
+            return None
+        import json as _json
+
+        parsed = _json.loads(raw_meta)
+        if not isinstance(parsed, dict):
+            return None
+        value = parsed.get("jobnimbusContactId")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+    except Exception:
+        return None
+
+
 # Routing — set in LK Cloud Agent secrets.
 # Empty / unset means: tool falls back to mock-banner mode (still pitch-safe).
 SIP_OUTBOUND_TRUNK_ID = os.environ.get("SIP_OUTBOUND_TRUNK_ID", "")
@@ -310,9 +352,10 @@ async def transfer_to_human(
         return {"status": "transfer_failed", "queue": reason, "error": str(e)}
 
 
-# TODO PRODUCTION: Replace with JobNimbus appointment + contact create.
+# Production: routes through jobnimbus.py when JOBNIMBUS_API_KEY is set.
+# Falls back to MOCK + dashboard event + lead webhook so the homeowner
+# data is durably captured even before JN is wired or on JN failures.
 # JobNimbus API: https://documentation.jobnimbus.com/
-# Also fire SMS confirmation via Sendblue or Twilio after success.
 @function_tool
 async def book_inspection(
     name: Annotated[str, "Caller's full name"],
@@ -330,12 +373,9 @@ async def book_inspection(
     Only call this AFTER you have read the appointment back to the caller and
     they confirmed it is correct. Do not call speculatively.
     """
-    # Redacted log — full PII (name/phone/email/address/notes) is sent
-    # straight to CRM when wired; cloud logs only get structural metadata
-    # plus hashes for correlation.
+    # Redacted log — full PII (name/phone/email/address/notes) goes to
+    # JobNimbus when wired; cloud logs only get hashes for correlation.
     redacted = {
-        "mode": "mock",
-        "name_hash": _hash_fragment(name),
         "phone_hash": _hash_fragment(phone),
         "email_hash": _hash_fragment(email),
         "address_hash": _hash_fragment(address),
@@ -345,16 +385,97 @@ async def book_inspection(
         "service_type": service_type,
         "notes_len": len(notes or ""),
     }
-    _log_tool_call("book_inspection", redacted)
-    # Dashboard event — the same redacted payload (no raw PII) lands in
-    # public.events so the call drawer's event timeline can render the
-    # appointment date/time/office/service_type at a glance. Was missing
-    # before this commit — every booking just vanished into cloud logs.
-    await _emit_tool_fired("book_inspection", redacted)
-    # status: "mock_booked" — NOT "booked" — so the LLM can detect demo
-    # mode and avoid telling a real caller they're confirmed when no
-    # JobNimbus record exists. Confirmation prefixed MOCK- for the same
-    # reason on any downstream logging.
+
+    # Try JobNimbus first when configured. On ANY failure (no key,
+    # network, API rejection), degrade to MOCK + dashboard event +
+    # webhook so the lead never gets dropped silently.
+    import asyncio
+    from . import jobnimbus  # type: ignore[import-not-found]
+
+    if jobnimbus.is_enabled():
+        try:
+            # Prefer the contact_id threaded through job metadata by
+            # the estimator's V3 success path (when the homeowner came
+            # in via the form). Skipping the create_contact call
+            # prevents duplicate JN records for the same homeowner.
+            existing_contact_id = _existing_jobnimbus_contact_id()
+            if existing_contact_id:
+                contact_id = existing_contact_id
+                logger.info(
+                    "jobnimbus reusing existing contact_id=%s from job metadata",
+                    contact_id,
+                )
+            else:
+                # No upstream contact_id → inbound call or estimator
+                # push failed. Create the contact ourselves.
+                parts = (name or "").strip().split(maxsplit=1)
+                first_name = parts[0] if parts else "Unknown"
+                last_name = parts[1] if len(parts) > 1 else "Unknown"
+
+                contact = await asyncio.to_thread(
+                    jobnimbus.create_contact,
+                    first_name=first_name,
+                    last_name=last_name,
+                    phone=phone,
+                    email=email or None,
+                    address=address or None,
+                    source="Voxaris Estimator",
+                    office=office,
+                )
+                contact_id = contact.get("id") or contact.get("contact_id") or ""
+                if not contact_id:
+                    raise jobnimbus.JobNimbusError(
+                        f"contact create returned no id: {contact}"
+                    )
+
+            # 2. Create inspection job
+            job = await asyncio.to_thread(
+                jobnimbus.create_inspection_job,
+                contact_id=contact_id,
+                address=address,
+                date_iso=date,
+                time_window=time_window,
+                service_type=service_type,
+                notes=notes or "",
+                office=office,
+            )
+            job_id = job.get("id") or job.get("job_id") or ""
+
+            # 3. Attach Sydney's call summary as a note
+            if notes:
+                try:
+                    await asyncio.to_thread(
+                        jobnimbus.attach_note,
+                        contact_id=contact_id,
+                        job_id=None,
+                        body=f"Sydney booked {service_type} inspection.\n\n{notes}",
+                        title="Sydney Call Summary",
+                    )
+                except jobnimbus.JobNimbusError as e:
+                    # Note attachment failure doesn't fail the booking.
+                    logger.warning("jobnimbus attach_note failed: %s", e)
+
+            redacted_real = {**redacted, "mode": "jobnimbus",
+                             "contact_id": contact_id, "job_id": job_id}
+            _log_tool_call("book_inspection", redacted_real)
+            await _emit_tool_fired("book_inspection", redacted_real)
+            return {
+                "status": "booked",
+                "confirmation_number": job_id or contact_id,
+                "office": office,
+            }
+        except jobnimbus.JobNimbusError as e:
+            # Soft-fail to MOCK. The lead is still captured via the
+            # dashboard event + webhook below — operator triages from
+            # the dashboard. The CALLER hears a confirmation regardless,
+            # but the response includes demo_mode=True so the LLM knows
+            # not to over-promise.
+            logger.warning("jobnimbus book_inspection fell back to MOCK: %s", e)
+
+    # MOCK path — either JOBNIMBUS_API_KEY unset or JN errored out.
+    redacted_mock = {**redacted, "mode": "mock"}
+    _log_tool_call("book_inspection", redacted_mock)
+    await _emit_tool_fired("book_inspection", redacted_mock)
     return {
         "status": "mock_booked",
         "confirmation_number": "MOCK-NL-DEMO-12345",
@@ -363,7 +484,8 @@ async def book_inspection(
     }
 
 
-# TODO PRODUCTION: Replace with JobNimbus contact create + lead source tagging.
+# Production: routes through jobnimbus.create_contact when configured.
+# Same MOCK-fallback discipline as book_inspection.
 @function_tool
 async def log_lead(
     name: Annotated[str, "Caller's name (use 'unknown' if not collected)"],
@@ -380,20 +502,73 @@ async def log_lead(
     area, warranty handoff, vendor / wrong number, DNC request, etc.).
     """
     redacted = {
-        "mode": "mock",
-        "name_hash": _hash_fragment(name),
         "phone_hash": _hash_fragment(phone),
         "email_hash": _hash_fragment(email),
         "address_hash": _hash_fragment(address),
         "notes_len": len(notes or ""),
         "lead_type": lead_type,
     }
-    _log_tool_call("log_lead", redacted)
-    # Dashboard event — see the same comment on book_inspection above.
-    # Without this emission, "Sydney logged a lead" only existed in cloud
-    # logs, never in the call drawer event timeline.
-    await _emit_tool_fired("log_lead", redacted)
-    # status: "mock_logged" — NOT "logged" — see book_inspection comment.
+
+    import asyncio
+    from . import jobnimbus  # type: ignore[import-not-found]
+
+    if jobnimbus.is_enabled():
+        try:
+            # Reuse the estimator-side contact when available (see
+            # _existing_jobnimbus_contact_id docstring above). Skips
+            # create_contact to avoid duplicate JN records.
+            existing_contact_id = _existing_jobnimbus_contact_id()
+            if existing_contact_id:
+                contact = {"id": existing_contact_id, "contact_id": existing_contact_id}
+                logger.info(
+                    "jobnimbus log_lead reusing contact_id=%s from job metadata",
+                    existing_contact_id,
+                )
+            else:
+                parts = (name or "").strip().split(maxsplit=1)
+                first_name = parts[0] if parts else "Unknown"
+                last_name = parts[1] if len(parts) > 1 else "Lead"
+
+                contact = await asyncio.to_thread(
+                    jobnimbus.create_contact,
+                    first_name=first_name,
+                    last_name=last_name,
+                    phone=phone,
+                    email=email or None,
+                    address=address or None,
+                    source=f"Voxaris Estimator · {lead_type}",
+                    office=None,
+                )
+            contact_id = contact.get("id") or contact.get("contact_id") or ""
+
+            # Attach the reason for logging
+            if notes:
+                try:
+                    await asyncio.to_thread(
+                        jobnimbus.attach_note,
+                        contact_id=contact_id,
+                        job_id=None,
+                        body=f"Lead type: {lead_type}\n\n{notes}",
+                        title="Sydney Lead Note",
+                    )
+                except jobnimbus.JobNimbusError as e:
+                    logger.warning("jobnimbus log_lead note failed: %s", e)
+
+            redacted_real = {**redacted, "mode": "jobnimbus",
+                             "contact_id": contact_id}
+            _log_tool_call("log_lead", redacted_real)
+            await _emit_tool_fired("log_lead", redacted_real)
+            return {
+                "status": "logged",
+                "lead_id": contact_id,
+                "lead_type": lead_type,
+            }
+        except jobnimbus.JobNimbusError as e:
+            logger.warning("jobnimbus log_lead fell back to MOCK: %s", e)
+
+    redacted_mock = {**redacted, "mode": "mock"}
+    _log_tool_call("log_lead", redacted_mock)
+    await _emit_tool_fired("log_lead", redacted_mock)
     return {
         "status": "mock_logged",
         "lead_id": "MOCK-LEAD-DEMO-98765",

@@ -269,8 +269,14 @@ tests/          ← see Testing layout above
 
 ## Open production blockers (don't ship without these)
 
-1. **JobNimbus integration** — `book_inspection` and `log_lead` return
-   `MOCK-` responses. Real CRM writes pending.
+1. **JobNimbus API key** — when `JOBNIMBUS_API_KEY` is set,
+   `book_inspection` + `log_lead` route through `jobnimbus.py` to
+   create real Contact + Job records. Until the key arrives, they
+   fall back to MOCK + dashboard event + lead webhook (lead is
+   durably captured, operator triages from the dashboard). Wiring
+   is COMPLETE — drop the key into LK Cloud Agent secrets when
+   received and live writes begin immediately, no code change.
+   `jobnimbus.healthcheck()` available for ops monitoring.
 2. **Recording egress wiring** — if recording is ever needed, wire
    LK room egress before flipping `SYDNEY_RECORDING_ENABLED=true`
    (currently raises on startup as a guard).
