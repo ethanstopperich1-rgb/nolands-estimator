@@ -1447,9 +1447,15 @@ async function persistEstimateToLead(
   // office_id would let a malformed publicId match across tenants.
   // PublicId entropy makes that practically infeasible today, but the
   // invariant documented in lib/supabase.ts says "Always tag office_id".
-  const { data: priorLead } = await supabase
+  // Cast through unknown: jobnimbus_contact_id is added by migration
+  // 0019, which may not be applied yet in every environment. Once
+  // applied + types are regenerated, the cast can be removed. The
+  // downstream soft-fail behavior treats missing column identically
+  // to "DB unreachable" — neither blocks the customer flow.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: priorLead } = await (supabase as any)
     .from("leads")
-    .select("office_id, name, phone, address")
+    .select("office_id, name, phone, address, email, jobnimbus_contact_id")
     .eq("public_id", leadPublicId)
     .maybeSingle();
   if (!priorLead) {
@@ -1606,6 +1612,105 @@ async function persistEstimateToLead(
           err instanceof Error ? err.message : String(err),
         );
       });
+
+    // JobNimbus push — runs in parallel with the Podium send. Creates
+    // (or finds, when dedup hits) the contact in Noland's JobNimbus,
+    // creates an Estimate job for the inspection, and attaches a note
+    // with the painted-roof URL + estimate range. Stashes the returned
+    // jnid on the lead row so Sydney's later book_inspection call
+    // updates this existing contact instead of creating a duplicate.
+    //
+    // Soft-fails to no-op when JOBNIMBUS_API_KEY is unset (lib/
+    // jobnimbus.ts). Noland's hasn't provided the key yet, so today
+    // this is dormant code paths waiting for the env to be wired.
+    //
+    // Skip when a JobNimbus contact already exists for this lead row
+    // (the dispatch-outbound retry path could re-enter the V3 flow).
+    if (!priorLead.jobnimbus_contact_id) {
+      void (async () => {
+        try {
+          const jn = await import("@/lib/jobnimbus");
+          if (!jn.jobNimbusConfigured()) return;
+
+          // Dedup first — Sydney's existing customers may already be in
+          // JobNimbus from prior calls. Match by phone.
+          const found = await jn.findContactByPhone(customerPhone);
+          let contactId: string;
+          if (found.ok) {
+            contactId = found.jnid;
+            console.log(
+              `[gemini-roof v3] jobnimbus_contact_found jnid=${contactId} lead=${leadPublicId}`,
+            );
+          } else if (found.reason === "not_found") {
+            const created = await jn.createContact({
+              displayName: customerName,
+              phone: customerPhone,
+              email: priorLead.email,
+              address: priorLead.address ?? undefined,
+              tags: ["estimator", "nolands"],
+            });
+            if (!created.ok) {
+              console.warn(
+                `[gemini-roof v3] jobnimbus_contact_create_failed reason=${created.reason} ${created.error ?? ""}`,
+              );
+              return;
+            }
+            contactId = created.jnid;
+            console.log(
+              `[gemini-roof v3] jobnimbus_contact_created jnid=${contactId} lead=${leadPublicId}`,
+            );
+          } else {
+            // Lookup itself errored — bail rather than guess.
+            console.warn(
+              `[gemini-roof v3] jobnimbus_lookup_failed reason=${found.reason} ${found.error ?? ""}`,
+            );
+            return;
+          }
+
+          // Stash on the lead row so Sydney's dispatch can reuse.
+          // Cast through unknown until migration 0019 lands + types
+          // are regenerated.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase as any)
+            .from("leads")
+            .update({ jobnimbus_contact_id: contactId })
+            .eq("public_id", leadPublicId)
+            .eq("office_id", priorLead.office_id);
+
+          // Create the Estimate job + attach the painted-roof note.
+          // Both fire-and-forget; failure is logged but doesn't
+          // unwind the contact row that just landed.
+          await Promise.all([
+            jn.createInspectionJob({
+              contactId,
+              displayName: `Roof estimate — ${shortAddress}`,
+              description:
+                `Painted roof: ${paintedUrl}\n` +
+                `Share URL: ${siteOrigin}/r/${leadPublicId}\n` +
+                `Estimate range: $${estimateLow}–$${estimateHigh}/mo financed.`,
+              recordType: "Estimate",
+              status: "Lead",
+            }),
+            jn.attachNote({
+              contactId,
+              body:
+                `Estimator submission received. Painted roof + tier ` +
+                `pricing ready at ${siteOrigin}/r/${leadPublicId}. ` +
+                `Estimate range $${estimateLow}–$${estimateHigh}/mo.`,
+            }),
+          ]);
+
+          console.log(
+            `[gemini-roof v3] jobnimbus_push_complete jnid=${contactId} lead=${leadPublicId}`,
+          );
+        } catch (err) {
+          console.warn(
+            "[gemini-roof v3] jobnimbus_unexpected",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      })();
+    }
   }
 }
 

@@ -58,6 +58,14 @@ interface DispatchPayload {
    *  (the customer page toggle); the agent worker honors this via
    *  metadata.preferredLanguage. Defaults to 'en' on omit. */
   preferredLanguage?: "en" | "es";
+  /** JobNimbus contact identifier (jnid). When the estimator
+   *  has already pushed this lead to JobNimbus on form-submit,
+   *  /api/gemini-roof stashes the returned jnid on the lead row.
+   *  Routes that dispatch Sydney (e.g. the cron retry path, the
+   *  dashboard "call this lead" button) read that column and pass
+   *  it through here so Sydney's book_inspection updates the
+   *  existing contact rather than creating a duplicate. */
+  jobnimbusContactId?: string;
 }
 
 const LIVEKIT_URL = process.env.LIVEKIT_URL ?? "";
@@ -201,6 +209,14 @@ export async function POST(req: Request) {
     // language of the consent capture, which is what this field
     // carries through.
     preferredLanguage: body.preferredLanguage ?? "en",
+    // JobNimbus contact ID (string, JobNimbus "jnid" format). When
+    // present, Sydney's book_inspection updates this existing contact
+    // instead of creating a duplicate. Set by /api/gemini-roof V3
+    // success path when the estimator pushes to JobNimbus on
+    // form-submit. NULL when (a) JobNimbus integration is dormant
+    // (key not set), (b) the V3 push failed, or (c) the customer
+    // opted out before the painted roof completed.
+    jobnimbusContactId: body.jobnimbusContactId ?? null,
   };
   const metadata = JSON.stringify(leadContext);
 
