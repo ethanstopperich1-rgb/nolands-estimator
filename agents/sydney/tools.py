@@ -623,25 +623,114 @@ async def check_availability(
             })
         d += _dt.timedelta(days=1)
 
-    # Add a touch of realistic friction so the calendar doesn't feel fake:
-    # the first slot's morning is "taken" (someone always books first thing).
-    if slots:
-        slots[0]["windows"][0]["status"] = "taken"
-    if len(slots) >= 3:
-        slots[2]["windows"][1]["status"] = "taken"  # third day afternoon
+    # ─── Real calendar reads (when JobNimbus is wired) ────────────────
+    # Try to fetch actual scheduled jobs from JN for this office across
+    # the slot window. Mark any overlapping morning/afternoon as
+    # "taken". On ANY failure (no key, network, malformed response)
+    # fall through to the synthetic friction below so Sydney still
+    # has plausible offerings rather than every slot reading "open" —
+    # better customer experience than a hung tool.
+    import asyncio as _asyncio
+    import datetime as __dt
+    import zoneinfo as _zi
+
+    # tools.py is imported two ways in this repo:
+    #   - As `from . import tools` from agent.py (package context exists)
+    #   - As `import tools` from tests + LiveKit Cloud runtime (no package)
+    # Try absolute first (covers tests + runtime), fall back to relative
+    # (covers the agent.py case where the package context is intact).
+    try:
+        import jobnimbus  # type: ignore[import-not-found]
+    except ImportError:
+        from . import jobnimbus  # type: ignore[import-not-found]
+
+    real_mode = "mock"
+    if jobnimbus.is_enabled() and slots:
+        try:
+            # Compute the UNIX timestamp range covering all returned
+            # slots. America/New_York is hardcoded for FL deployments;
+            # multi-tz support would key off office's local tz.
+            tz = _zi.ZoneInfo("America/New_York")
+            first_date = __dt.date.fromisoformat(slots[0]["date"])
+            last_date = __dt.date.fromisoformat(slots[-1]["date"])
+            range_start = __dt.datetime.combine(
+                first_date, __dt.time(0, 0), tzinfo=tz
+            )
+            range_end = __dt.datetime.combine(
+                last_date, __dt.time(23, 59), tzinfo=tz
+            )
+            jobs = await _asyncio.to_thread(
+                jobnimbus.search_jobs_by_date_range,
+                start_unix=int(range_start.timestamp()),
+                end_unix=int(range_end.timestamp()),
+                office=office,
+            )
+
+            # Bucket booked job timestamps into (date, window) pairs.
+            # Morning = job starts in [9:00, 12:00). Afternoon = job
+            # starts in [12:00, 17:00). Anything outside is ignored
+            # for slot-painting purposes (after-hours / before-hours).
+            taken: set[tuple[str, str]] = set()
+            for job in jobs:
+                ds = job.get("date_start")
+                if not isinstance(ds, (int, float)):
+                    continue
+                local = __dt.datetime.fromtimestamp(ds, tz=tz)
+                hr = local.hour
+                if 9 <= hr < 12:
+                    taken.add((local.date().isoformat(), "morning"))
+                elif 12 <= hr < 17:
+                    taken.add((local.date().isoformat(), "afternoon"))
+
+            # Apply the taken set to the slot grid.
+            for slot in slots:
+                for window in slot["windows"]:
+                    if (slot["date"], window["window"]) in taken:
+                        window["status"] = "taken"
+
+            real_mode = "jobnimbus"
+            logger.info(
+                "check_availability used JobNimbus: jobs_in_window=%d "
+                "windows_taken=%d office=%s",
+                len(jobs),
+                len(taken),
+                office,
+            )
+        except jobnimbus.JobNimbusError as e:
+            logger.warning(
+                "jobnimbus check_availability fell back to MOCK: %s", e
+            )
+            real_mode = "mock"
+        except Exception as e:
+            # Defensive — never let availability lookup error out
+            # the voice loop. Fall through to mock-friction below.
+            logger.warning(
+                "check_availability unexpected error, falling back to MOCK: %s",
+                e,
+            )
+            real_mode = "mock"
+
+    # MOCK friction — applied only when JN didn't return real data.
+    # Sydney still offers a plausible calendar instead of "every slot
+    # open forever" which would feel scripted.
+    if real_mode == "mock":
+        if slots:
+            slots[0]["windows"][0]["status"] = "taken"
+        if len(slots) >= 3:
+            slots[2]["windows"][1]["status"] = "taken"
 
     _log_tool_call("check_availability", {
         "office": office,
         "earliest_date": earliest_date,
         "slots_returned": len(slots),
-        "mode": "mock",
+        "mode": real_mode,
     })
 
     return {
-        "status": "mock_availability",
+        "status": "real_availability" if real_mode == "jobnimbus" else "mock_availability",
         "office": office,
         "slots": slots,
-        "demo_mode": True,
+        "demo_mode": real_mode == "mock",
     }
 
 

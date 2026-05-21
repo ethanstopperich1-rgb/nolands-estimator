@@ -112,6 +112,71 @@ def _request(
 # ─── Resource methods ─────────────────────────────────────────────────
 
 
+def search_jobs_by_date_range(
+    *,
+    start_unix: int,
+    end_unix: int,
+    office: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List jobs scheduled in [start_unix, end_unix] (UNIX timestamps,
+    seconds). Used by check_availability to mark windows as "taken"
+    when a JobNimbus job already overlaps.
+
+    Returns a list of jobs (raw JN shape). Empty list when:
+      - no jobs in range
+      - JN unconfigured (caller already gated with is_enabled)
+      - the search call errors and the caller swallows
+    Raises JobNimbusError on auth / network / 5xx — caller catches
+    and falls back to the MOCK calendar (see tools.py check_availability).
+
+    Filter shape per JobNimbus REST docs (Elasticsearch DSL):
+      {"must": [{"range": {"date_start": {"gte": <unix>, "lte": <unix>}}}]}
+
+    Office filtering: optional. JN orgs without per-office segmentation
+    pass office=None and get all jobs for the org. For Noland's, the
+    sales_rep_name custom field encodes office as "Sydney (clermont)"
+    etc.; we filter on the office substring to keep the dispatcher's
+    calendar to its own office's bookings."""
+    import urllib.parse as _urlparse
+
+    must: list[dict[str, Any]] = [
+        {
+            "range": {
+                "date_start": {"gte": start_unix, "lte": end_unix},
+            }
+        },
+    ]
+    if office:
+        must.append(
+            {"match": {"sales_rep_name": f"Sydney ({office})"}}
+        )
+    filter_json = json.dumps({"must": must})
+    params = {
+        "filter": filter_json,
+        "size": str(limit),
+    }
+    qs = _urlparse.urlencode(params)
+    path = f"/jobs?{qs}"
+
+    logger.info(
+        "jobnimbus search_jobs date_range=[%d, %d] office=%s",
+        start_unix,
+        end_unix,
+        office,
+    )
+    response = _request("GET", path)
+    # JN returns either {"count": N, "results": [...]} or a bare list
+    # depending on the endpoint variant. Handle both.
+    if isinstance(response, dict):
+        results = response.get("results") or response.get("data") or []
+    else:
+        results = response if isinstance(response, list) else []
+    if not isinstance(results, list):
+        return []
+    return results
+
+
 def create_contact(
     *,
     first_name: str,
