@@ -77,6 +77,7 @@ import { rotateAllFacets } from "@/lib/solar-facets";
 import { classifyEdges } from "@/lib/roof-engine";
 import {
   createServiceRoleClient,
+  resolveOfficeBySlug,
   supabaseServiceRoleConfigured,
 } from "@/lib/supabase";
 import type { Json } from "@/types/supabase";
@@ -2957,6 +2958,44 @@ export async function POST(req: Request): Promise<NextResponse> {
   const parsed = parseGeminiRoofInputs(req, body);
   if (parsed instanceof NextResponse) return parsed;
   parsed.debug = sanitizeGeminiRoofDebug(req, parsed.debug);
+
+  // ─── Per-office daily Gemini cost cap ────────────────────────────────
+  // Gates against `offices.daily_image_cap` (default 25 calls/day) via
+  // `gemini_calls` audit table. Soft-fails to allowed when the table is
+  // missing or Supabase is unreachable — never block a paying customer's
+  // estimate because of an accounting outage. See lib/gemini-cost-cap.ts.
+  //
+  // Single-tenant fork: office is always "nolands". Multi-tenant
+  // forks should pass office_id derived from the leadPublicId or
+  // a tenant subdomain.
+  //
+  // Disable via env: GEMINI_COST_CAP_DISABLED=1 (escape hatch — should
+  // never be needed in normal ops; the soft-fail behavior already covers
+  // the DB-down case).
+  if (parsed.pinConfirmed && process.env.GEMINI_COST_CAP_DISABLED !== "1") {
+    const office = await resolveOfficeBySlug("nolands");
+    if (office) {
+      const { checkGeminiCostCap } = await import("@/lib/gemini-cost-cap");
+      const check = await checkGeminiCostCap(office.id);
+      if (!check.allowed) {
+        console.warn("[gemini-roof] daily cap reached", {
+          office: "nolands",
+          used: check.usedToday,
+          cap: check.capToday,
+        });
+        return NextResponse.json(
+          {
+            error: "daily_cap_reached",
+            usedToday: check.usedToday,
+            capToday: check.capToday,
+            retryAfterHours: 24,
+          },
+          { status: 429, headers: { "Retry-After": "86400" } },
+        );
+      }
+    }
+  }
+
   try {
     return await (parsed.pinConfirmed
       ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
