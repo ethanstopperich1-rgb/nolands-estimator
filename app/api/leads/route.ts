@@ -679,9 +679,11 @@ export async function POST(req: Request) {
     (process.env.CUSTOMER_SMS_DISABLED ?? "").toLowerCase() === "true";
   if (phoneE164 && twilioConfigured() && !isLeadUpdate && !customerSmsDisabled && !dedupMatch) {
     const firstName = body.name.split(/\s+/)[0];
-    // Office-aware SMS intro. Falls back to "Voxaris Pitch" if the
-    // office row didn't resolve (dev / preview without Supabase).
-    const officeName = officeBranding?.displayName ?? "Voxaris Pitch";
+    // Office-aware SMS intro. Falls back to "Noland's Roofing" if the
+    // office row didn't resolve (dev / preview without Supabase). This
+    // fork is Noland's-only so the fallback names the correct sender,
+    // not the upstream platform vendor.
+    const officeName = officeBranding?.displayName ?? "Noland's Roofing";
     const agentName = officeBranding?.livekitAgentName ?? "Sydney";
     const estimateLine =
       body.estimateLow && body.estimateHigh

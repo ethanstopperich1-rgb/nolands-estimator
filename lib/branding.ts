@@ -49,11 +49,15 @@ export type MaterialPriceKey =
   | "RFG_PIPEFL";
 
 export const BRAND_CONFIG: BrandConfig = {
-  // Customer-facing org name (what appears on the proposal PDF). For internal Voxaris use,
-  // this defaults to the product brand. White-label per workspace via PITCH_COMPANY_NAME.
-  companyName: envBrand("COMPANY_NAME", "Voxaris Pitch"),
-  productName: "Pitch",
-  vendorName: "Voxaris",
+  // Customer-facing org name. THIS FORK is the Noland's Roofing
+  // white-label — the default below is what renders if PITCH_COMPANY_NAME
+  // env is unset. The default doubles as a TCPA-safety net: a forgotten
+  // env in production previously caused consent text to read "Voxaris
+  // Pitch", naming the wrong seller. Defaults now match the fork's
+  // intended brand so config drift doesn't create a legal defect.
+  companyName: envBrand("COMPANY_NAME", "Noland's Roofing"),
+  productName: "Noland's Estimator",
+  vendorName: "Noland's Roofing",
   tagline: envBrand("TAGLINE", "Estimate to deal in five minutes."),
   primaryColor: envBrand("PRIMARY_COLOR", "#07090d"),
   accentColor: envBrand("ACCENT_COLOR", "#67dcff"),

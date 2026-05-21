@@ -73,7 +73,7 @@ interface Props {
 export function BoltStyleHero({
   title = "What will it cost to",
   subtitle = "Free, instant, no calls until you ask.",
-  announcementText = "Voxaris Pitch · Quick Quote",
+  announcementText = "Noland's Roofing · Quick Quote",
   onSubmit,
   submitting = false,
   nav,
@@ -437,7 +437,7 @@ export function BoltStyleHero({
           {embedMode && (
             <div className="mt-5 flex items-center justify-center gap-2 text-[10.5px] font-mono uppercase tracking-[0.16em] text-slate-400">
               <Sparkles size={11} className="text-cy-300" />
-              <span>Voxaris in-house AI · Private · Powered by Voxaris Pitch</span>
+              <span>In-house AI · Private · Powered by Noland&apos;s Roofing</span>
             </div>
           )}
         </div>

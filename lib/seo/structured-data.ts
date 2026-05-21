@@ -257,7 +257,7 @@ export function buildFaqJsonLd(): Record<string, unknown> {
     {
       q: "How accurate are the roof measurements?",
       a:
-        "Voxaris measures your roof using Google's Solar API photogrammetry " +
+        "Noland's Roofing measures your roof using Google's Solar API photogrammetry " +
         "combined with high-resolution satellite imagery. On properties " +
         "with high-resolution imagery (most of suburban Florida), accuracy " +
         "is typically within 2 percent of professional aerial roof reports. " +
@@ -287,7 +287,7 @@ export function buildFaqJsonLd(): Record<string, unknown> {
     {
       q: "How long does the estimate take?",
       a:
-        "About 30 to 50 seconds. Voxaris fetches the satellite tile, " +
+        "About 30 to 50 seconds. The estimator fetches the satellite tile, " +
         "runs roof segmentation, looks up your county parcel record, " +
         "and pulls recent severe-weather history — all in parallel.",
     },
@@ -336,7 +336,7 @@ export function buildFaqJsonLd(): Record<string, unknown> {
     {
       q: "Does this work for tile, metal, or slate roofs?",
       a:
-        "Voxaris detects the roof material from the satellite imagery " +
+        "The estimator detects the roof material from the satellite imagery " +
         "and quotes at material-appropriate rates. When material " +
         "detection confidence is below a strict threshold, the system " +
         "quotes at architectural-shingle prices by default — " +
@@ -744,7 +744,7 @@ export function buildTermsPageJsonLd(): Record<string, unknown>[] {
 export function buildHomeWebPageJsonLd(): Record<string, unknown> {
   return buildWebPageJsonLd({
     url: SITE_URL,
-    name: "Voxaris — Instant roof estimate from your address",
+    name: "Noland's Roofing — Instant roof estimate from your address",
     description:
       "Free AI roof estimator: satellite measurement, transparent " +
       "pricing, severe-weather history, in under a minute. Non-binding; " +
