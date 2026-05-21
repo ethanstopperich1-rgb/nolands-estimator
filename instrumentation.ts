@@ -17,6 +17,23 @@ export async function register() {
   const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
   if (!dsn) return;
 
+  // PII scrubber — runs before every event leaves the SDK. Belt-and-
+  // suspenders defense for TCPA-regulated fields (phone, email,
+  // address) and lead PII (name, voiceConsent). Sentry's own scrubbing
+  // is good, but we'd rather have explicit redaction for these specific
+  // keys than rely on regex defaults. Mirror in instrumentation-client
+  // when adding new sensitive fields.
+  const scrubPii = (event: Sentry.ErrorEvent): Sentry.ErrorEvent | null => {
+    const data = event.request?.data;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const d = data as Record<string, unknown>;
+      for (const k of ["phone", "email", "address", "name", "voiceConsent", "recaptchaToken"]) {
+        if (k in d) d[k] = "[REDACTED]";
+      }
+    }
+    return event;
+  };
+
   if (process.env.NEXT_RUNTIME === "nodejs") {
     Sentry.init({
       dsn,
@@ -37,6 +54,7 @@ export async function register() {
       release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7),
       // Quiet Sentry's own warnings about missing optional deps in dev.
       debug: false,
+      beforeSend: scrubPii,
     });
   }
 
@@ -46,6 +64,7 @@ export async function register() {
       tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0.05"),
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
       release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7),
+      beforeSend: scrubPii,
     });
   }
 }
