@@ -76,10 +76,21 @@ SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
 # LLM will occasionally correct itself mid-call — bad UX, worse brand.
 AGENT_DISPLAY_NAME = os.environ.get("AGENT_DISPLAY_NAME", "Sydney").strip() or "Sydney"
 if AGENT_DISPLAY_NAME != "Sydney":
-    # Whole-word substitution to avoid accidentally munging unrelated
-    # tokens (none exist today, but future copy might). Re-running this
-    # at module load is cheap.
-    SYSTEM_PROMPT = SYSTEM_PROMPT.replace("Sydney", AGENT_DISPLAY_NAME)
+    # Case-variant substitution. The v2 prompt has Sydney in three
+    # casings:
+    #   "Sydney"  — identity references ("You are Sydney...")
+    #   "SYDNEY"  — dialog-example speaker labels ("SYDNEY: 'Got it'")
+    #   "sydney"  — defensive (unused today but possible)
+    # Smoke test May 2026 confirmed: case-sensitive replace ONLY
+    # catches "Sydney" but the LLM still echoed the name from the
+    # 27 "SYDNEY:" dialog examples → agent introduced herself as
+    # "Sydney" on the call. Fix: replace all three casings.
+    SYSTEM_PROMPT = (
+        SYSTEM_PROMPT
+        .replace("Sydney", AGENT_DISPLAY_NAME)
+        .replace("SYDNEY", AGENT_DISPLAY_NAME.upper())
+        .replace("sydney", AGENT_DISPLAY_NAME.lower())
+    )
     logger.info(
         "sydney agent rename applied: prompt + openers reference %r (was Sydney)",
         AGENT_DISPLAY_NAME,
