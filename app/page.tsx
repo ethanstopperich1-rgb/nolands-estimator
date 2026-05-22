@@ -1751,7 +1751,12 @@ function ResultScreen({
   // (map / tier prices) to grow vertically as multiple tiers expanded
   // and breaking the symmetric 2×2 grid. Single source of truth here
   // gives accordion behavior: open one, close any other.
-  const [openTierId, setOpenTierId] = useState<string | null>("better");
+  // Default all tier cards collapsed so the row reads with equal heights.
+  // Previously defaulted to "better" (Standard) which auto-expanded the
+  // middle card on first paint — created a noticeable height mismatch
+  // against Essentials + Fortified (cards looked broken/asymmetric).
+  // Homeowner can open any card by tapping "What else is included →".
+  const [openTierId, setOpenTierId] = useState<string | null>(null);
 
   async function bookInPersonEstimate(): Promise<void> {
     if (!voiceConsent || !leadPublicId) return;
@@ -1922,6 +1927,29 @@ function ResultScreen({
                   />
                 ))}
               </div>
+              {/* Honesty footnote — single line below all three tiers
+                  instead of repeating "Confirmed at walkthrough" inside
+                  each card. Pratfall: surface the financing math
+                  transparently + admit the limitation ("we don't quote
+                  sight-unseen") in the same breath. Higher trust, less
+                  visual filler. */}
+              <p
+                style={{
+                  marginTop: "18px",
+                  textAlign: "center",
+                  fontSize: "11px",
+                  lineHeight: 1.5,
+                  color: "var(--vx-muted)",
+                  fontStyle: "italic",
+                  maxWidth: "640px",
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                }}
+              >
+                Monthly estimates based on 120-month financing at 9.99% APR.
+                Final price confirmed at on-site walkthrough — we don&apos;t
+                quote sight-unseen.
+              </p>
             </div>
           </div>
         ) : null}
@@ -3822,88 +3850,59 @@ function TierCard({
         {tier.tier.name}
       </div>
 
-      {/* Price — serif tabular, hero number of the card. Gated on
-          PRICING_CONFIRMED env var: when Noland's hasn't returned the
-          per-sqft rates yet, suppress the dollar values and show a
-          Pratfall "confirmed at walkthrough" line instead. Reframes
-          the missing price from "broken estimator" to "honest
-          contractor that doesn't quote sight-unseen." Flip the env
-          var the moment real pricing lands. */}
-      {PRICING_CONFIRMED ? (
-        <>
-          <div style={{ textAlign: "center", marginBottom: "4px" }}>
-            <span
-              className="font-serif tabular"
-              style={{
-                fontSize: "28px",
-                fontWeight: 500,
-                color: "var(--vx-ink)",
-                letterSpacing: "-0.015em",
-                lineHeight: 1,
-              }}
-            >
-              ${tier.monthly.toLocaleString()}
-              <span
-                style={{
-                  fontFamily: "var(--vx-font-ui)",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  letterSpacing: "0.04em",
-                  color: "var(--vx-muted)",
-                  marginLeft: "4px",
-                }}
-              >
-                /mo
-              </span>
-            </span>
-          </div>
-          <div
-            className="tabular"
-            style={{
-              fontSize: "11px",
-              letterSpacing: "0.04em",
-              color: "var(--vx-muted)",
-              fontFamily: "var(--vx-font-ui)",
-              textAlign: "center",
-              marginBottom: "12px",
-            }}
-          >
-            est. ${tier.total.toLocaleString()} total
-          </div>
-        </>
-      ) : (
-        <div
+      {/* Price block.
+          MONTHLY is ALWAYS shown — it's calibrated math from
+          lib/pricing/calculate-waste.ts (Noland's Florida install costs
+          + FINANCE_TERMS at 9.99% APR / 120 months). Anchors the
+          affordability decision ("can I budget this?") which is the
+          highest-leverage thing on this page.
+
+          TOTAL is gated on PRICING_CONFIRMED. The big sticker number
+          is what benefits most from a Noland's rep contextualizing on
+          site (decking condition, layers, code work). Until Destiny
+          confirms per-sqft rates, we surface only the monthly anchor
+          and let the total emerge during the walkthrough. */}
+      <div style={{ textAlign: "center", marginBottom: "4px" }}>
+        <span
+          className="font-serif tabular"
           style={{
-            textAlign: "center",
-            marginBottom: "12px",
-            paddingTop: "4px",
-            paddingBottom: "4px",
+            fontSize: "28px",
+            fontWeight: 500,
+            color: "var(--vx-ink)",
+            letterSpacing: "-0.015em",
+            lineHeight: 1,
           }}
         >
-          <div
-            className="font-serif"
+          ${tier.monthly.toLocaleString()}
+          <span
             style={{
-              fontSize: "15px",
-              fontWeight: 500,
-              color: "var(--vx-ink)",
-              lineHeight: 1.3,
-              marginBottom: "2px",
-            }}
-          >
-            Confirmed at walkthrough
-          </div>
-          <div
-            style={{
-              fontSize: "10.5px",
-              letterSpacing: "0.06em",
+              fontFamily: "var(--vx-font-ui)",
+              fontSize: "12px",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
               color: "var(--vx-muted)",
-              fontStyle: "italic",
+              marginLeft: "4px",
             }}
           >
-            We don&apos;t quote sight-unseen
-          </div>
-        </div>
-      )}
+            /mo
+          </span>
+        </span>
+      </div>
+      <div
+        className="tabular"
+        style={{
+          fontSize: "11px",
+          letterSpacing: "0.04em",
+          color: "var(--vx-muted)",
+          fontFamily: "var(--vx-font-ui)",
+          textAlign: "center",
+          marginBottom: "12px",
+        }}
+      >
+        {PRICING_CONFIRMED
+          ? `est. $${tier.total.toLocaleString()} total`
+          : "est. financed · final price at walkthrough"}
+      </div>
 
       {/* Visible feature list — checkmarks. Always rendered, the
           conversion-critical piece of HI-2. */}
