@@ -72,7 +72,7 @@ async function queryOverpass(
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           "User-Agent":
-            "voxaris-pitch/1.0 (https://pitch.voxaris.io; contact: hello@voxaris.io)",
+            "nolands-estimator/1.0 (https://estimate.nolandsroofing.com; contact: hello@voxaris.io)",
         },
         body: `data=${encodeURIComponent(query)}`,
         // 3.5s per mirror — total iteration over 3 mirrors fits under

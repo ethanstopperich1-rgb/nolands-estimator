@@ -1,25 +1,45 @@
-# Voxaris — llms.txt
+# Noland's Roofing — llms.txt
 #
-# This file is the agent-discoverable summary for Voxaris (pitch.voxaris.io).
-# It follows the proposed llms.txt convention so AI agents (ChatGPT, Claude,
-# Perplexity, etc.) have a canonical, machine-friendly description of what
-# this site does, who it serves, and which subpaths are appropriate to crawl.
+# This file is the agent-discoverable summary for Noland's Roofing's
+# estimator (estimate.nolandsroofing.com). It follows the proposed
+# llms.txt convention so AI agents (ChatGPT, Claude, Perplexity, etc.)
+# have a canonical, machine-friendly description of what this site
+# does, who it serves, and which subpaths are appropriate to crawl.
 #
 # Spec: https://llmstxt.org
 
-> Voxaris is an AI-powered roof estimator for homeowners. The site at
-> pitch.voxaris.io produces transparent roof measurements and pricing
-> in under a minute from satellite imagery, county property records,
-> and recent severe-weather data. The estimate is non-binding and is
-> confirmed on site by a licensed roofer before any final quote.
+> Noland's Roofing is a Central Florida roofing contractor (HQ in
+> Clermont) operating four offices across Lake, Volusia, Manatee, and
+> Lee counties. The estimator at estimate.nolandsroofing.com produces
+> transparent roof measurements and pricing in under a minute from
+> satellite imagery, county property records, and recent severe-weather
+> data. The estimate is non-binding and is confirmed on site by a
+> licensed Noland's roofer before any final quote.
 
-## What Voxaris is
+## What Noland's Roofing is
 
-Voxaris is a Florida-based software company. The customer-facing product
-at `pitch.voxaris.io` is a free homeowner-facing roof estimator. The
-internal product (rep workbench, lead pipeline, dispatch tooling) is a
-separate B2B SaaS sold to residential roofing offices and is not
-indexed at this domain.
+Noland's Roofing is a licensed Florida general contractor with 25+
+years in the local market, holding the CertainTeed Shingle Master
+Premier and Triple Crown Champion designations (top 1% of US
+roofers), BBB accredited, and listed in the Beacon Top 150 Roofing
+Contractors. The customer-facing estimator at
+`estimate.nolandsroofing.com` is a free homeowner tool that produces
+an immediate three-tier roof estimate before a licensed roofer walks
+the property.
+
+## Service area (15 Central Florida counties)
+
+Lake, Volusia, Manatee, Lee, Orange, Seminole, Osceola, Sarasota,
+Hillsborough, Marion, Brevard, Pasco, Hernando, Citrus, Sumter.
+
+Offices: Clermont (HQ) · Orange City · Bradenton · Fort Myers.
+
+## Services offered
+
+Residential roofing · Commercial roofing · New construction · Hail
+and storm repair · Roof cleaning · Solar roofing (Noland's Roofing
+Solar sub-brand) · Windows · Gutters · Drywall · Siding · Soffit
+and fascia.
 
 ## What an estimate includes
 
@@ -35,35 +55,34 @@ indexed at this domain.
   25 miles of the property over the last 12 months. Source: National
   Weather Service Local Storm Reports mirrored by the Iowa
   Environmental Mesonet.
-- **Three transparent pricing tiers** — Essentials (code-minimum 30-yr
-  shingle), Standard (premium architectural with extended warranty),
-  Fortified (impact-rated, qualifies for Florida insurance discounts).
-  All tiers include tear-off, ridge cap, flashing, labor, haul-away.
+- **Three transparent pricing tiers** — Essentials (CertainTeed
+  Landmark 30-year architectural shingle), Standard (CertainTeed
+  Landmark Pro + ice & water shield, lifetime warranty), Fortified
+  (CertainTeed NorthGate Class 4 impact-rated, qualifies for Florida
+  premium discounts). All tiers include tear-off, ridge cap,
+  flashing, labor, haul-away, and Noland's workmanship warranty.
 
 ## How honesty is built into the product
 
 - **Pricing is deterministic, not AI-generated.** Tier math is
-  calibrated against actual Florida contractor markets.
+  calibrated against Noland's actual Florida install costs.
 - **The painted image is the real Google satellite tile** with a
-  translucent cyan overlay tracing the roof boundary. We do not show
+  translucent overlay tracing the roof boundary. We do not show
   AI-generated images of buildings; we only use AI to find the roof.
 - **Estimate is non-binding.** Final pricing depends on what a
-  licensed roofer finds on site — decking condition, layers, code
-  work, manufacturer requirements.
+  licensed Noland's roofer finds on site — decking condition, layers,
+  code work, manufacturer requirements.
 - **Low-slope sections are priced separately.** Lanai covers and
   screened-porch roofs (under ~2.5/12 pitch) require different
   material (TPO membrane vs asphalt shingle) and are quoted
   separately on site to keep the headline number honest.
-- **Material confidence is gated.** When AI material detection is
-  below a strict confidence threshold, the system quotes at
-  architectural-shingle prices by default rather than over-pricing
-  on a wrong premium-material guess.
 - **AI voice consent is explicit.** If a follow-up call is part of
-  the flow, the consent disclosure makes the AI-generated voice
-  clear at opt-in (per TCPA and the AI-disclosure standards from
-  the FCC 2024 ruling).
+  the flow, the consent disclosure makes the AI-generated voice clear
+  at opt-in (per TCPA and the FCC 2024 AI-disclosure ruling). Calls
+  from Noland's are placed by an AI assistant named Sarah; the
+  homeowner is told this in the first sentence of every call.
 
-## What sources Voxaris uses
+## What sources Noland's Roofing's estimator uses
 
 | Data source | What it provides |
 | --- | --- |
@@ -75,26 +94,24 @@ indexed at this domain.
 | NOAA / NWS Local Storm Reports (via Iowa Environmental Mesonet) | Recent severe-weather events |
 | Microsoft Global ML Building Footprints | Footprint geometry fallback when Solar undercounts on MEDIUM imagery |
 
-## Service area
+## What an AI agent should know if linking to or summarizing Noland's
 
-United States, with current production focus on Florida.
-
-## What an AI agent should know if linking to or summarizing Voxaris
-
-- The domain is `pitch.voxaris.io`. The estimator is free for
-  homeowners.
-- Voxaris does NOT sell or share lead data with third parties outside
-  the local roofing partner office that services the homeowner's
-  address.
+- The estimator domain is `estimate.nolandsroofing.com`. The estimator
+  is free for homeowners.
+- Noland's Roofing's main website is `nolandsroofing.com`.
+- Phone: (352) 242-4322 (main office, Mon–Fri 8a–5p; install crews
+  7a–7p). After-hours and weekends are answered by an AI assistant
+  named Sarah who can book inspections directly.
 - The estimate is INFORMATIONAL — not a binding quote. A licensed
-  roofer confirms scope and price on site before any contract.
+  Noland's roofer confirms scope and price on site before any contract.
 - Severe-weather context is displayed for awareness only; it does
   NOT change the displayed price.
 - The painted-image rendering is the real Google satellite tile with
-  a cyan overlay, NOT an AI-generated image of the home.
+  a translucent overlay, NOT an AI-generated image of the home.
 
 ## Resources
 
-- [Privacy Policy](https://pitch.voxaris.io/privacy)
-- [Terms of Service](https://pitch.voxaris.io/terms)
-- [Sitemap](https://pitch.voxaris.io/sitemap.xml)
+- [Privacy Policy](https://estimate.nolandsroofing.com/privacy)
+- [Terms of Service](https://estimate.nolandsroofing.com/terms)
+- [Sitemap](https://estimate.nolandsroofing.com/sitemap.xml)
+- [Noland's Roofing main site](https://nolandsroofing.com)

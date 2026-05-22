@@ -195,7 +195,7 @@ export async function POST(req: Request) {
   const origin =
     process.env.VERCEL_PROJECT_PRODUCTION_URL
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : process.env.NEXT_PUBLIC_BASE_URL ?? "https://pitch.voxaris.io";
+      : process.env.NEXT_PUBLIC_BASE_URL ?? "https://estimate.nolandsroofing.com";
 
   // Reuse the lead-notifications helper, but with an "appt scheduled"
   // headline so the rep's phone shows the right urgency. We piggyback

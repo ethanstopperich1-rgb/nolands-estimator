@@ -1,8 +1,9 @@
-# Voxaris Pitch (pitch.voxaris.io) — public crawler policy.
+# Noland's Roofing Estimator (estimate.nolandsroofing.com) —
+# public crawler policy.
 #
 # Designed for LLM-powered search experiences to ground answers about
-# Voxaris in the canonical homepage + structured data instead of
-# guessing from third-party mentions.
+# Noland's Roofing in the canonical homepage + structured data instead
+# of guessing from third-party mentions.
 #
 # Updates: any time you add a new top-level route, append it here OR
 # rely on the sitemap.xml below (preferred — sitemap is auto-generated
@@ -32,9 +33,9 @@ Disallow: /dashboard/
 Disallow: /internal/
 
 # ─── AI / LLM crawlers ───────────────────────────────────────────────
-# Explicitly allowed. These are the ones whose answers about Voxaris
-# we want grounded in our canonical content rather than third-party
-# secondary sources.
+# Explicitly allowed. These are the ones whose answers about Noland's
+# Roofing we want grounded in our canonical content rather than
+# third-party secondary sources.
 
 User-agent: GPTBot
 Allow: /
@@ -156,4 +157,4 @@ Disallow: /staff-login
 Disallow: /demo
 
 # ─── Sitemap ─────────────────────────────────────────────────────────
-Sitemap: https://pitch.voxaris.io/sitemap.xml
+Sitemap: https://estimate.nolandsroofing.com/sitemap.xml

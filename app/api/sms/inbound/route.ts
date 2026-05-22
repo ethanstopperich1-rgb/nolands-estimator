@@ -390,7 +390,7 @@ async function handleYesCallback(opts: {
   const origin =
     process.env.VERCEL_PROJECT_PRODUCTION_URL
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : process.env.NEXT_PUBLIC_BASE_URL ?? "https://pitch.voxaris.io";
+      : process.env.NEXT_PUBLIC_BASE_URL ?? "https://estimate.nolandsroofing.com";
 
   const dispatchPayload = {
     leadId: lead.public_id,

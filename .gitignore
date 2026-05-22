@@ -88,3 +88,7 @@ step*-fixed.*
 
 # Production env with secrets — never commit
 .env.production
+
+# Tool-installed agent skills — regenerable via 'npx skills sync'
+# (skill versions pinned in skills-lock.json, which IS committed)
+.agents/
