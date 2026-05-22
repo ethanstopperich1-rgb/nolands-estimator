@@ -145,6 +145,20 @@ three answer the 352-242-4322 line. Sarah's `transfer_to_human`
 tool routes to that number; the office's phone tree handles the
 per-person priority.
 
+**Sarah's inbound routing (locked May 2026):** Sarah does **NOT**
+answer the 352 main line during business hours. Mon-Fri 8am-5pm
+ET, 352 calls go straight to humans (Savannah, Myia, Amanda). Sarah
+picks up the 352 line ONLY after 5pm, before 8am, and all day Sat
+/ Sun / holidays. The 888 toll-free is Sarah-direct 24/7 (used by
+a small subset of homeowners who saved it from marketing materials).
+Time-of-day routing is enforced upstream — likely a Twilio Schedule
+or Studio Flow on the 352 line that forks to Sarah only outside the
+8am-5pm window. If that routing breaks (Sarah answering during
+business hours), it's a configuration regression, not a code bug;
+fix the Twilio routing, not the agent prompt. Sarah's prompt has
+been told that business-hours inbound is "rare overflow" so she
+doesn't act surprised either way.
+
 **Compliance gate (task #40 still pending):** outbound calls from
 `+18887869134` require Twilio Toll-Free Verification to be
 "Approved" or carriers may tag Sarah's calls as Spam Likely on
