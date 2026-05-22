@@ -109,19 +109,46 @@ describe("pickBSequenceTouchpoint — Sequence B ladder", () => {
     assert.equal(tp, null);
   });
 
-  it("B2 fires when lead is 25h old and step < 2", () => {
+  it("B2 fires when lead is 25h old and step = 1 (B1.5 already sent)", () => {
     const created = new Date(now.getTime() - 25 * 60 * 60 * 1000);
     const tp = pickBSequenceTouchpoint(created, 1, null, now);
     assert.equal(tp, "B2_T24H_OPEN_LOOP");
   });
 
-  it("B2 also fires from step=0 when age >= 24h", () => {
-    // Step 0 means /api/gemini-roof's B1 (estimate-ready) hasn't been
-    // recorded — cron treats it as eligible for B2 once 24h has
-    // passed.
+  it("B2 back-fills from step=0 when age >= 24h (skipped B1.5 window)", () => {
+    // Step 0 + age 25h — B1.5 window is 2-23h, so this lead missed
+    // the nudge entirely (cron downtime, late cron-run, etc). B2
+    // back-fills so we don't drop the customer entirely.
     const created = new Date(now.getTime() - 25 * 60 * 60 * 1000);
     const tp = pickBSequenceTouchpoint(created, 0, null, now);
     assert.equal(tp, "B2_T24H_OPEN_LOOP");
+  });
+
+  it("B1.5 fires when lead is 2h+ old and step = 0", () => {
+    const created = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+    const tp = pickBSequenceTouchpoint(created, 0, null, now);
+    assert.equal(tp, "B15_T2H_NUDGE");
+  });
+
+  it("B1.5 does NOT fire before 2h age", () => {
+    const created = new Date(now.getTime() - 90 * 60 * 1000); // 1.5h
+    const tp = pickBSequenceTouchpoint(created, 0, null, now);
+    assert.equal(tp, null);
+  });
+
+  it("B1.5 does NOT fire after 23h age (B2 takes over)", () => {
+    const created = new Date(now.getTime() - 23.5 * 60 * 60 * 1000);
+    const tp = pickBSequenceTouchpoint(created, 0, null, now);
+    // 23.5h age, step 0 — past B1.5 window, but not yet at the 24h
+    // mark B2 requires → expect null (no eligible touchpoint).
+    assert.equal(tp, null);
+  });
+
+  it("B1.5 does NOT re-fire once step has advanced", () => {
+    const created = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+    const tp = pickBSequenceTouchpoint(created, 1, null, now);
+    // B1.5 already sent (step=1). Age 5h is too young for B2.
+    assert.equal(tp, null);
   });
 
   it("B3 fires when lead is 3 days+ old and step = 2", () => {
@@ -181,6 +208,7 @@ describe("renderFallbackCopy — compliance", () => {
       "A3_MORNING",
       "A4_ETA",
       "A5_POST_APPT",
+      "B15_T2H_NUDGE",
       "B2_T24H_OPEN_LOOP",
       "B3_T3D_NEIGHBOR",
       "B4_T7D_STORM_ANCHOR",
@@ -205,6 +233,7 @@ describe("renderFallbackCopy — compliance", () => {
       "A3_MORNING",
       "A4_ETA",
       "A5_POST_APPT",
+      "B15_T2H_NUDGE",
       "B2_T24H_OPEN_LOOP",
       "B3_T3D_NEIGHBOR",
       "B4_T7D_STORM_ANCHOR",

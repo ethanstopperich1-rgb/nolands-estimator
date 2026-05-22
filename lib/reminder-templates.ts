@@ -28,7 +28,12 @@ export type ReminderTouchpoint =
   | "A3_MORNING"
   | "A4_ETA"
   | "A5_POST_APPT"
-  // Sequence B — abandoner nurture (estimator submitted, never booked)
+  // Sequence B — abandoner nurture (estimator submitted, never booked).
+  // B1 fires from /api/gemini-roof on V3 success (Podium estimate-ready
+  // rich card). B1_5 closes the 23.5h dark window between B1 and B2 —
+  // the highest-attention moment for an abandoner is the 2-3h after
+  // they pulled the estimate but didn't book.
+  | "B15_T2H_NUDGE"
   | "B2_T24H_OPEN_LOOP"
   | "B3_T3D_NEIGHBOR"
   | "B4_T7D_STORM_ANCHOR"
@@ -44,6 +49,7 @@ export const REMINDER_TEMPLATE_ENV: Record<ReminderTouchpoint, string> = {
   A3_MORNING: "PODIUM_TEMPLATE_A3_MORNING",
   A4_ETA: "PODIUM_TEMPLATE_A4_ETA",
   A5_POST_APPT: "PODIUM_TEMPLATE_A5_POST_APPT",
+  B15_T2H_NUDGE: "PODIUM_TEMPLATE_B15_T2H",
   B2_T24H_OPEN_LOOP: "PODIUM_TEMPLATE_B2_T24H",
   B3_T3D_NEIGHBOR: "PODIUM_TEMPLATE_B3_T3D",
   B4_T7D_STORM_ANCHOR: "PODIUM_TEMPLATE_B4_T7D",
@@ -137,6 +143,19 @@ export function renderFallbackCopy(
       );
 
     // ─── Sequence B ─────────────────────────────────────────────────
+    case "B15_T2H_NUDGE":
+      // Pratfall + low-friction reply. The customer has the estimate
+      // still warm on their phone (the Podium B1 message landed ~2h
+      // ago). This is NOT a sales push — it's a "still here if you
+      // have questions" open door. Conversion lift comes from
+      // re-opening the conversation thread inside Podium while the
+      // homeowner is most likely to be actively comparing options.
+      return (
+        `Hi ${v.firstName}, your roof report for ${v.address} is still ` +
+        `live: ${v.shareUrl}. Questions about the price or what's included? ` +
+        `Reply here — a real person will answer. Reply STOP to opt out.`
+      );
+
     case "B2_T24H_OPEN_LOOP":
       // Zeigarnik. Open loop — explicit "you started but didn't
       // finish" framing. People feel the unfinished tug.

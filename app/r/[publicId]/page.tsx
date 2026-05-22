@@ -32,6 +32,11 @@ import {
 import { buildHomeownerShareUrl } from "@/lib/share-url";
 import { resolvePaintedUrl } from "@/lib/painted-url";
 import { t, parseLang, DEFAULT_LANG, type Lang } from "@/lib/i18n";
+// CRO P1.2 — share affordance on the homeowner-share page. The page
+// exists for shareability with spouse/contractor/insurance file, but
+// had no share button until now (customer had to copy URL from the
+// address bar). Native share + copy + email row.
+import ShareReportButton from "@/components/ShareReportButton";
 
 // ─── Types ────────────────────────────────────────────────────────────
 
@@ -416,6 +421,24 @@ export default async function HomeownerSharePage({
             }}
           >
             {t("share.estimate_disclaimer", lang)}
+          </div>
+
+          {/* CRO P1.2 — share affordance. Sits inside the hero card
+              so it's visible the moment the page loads, no scrolling
+              needed. `no-print` hides it on print/PDF since the
+              share row is meaningless in a printed document. */}
+          <div className="no-print">
+            <ShareReportButton
+              shareUrl={buildHomeownerShareUrl(report.publicId)}
+              address={report.address}
+              estimateRange={
+                report.estimateLow != null && report.estimateHigh != null
+                  ? `$${report.estimateLow.toLocaleString()}–$${report.estimateHigh.toLocaleString()}`
+                  : null
+              }
+              officeName={report.office.displayName}
+              accent={accent}
+            />
           </div>
         </section>
 

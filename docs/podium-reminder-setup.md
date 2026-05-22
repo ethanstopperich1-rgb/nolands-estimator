@@ -4,11 +4,13 @@ Two reminder sequences ship in this repo:
 
 - **Sequence A (no-show prevention)** — 5 touchpoints between booking
   and the appointment. Cron: `/api/cron/podium-reminders` every 15 min.
-- **Sequence B (abandoner nurture)** — 4 touchpoints over 21 days for
+- **Sequence B (abandoner nurture)** — 5 touchpoints over 21 days for
   leads who pulled an estimate but never booked. (B1 is the
   estimate-ready message that fires from `/api/gemini-roof` on V3
   success — already wired via `lib/podium.ts`.) Cron:
-  `/api/cron/podium-abandoners` hourly.
+  `/api/cron/podium-abandoners` hourly. **B1.5** added 2026-05 to
+  close the 23.5-hour gap between B1 (instant) and B2 (T+24h) — fires
+  when the lead is 2-23h old and abandoner_step is still 0.
 
 Both sequences soft-fail when Podium isn't configured. Until templates
 are created in Podium, the cron sends inline fallback copy (locked
@@ -88,6 +90,7 @@ Templates and the env var that wires them:
 | A3 morning of | `PODIUM_TEMPLATE_A3_MORNING` | "Good morning {{firstName}}, your roof inspection is today at {{appointmentLocal}}. {{repName}} has your address ({{address}}) as a stop today. We'll text a 30-min heads-up. Reply 2 to reschedule. STOP to opt out." |
 | A4 30-min ETA | `PODIUM_TEMPLATE_A4_ETA` | "{{firstName}}, {{repName}} is ~30 minutes out from {{address}}. No need to be home — we measure exterior only. Reply 2 if you need to reschedule. STOP to opt out." |
 | A5 post-appointment | `PODIUM_TEMPLATE_A5_POST_APPT` | "Hi {{firstName}}, {{repName}} finished measuring your roof. Your full estimate is at {{shareUrl}}. Questions? Reply here — we read every message. STOP to opt out." |
+| B1.5 2-3h gentle nudge | `PODIUM_TEMPLATE_B15_T2H` | "Hi {{firstName}}, your roof report for {{address}} is still live: {{shareUrl}}. Questions about the price or what's included? Reply here — a real person will answer. Reply STOP to opt out." |
 | B2 day-after open loop | `PODIUM_TEMPLATE_B2_T24H` | "Hi {{firstName}}, you pulled an estimate for {{address}} yesterday but didn't book a time. Your roof report is still live at {{shareUrl}}. Reply 1 to schedule, 3 to skip. STOP to opt out." |
 | B3 neighbor proof | `PODIUM_TEMPLATE_B3_T3D` | "{{firstName}}, two neighbors near {{address}} booked roof inspections with Noland's this week. Your report is still here: {{shareUrl}}. Reply 1 to book, 3 to skip. STOP to opt out." |
 | B4 storm-season anchor | `PODIUM_TEMPLATE_B4_T7D` | "{{firstName}}, FL storm season is here and we're booking 2-3 weeks out. Your {{address}} report is still live: {{shareUrl}}. Reply 1 to grab a slot, 3 to skip. STOP to opt out." |

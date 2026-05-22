@@ -249,12 +249,23 @@ interface RecentStormsResponse {
   };
 }
 
+// CRO P1.1 — extended to 8 entries covering 0–33s of the pipeline.
+// Prior version stopped advancing at 19s while the V3 pipeline can
+// take up to ~30s (Pro Image 25–35s tail), creating an 11s "stuck"
+// window that drove ~10% loading-step abandonment. New entries are
+// honest about what the pipeline is doing per phase, and the {street}
+// placeholder lets LoadingScreen personalize the message with the
+// homeowner's actual address — tells the customer we're working on
+// THEIR roof, not running a demo.
 const LOADING_MESSAGES: Array<{ at: number; text: string }> = [
-  { at: 0, text: "Fetching satellite imagery…" },
-  { at: 3, text: "Measuring the roof…" },
-  { at: 7, text: "Identifying the outline…" },
-  { at: 13, text: "Tracing roof features…" },
-  { at: 19, text: "Detecting vents and penetrations…" },
+  { at: 0,  text: "Fetching satellite imagery for {street}…" },
+  { at: 3,  text: "Measuring the roof outline…" },
+  { at: 7,  text: "Tracing each roof face…" },
+  { at: 13, text: "Detecting vents, chimneys, and HVAC…" },
+  { at: 19, text: "Cross-checking with Florida property records…" },
+  { at: 24, text: "Pulling recent severe-weather events…" },
+  { at: 28, text: "Calculating your three options…" },
+  { at: 33, text: "Almost there — just packaging it up…" },
 ];
 
 // ROOFING_FACTS imported above — canonical list lives in
@@ -525,7 +536,15 @@ function VoxarisFlow() {
         />
       )}
       {step === "loading" && (
-        <LoadingScreen elapsed={loadingElapsed} message={loadingMessageFor(loadingElapsed)} />
+        <LoadingScreen
+          elapsed={loadingElapsed}
+          message={loadingMessageFor(loadingElapsed)}
+          // Pass the street segment of the resolved address (e.g.
+          // "8450 Oak Park Ave") so the eyebrow can substitute
+          // {street} into the first LOADING_MESSAGES entry. Falls
+          // back to "your roof" inside the component if missing.
+          streetName={resolved?.formatted?.split(",")[0]?.trim() ?? null}
+        />
       )}
       {step === "result" && result && resolved && (
         <ResultScreen
@@ -1398,7 +1417,26 @@ function PinScreen({
 
 // ─── Loading screen ─────────────────────────────────────────────────────
 
-function LoadingScreen({ elapsed, message }: { elapsed: number; message: string }) {
+function LoadingScreen({
+  elapsed,
+  message,
+  streetName,
+}: {
+  elapsed: number;
+  message: string;
+  /** CRO P1.1 — homeowner's street (first comma-segment of the
+   *  resolved address). Substituted into any LOADING_MESSAGES entry
+   *  that contains "{street}". Null in legacy callers; render falls
+   *  back to "your roof". */
+  streetName?: string | null;
+}) {
+  // Substitute the personalization placeholder. Done here (not in
+  // loadingMessageFor) so the message constant stays parameterized
+  // and the substitution is the LoadingScreen's responsibility.
+  const personalizedMessage = message.replace(
+    /\{street\}/g,
+    streetName?.trim() || "your roof",
+  );
   // Asymptotic progress curve — climbs fast early, slows toward 99%, never
   // hits 100% until the response actually returns and the parent flips to
   // the result step. Target shape: ~50% at 12s, ~80% at 30s, ~95% at 60s.
@@ -1443,8 +1481,10 @@ function LoadingScreen({ elapsed, message }: { elapsed: number; message: string 
           className="w-full mx-auto text-center flex flex-col items-center justify-center"
           style={{ maxWidth: "880px" }}
         >
-          {/* Status line — small, muted, sits well above the fact. */}
-          <div className="eyebrow mb-10">Measuring · {message}</div>
+          {/* Status line — small, muted, sits well above the fact.
+              CRO P1.1: now uses personalizedMessage which substitutes
+              {street} with the homeowner's actual street name. */}
+          <div className="eyebrow mb-10">Measuring · {personalizedMessage}</div>
 
           {/* Fact — the hero. Cross-fade keyed on index. */}
           <div
@@ -2505,6 +2545,213 @@ function ParcelBlock({
 
 type BookingState = "idle" | "sending" | "booked" | "error";
 
+// ─── Booked success card (CRO P1.3) ───────────────────────────────────
+//
+// Replaces the prior one-paragraph "You're on the list" message with a
+// real reassurance block. After the customer commits to a voice
+// callback from an AI, four anxieties spike: (1) "when exactly will
+// she call", (2) "what if it shows up as Spam Likely on my phone",
+// (3) "what is she going to ask me", (4) "what if I don't want to
+// answer right now."
+//
+// This card addresses all four:
+//   - Live countdown that ticks down from 30s, then sits on "Sydney
+//     is calling now…" (purely visual — the actual dispatch fired
+//     server-side the moment booking succeeded).
+//   - Tap-to-call line that pre-populates Sydney's caller-ID
+//     (321-985-1104) so the customer can save it to contacts and
+//     avoid the Spam-Likely screening that kills outbound conversion.
+//   - "What she'll ask" preview — three short lines so the customer
+//     mentally rehearses the call and is less likely to ghost it.
+//   - Optional SMS-instead fallback for customers who decide they'd
+//     rather not talk live.
+
+function BookedSuccessCard(): React.ReactElement {
+  // Countdown clock from 30 → 0. Sydney's outbound dispatch typically
+  // connects in 5-15 seconds, but homeowners read "in a few minutes"
+  // as a vague window — a visible ticking clock concretizes the wait
+  // and short-circuits the impulse to walk away from the phone.
+  const [secondsLeft, setSecondsLeft] = useState(30);
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const t = setTimeout(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [secondsLeft]);
+  const calling = secondsLeft <= 0;
+
+  return (
+    <div
+      className="result-card relative"
+      style={{
+        padding: "28px 24px",
+        borderColor: "var(--vx-terra)",
+        borderWidth: "2px",
+      }}
+    >
+      <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+      <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+
+      <div className="mx-auto" style={{ maxWidth: "520px" }}>
+        {/* Title — same serif terra anchor the CTA card used; visual
+            continuity from "Lock in your real number" → "You're locked in". */}
+        <div
+          className="font-serif mb-2 text-center"
+          style={{
+            fontSize: "22px",
+            fontWeight: 600,
+            color: "var(--vx-terra)",
+            letterSpacing: "-0.005em",
+            lineHeight: 1.2,
+          }}
+        >
+          You&apos;re locked in
+        </div>
+
+        {/* Live countdown — the concrete wait timer. Once it hits 0,
+            swap to a calmer "Sydney is calling now" so we don't pin
+            the user to a stale clock if the call connects later. */}
+        <div
+          className="text-center mb-5"
+          style={{
+            fontSize: "14px",
+            lineHeight: 1.5,
+            color: "var(--vx-ink)",
+          }}
+        >
+          {calling ? (
+            <span>
+              <span style={{ fontWeight: 600 }}>Sydney is calling now</span>
+              {" — please answer."}
+            </span>
+          ) : (
+            <span>
+              Sydney will call in{" "}
+              <span
+                className="tabular"
+                style={{ fontWeight: 700, color: "var(--vx-terra)" }}
+              >
+                {secondsLeft}s
+              </span>
+              .
+            </span>
+          )}
+        </div>
+
+        {/* Save-the-number callout — the actual conversion-killer fix.
+            Florida households screen unknown numbers aggressively; if
+            Sydney's caller-ID isn't in the contacts list, the call
+            often goes straight to voicemail. The tap-to-call link
+            opens the dialer (iOS + Android), which is the cheapest
+            "add to contacts" affordance available cross-platform. */}
+        <div
+          style={{
+            background: "rgba(199, 107, 63, 0.08)",
+            border: "1px solid var(--vx-terra)",
+            borderRadius: "10px",
+            padding: "12px 14px",
+            marginBottom: "16px",
+          }}
+        >
+          <div
+            className="text-center"
+            style={{
+              fontSize: "12.5px",
+              color: "var(--vx-ink)",
+              lineHeight: 1.5,
+            }}
+          >
+            Sydney calls from{" "}
+            <a
+              href="tel:+13219851104"
+              style={{
+                color: "var(--vx-terra)",
+                fontWeight: 700,
+                textDecoration: "none",
+                borderBottom: "1px solid var(--vx-terra)",
+              }}
+            >
+              (321) 985-1104
+            </a>
+            . Tap to save it so it doesn&apos;t show as Spam Likely.
+          </div>
+        </div>
+
+        {/* Sydney call preview — 3 lines so the customer mentally
+            rehearses the call. Reduces "I don't know what she'll
+            ask me, I'll just ignore the call" ghosting behavior. */}
+        <div
+          className="text-center mb-4"
+          style={{
+            fontSize: "12.5px",
+            color: "var(--vx-ink-soft)",
+            lineHeight: 1.55,
+          }}
+        >
+          <div
+            className="eyebrow mb-2"
+            style={{ color: "var(--vx-ink-soft)" }}
+          >
+            She&apos;ll ask three quick things
+          </div>
+          <ul
+            style={{
+              listStyle: "none",
+              padding: 0,
+              margin: 0,
+              display: "inline-block",
+              textAlign: "left",
+            }}
+          >
+            <li style={{ marginBottom: "4px" }}>
+              <span style={{ color: "var(--vx-terra)", fontWeight: 700, marginRight: "8px" }}>
+                ·
+              </span>
+              When works for you to have a roofer stop by
+            </li>
+            <li style={{ marginBottom: "4px" }}>
+              <span style={{ color: "var(--vx-terra)", fontWeight: 700, marginRight: "8px" }}>
+                ·
+              </span>
+              Any concerns or recent leaks
+            </li>
+            <li>
+              <span style={{ color: "var(--vx-terra)", fontWeight: 700, marginRight: "8px" }}>
+                ·
+              </span>
+              Confirm your address and door access
+            </li>
+          </ul>
+        </div>
+
+        {/* SMS fallback — for customers who change their mind about
+            taking a live call. We can't programmatically cancel
+            Sydney from the client (dispatch already fired), but we
+            can offer a low-friction alternate path: text her the
+            details, she'll pick it up on the next pass. The
+            sms:?body= prefill lands in the system message composer
+            on iOS + Android with the body ready to edit. */}
+        <div className="text-center">
+          <a
+            href="sms:+13219851104?body=Can%20we%20message%20instead%20of%20talking%3F"
+            style={{
+              fontSize: "12px",
+              letterSpacing: "0.04em",
+              color: "var(--vx-muted)",
+              textDecoration: "none",
+              borderBottom: "1px dashed var(--vx-muted)",
+              padding: "2px 0",
+            }}
+          >
+            Prefer to text instead? Message Sydney
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RepCTACard({
   bookingState,
   bookingError,
@@ -2538,44 +2785,7 @@ function RepCTACard({
   recentLeadCount: number | null;
 }): React.ReactElement {
   if (bookingState === "booked") {
-    return (
-      <div
-        className="result-card relative flex flex-col justify-center text-center"
-        style={{
-          padding: "26px 22px",
-          borderColor: "var(--vx-terra)",
-          borderWidth: "2px",
-        }}
-      >
-        <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
-        <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
-        <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
-        <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
-        <div
-          className="font-serif mb-3"
-          style={{
-            fontSize: "20px",
-            fontWeight: 600,
-            color: "var(--vx-terra)",
-            letterSpacing: "-0.005em",
-          }}
-        >
-          You&apos;re on the list
-        </div>
-        <p
-          className="font-serif mx-auto"
-          style={{
-            fontSize: "16px",
-            lineHeight: 1.4,
-            color: "var(--vx-ink)",
-            maxWidth: "32ch",
-          }}
-        >
-          A specialist will call within a few minutes to confirm a time.
-          Watch your phone.
-        </p>
-      </div>
-    );
+    return <BookedSuccessCard />;
   }
 
   return (

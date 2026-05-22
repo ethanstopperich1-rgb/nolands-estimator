@@ -295,20 +295,24 @@ export function pickASequenceTouchpoint(
  * current abandoner_step, decide which (if any) touchpoint fires now.
  *
  * Step-to-touchpoint:
- *   step=0 + age >= 0     → already-sent at submit by /api/gemini-roof (B1)
- *                           Cron upgrades 0→1 to mark B1 as having fired;
- *                           if you're using cron-only, treat this as "send B1".
- *                           For now we assume B1 fires from /api/gemini-roof
- *                           and the cron starts at step >= 1 needing B2.
- *   step=1 + age >= 24h   → B2 OPEN LOOP
+ *   step=0 + age 2-23h    → B1.5 NUDGE (added 2026-05; closes the
+ *                           23.5h dark window between B1 (instant,
+ *                           fired by /api/gemini-roof) and B2 (T+24h).
+ *                           Window upper-bounded at 23h so leads
+ *                           older than that skip straight to B2.)
+ *   step=0 + age >= 24h   → B2 OPEN LOOP (back-fill for leads that
+ *                           somehow missed B1.5)
+ *   step=1 + age >= 24h   → B2 OPEN LOOP (B1.5 already sent)
  *   step=2 + age >= 3d    → B3 NEIGHBOR
  *   step=3 + age >= 7d    → B4 STORM ANCHOR
  *   step=4 + age >= 21d   → B5 GRACE EXIT
  *   step=5                → nothing more, ever
  *
  * Minimum-gap rule: enforce abandoner_last_sent_at >= 18h between
- * sends. Prevents accidental double-sends on cron overlap and protects
- * the customer's inbox.
+ * sends EXCEPT for the B1.5 nudge, which is allowed within 18h of
+ * the B1 instant send (B1 doesn't update abandoner_last_sent_at, so
+ * the gap rule wouldn't see it anyway — but spelling it out so the
+ * intent is clear).
  */
 export function pickBSequenceTouchpoint(
   createdAt: Date,
@@ -316,6 +320,7 @@ export function pickBSequenceTouchpoint(
   abandonerLastSentAt: Date | null,
   now: Date,
 ):
+  | "B15_T2H_NUDGE"
   | "B2_T24H_OPEN_LOOP"
   | "B3_T3D_NEIGHBOR"
   | "B4_T7D_STORM_ANCHOR"
@@ -327,7 +332,19 @@ export function pickBSequenceTouchpoint(
   const HOUR = 60 * 60 * 1000;
   const DAY = 24 * HOUR;
 
-  // Minimum 18h gap between any two B-sequence sends.
+  // Minimum 18h gap between any two B-sequence sends. B1.5 evaluates
+  // BEFORE this gate because B1 (the instant Podium send from
+  // /api/gemini-roof) doesn't stamp abandoner_last_sent_at, so the
+  // gap rule wouldn't catch it anyway — but documenting the choice
+  // explicitly so future-me doesn't add B1 to the gap accounting.
+  if (
+    abandonerStep === 0 &&
+    ageMs >= 2 * HOUR &&
+    ageMs < 23 * HOUR
+  ) {
+    return "B15_T2H_NUDGE";
+  }
+
   if (abandonerLastSentAt) {
     const sinceLast = now.getTime() - abandonerLastSentAt.getTime();
     if (sinceLast < 18 * HOUR) return null;

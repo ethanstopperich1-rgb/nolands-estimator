@@ -76,14 +76,21 @@ function authorized(req: Request): boolean {
 
 // Step-to-touchpoint lookup for stamping back to the row. Kept here
 // because the cron is the only writer of abandoner_step.
+//
+// B1.5 takes step 1 — leaves B2 still eligible at step <= 1 (existing
+// pickBSequenceTouchpoint logic) and lets the natural ladder continue
+// B2 → 2, B3 → 3, B4 → 4, B5 → 5 without renumbering anything else.
 function touchpointToStep(
   tp:
+    | "B15_T2H_NUDGE"
     | "B2_T24H_OPEN_LOOP"
     | "B3_T3D_NEIGHBOR"
     | "B4_T7D_STORM_ANCHOR"
     | "B5_T21D_GRACE_EXIT",
 ): number {
   switch (tp) {
+    case "B15_T2H_NUDGE":
+      return 1;
     case "B2_T24H_OPEN_LOOP":
       return 2;
     case "B3_T3D_NEIGHBOR":
