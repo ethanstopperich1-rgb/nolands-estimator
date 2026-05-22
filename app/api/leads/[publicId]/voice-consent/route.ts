@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import { rateLimit } from "@/lib/ratelimit";
 import {
   createServiceRoleClient,
@@ -231,44 +230,88 @@ export async function POST(
       "[voice-consent] lead missing office slug; consent recorded but no call dispatched",
       { publicId, officeId: lead.office_id },
     );
-  } else if (process.env.INTERNAL_DISPATCH_SECRET) {
-    const origin = new URL(req.url).origin;
-    const dispatchSecret = process.env.INTERNAL_DISPATCH_SECRET;
-    waitUntil(
-      fetch(`${origin}/api/dispatch-outbound`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-dispatch-secret": dispatchSecret,
-        },
-        body: JSON.stringify({
-          leadId: publicId,
-          phone: lead.phone,
-          name: lead.name,
-          address: lead.address,
-          estimateLow: lead.estimate_low,
-          estimateHigh: lead.estimate_high,
-          office: officeSlug,
-          // Tag for downstream telemetry / dispatch logic so it can
-          // distinguish a post-result opt-in call from a form-time one.
-          trigger: "post-result-consent",
-        }),
-      })
-        .then((res) =>
-          console.log("[voice-consent] dispatched outbound", {
-            publicId,
-            status: res.status,
-          }),
-        )
-        .catch((err) =>
-          console.error("[voice-consent] dispatch fetch failed:", err),
-        ),
+    return NextResponse.json(
+      {
+        ok: true,
+        dispatched: false,
+        reason: "missing_office_slug",
+        debug: { office_id: lead.office_id },
+      },
     );
-  } else {
-    console.warn(
-      "[voice-consent] INTERNAL_DISPATCH_SECRET unset; consent recorded but no call dispatched",
+  }
+  if (!process.env.INTERNAL_DISPATCH_SECRET) {
+    console.warn("[voice-consent] INTERNAL_DISPATCH_SECRET unset");
+    return NextResponse.json(
+      {
+        ok: true,
+        dispatched: false,
+        reason: "missing_dispatch_secret",
+      },
     );
   }
 
-  return NextResponse.json({ ok: true });
+  // AWAIT dispatch (was waitUntil fire-and-forget — silenced failures).
+  // The customer is staring at the page expecting Sarah to ring within
+  // 10s. We'd rather take 1-2s on this round-trip and surface a real
+  // failure than show "calling now" while the SIP leg silently 401s.
+  // Diagnostic payload (debug.dispatch) carries the dispatch-outbound
+  // response so the next click reveals env / LK / Twilio issues
+  // immediately. Strip the debug block back once Sarah dials reliably.
+  const origin = new URL(req.url).origin;
+  const dispatchSecret = process.env.INTERNAL_DISPATCH_SECRET;
+  let dispatchStatus = 0;
+  let dispatchBody: unknown = null;
+  try {
+    const dispatchRes = await fetch(`${origin}/api/dispatch-outbound`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-dispatch-secret": dispatchSecret,
+      },
+      body: JSON.stringify({
+        leadId: publicId,
+        phone: lead.phone,
+        name: lead.name,
+        address: lead.address,
+        estimateLow: lead.estimate_low,
+        estimateHigh: lead.estimate_high,
+        office: officeSlug,
+        trigger: "post-result-consent",
+      }),
+    });
+    dispatchStatus = dispatchRes.status;
+    try {
+      dispatchBody = await dispatchRes.json();
+    } catch {
+      dispatchBody = { parse_error: "non-json response" };
+    }
+    console.log("[voice-consent] dispatch response", {
+      publicId,
+      status: dispatchStatus,
+      body: dispatchBody,
+    });
+  } catch (err) {
+    console.error("[voice-consent] dispatch fetch threw:", err);
+    return NextResponse.json({
+      ok: true,
+      dispatched: false,
+      reason: "dispatch_fetch_threw",
+      debug: { error: err instanceof Error ? err.message : String(err) },
+    });
+  }
+
+  if (dispatchStatus < 200 || dispatchStatus >= 300) {
+    return NextResponse.json({
+      ok: true,
+      dispatched: false,
+      reason: "dispatch_non_2xx",
+      debug: { status: dispatchStatus, body: dispatchBody },
+    });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    dispatched: true,
+    debug: dispatchBody,
+  });
 }
