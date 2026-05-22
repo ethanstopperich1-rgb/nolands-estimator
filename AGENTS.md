@@ -116,24 +116,42 @@ Mon–Fri 8:00 AM – 5:00 PM (front office). Install crews 7:00 AM –
 
 ## Phone numbers (locked May 2026)
 
-- **Main office line — homeowner-facing:** `(352) 242-4322`. Where
-  Savannah, Myia, and Amanda answer in business hours. This is the
-  number on the "Prefer to talk?" escape hatch in the result-page
-  RepCTACard and the share-page header CTA. Confirmed on the
+Three distinct numbers, each with a single purpose:
+
+- **`(352) 242-4322`** — Noland's main office line. Where Savannah,
+  Myia, and Amanda answer in business hours. This is the number on
+  the "Prefer to talk?" escape hatch in the result-page RepCTACard,
+  the share-page header CTA, and Sarah's hot-transfer destination
+  (all four `ESCALATION_*_PHONE` LK secrets). Confirmed on the
   onboarding form Destiny returned.
-- **Sarah's outbound caller-ID (LK SIP trunk):** `+13219851104` —
-  wired via `voxaris-pitch/agents/sydney/setup_sip.py` (dispatch
-  rule `nolands-sydney`). The number homeowners see in the
-  BookedSuccessCard "save to contacts" prompt so the call doesn't
-  show as Spam Likely.
-- **Hot-transfer priority order:** Savannah → Myia → Amanda. All
-  three answer the 352-242-4322 line. Sarah's `transfer_to_human`
-  tool routes to that number; the office's phone tree handles the
-  per-person priority.
+- **`(888) 786-9134`** — **The Twilio-owned number that Sarah uses
+  for ALL outbound calls + ALL SMS.** Moved here May 2026 (was
+  briefly +13219851104). Set as `TWILIO_PHONE_NUMBER` in Vercel
+  (SMS confirmation, post-call follow-ups, rep alerts) AND as both
+  `SYDNEY_OUTBOUND_CALLER_ID` + `TRANSFER_CALLER_ID` on LK Cloud
+  (Sarah's outbound caller-ID + transfer bridge caller-ID).
+- **`+13219851104`** — LK Cloud-provisioned Cocoa Beach number that
+  receives inbound calls into Sarah's worker via the
+  `nolands-sydney` dispatch rule. Customer-facing 888 forwards here
+  via Twilio TwiML so the homeowner experience is always 888.
+  Don't publish 321 anywhere customer-facing.
 
 The previously-listed `(352) 500-ROOF` number is **NOT** the real
 main line — that was a marketing aspiration that either never went
 live or got retired. Don't publish it.
+
+**Hot-transfer priority order:** Savannah → Myia → Amanda. All
+three answer the 352-242-4322 line. Sarah's `transfer_to_human`
+tool routes to that number; the office's phone tree handles the
+per-person priority.
+
+**Compliance gate (task #40 still pending):** outbound calls from
+`+18887869134` require Twilio Toll-Free Verification to be
+"Approved" or carriers may tag Sarah's calls as Spam Likely on
+Verizon / AT&T / T-Mobile. SHAKEN/STIR attestation rolls up from
+the verification. Verify status in
+`console.twilio.com → Trust Hub → Toll-Free Verification` before
+high-volume outbound dialing.
 
 ## Agent identity (customer-facing)
 

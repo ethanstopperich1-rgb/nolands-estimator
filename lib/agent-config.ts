@@ -36,20 +36,35 @@ export const AGENT_DISPLAY_NAME =
   process.env.NEXT_PUBLIC_AGENT_DISPLAY_NAME?.trim() || "Sarah";
 
 /**
- * Phone number the homeowner sees when Sarah calls them. This is the
- * LK SIP outbound trunk's caller-ID. Shown in the BookedSuccessCard
- * save-to-contacts callout. NOT the office line — that's MAIN_PHONE_E164.
+ * Phone number the homeowner sees when Sarah calls them. This is
+ * Sarah's outbound caller-ID via the LK SIP trunk. Shown in the
+ * BookedSuccessCard save-to-contacts callout. NOT the office line —
+ * that's MAIN_PHONE_E164.
+ *
+ * Moved May 2026 from +13219851104 (LK-provisioned Cocoa Beach 321)
+ * to +18887869134 (Twilio-owned toll-free). Customer-facing call from
+ * the toll-free reads as a "real business" number to most carriers;
+ * 321 reads as a personal cell. Also unifies outbound voice + SMS to
+ * the same number so the "Sarah is calling from" + "Sarah will text
+ * you" copy reference one consistent identity.
+ *
+ * Compliance note: outbound voice from a toll-free requires Twilio's
+ * Toll-Free Verification status to be "Approved" (see AGENTS.md task
+ * #40). Without verification, carriers may tag the call as Spam
+ * Likely on Verizon / AT&T / T-Mobile. SHAKEN/STIR attestation rolls
+ * up from the verification.
  */
 export const AGENT_CALLER_ID_E164 =
-  process.env.NEXT_PUBLIC_AGENT_CALLER_ID?.trim() || "+13219851104";
+  process.env.NEXT_PUBLIC_AGENT_CALLER_ID?.trim() || "+18887869134";
 
 /**
  * Human-readable formatting of AGENT_CALLER_ID_E164. Used in the
- * "Sarah calls from (321) 985-1104" copy.
+ * "Sarah calls from (888) 786-9134" copy on the BookedSuccessCard
+ * save-to-contacts callout.
  */
 export const AGENT_CALLER_ID_FORMATTED =
   process.env.NEXT_PUBLIC_AGENT_CALLER_ID_FORMATTED?.trim() ||
-  "(321) 985-1104";
+  "(888) 786-9134";
 
 /**
  * Noland's main published business line — where reps (Savannah, Myia,
