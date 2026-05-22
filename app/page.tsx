@@ -25,6 +25,11 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+// Framer Motion v12 — already a dependency. Used for the two-step
+// form swap + the sticky mobile CTA enter/exit. useReducedMotion
+// short-circuits transitions for users with the OS-level preference
+// set, satisfying the vestibular accessibility note in globals.css.
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LanguageToggle, useLanguage } from "@/components/LanguageToggle";
 import { t } from "@/lib/i18n";
 import { BRAND_CONFIG } from "@/lib/branding";
@@ -603,6 +608,16 @@ function HeroScreen({
   // foot-in-the-door surface; pinning + result step are independent
   // of this state.
   const [formStep, setFormStep] = useState<1 | 2>(1);
+  // Respect the OS-level "reduce motion" preference. When true, the
+  // step swap snaps instead of animating. Same accessibility note
+  // that lives in app/globals.css around the `prefers-reduced-motion`
+  // CSS query — keep client + CSS aligned.
+  const prefersReducedMotion = useReducedMotion();
+  // Shared transition for the step swap. Tween (not spring) so the
+  // distance traveled stays predictable on a narrow form card.
+  const stepTransition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration: 0.22, ease: [0.4, 0, 0.2, 1] as const };
   // Marketing consent gates lead capture + the SMS intro. The separate
   // voice consent lives on the result page now — captured after the
   // customer sees their estimate, before any automated voice call is
@@ -970,48 +985,59 @@ function HeroScreen({
               </span>
             </div>
 
-            {/* CRO HI-1 — step 1 "Continue" CTA. Only renders before the
-                customer has committed to step 2. Pressing Enter in
-                the address field also triggers the form submit, which
-                handleSubmit treats as "advance to step 2." Visual
-                weight matches the final submit so the step boundary
-                feels intentional, not like a half-finished form. */}
-            {formStep === 1 && (
-              <div className="foot-row">
-                <div
-                  className="flex items-center gap-3"
-                  style={{
-                    fontSize: "10.5px",
-                    letterSpacing: "0.20em",
-                    textTransform: "uppercase",
-                    color: "var(--vx-muted)",
-                  }}
+            {/* CRO HI-1 — animated step swap via AnimatePresence.
+                `mode="wait"` ensures step 1 fully exits before step 2
+                enters, so the form card height changes smoothly rather
+                than ghosting two blocks on top of each other.
+                Horizontal slide (step 1 exits left, step 2 enters from
+                right) reads as forward progress; opacity ramp prevents
+                input flash. layout="position" lets the form's own
+                height auto-adjust without jank. */}
+            <AnimatePresence mode="wait" initial={false}>
+              {formStep === 1 ? (
+                <motion.div
+                  key="step1"
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -12 }}
+                  transition={stepTransition}
                 >
-                  <span className="marker" aria-hidden="true" />
-                  <span>Step 1 of 2 · Address</span>
-                </div>
-                <button
-                  type="submit"
-                  className="btn-terra"
-                  disabled={!resolvedAddr}
-                  title={
-                    resolvedAddr
-                      ? "Continue to contact details"
-                      : "Pick your address from the dropdown first"
-                  }
+                  <div className="foot-row">
+                    <div
+                      className="flex items-center gap-3"
+                      style={{
+                        fontSize: "10.5px",
+                        letterSpacing: "0.20em",
+                        textTransform: "uppercase",
+                        color: "var(--vx-muted)",
+                      }}
+                    >
+                      <span className="marker" aria-hidden="true" />
+                      <span>Step 1 of 2 · Address</span>
+                    </div>
+                    <button
+                      type="submit"
+                      className="btn-terra"
+                      disabled={!resolvedAddr}
+                      title={
+                        resolvedAddr
+                          ? "Continue to contact details"
+                          : "Pick your address from the dropdown first"
+                      }
+                    >
+                      Continue
+                      <span className="arrow" aria-hidden="true">→</span>
+                    </button>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="step2"
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 12 }}
+                  transition={stepTransition}
                 >
-                  Continue
-                  <span className="arrow" aria-hidden="true">→</span>
-                </button>
-              </div>
-            )}
-
-            {/* Step 2 → contact details + consent + final submit.
-                Conditionally rendered so step 1 stays clean (single
-                input + single CTA), which is the entire point of the
-                two-step pattern (foot-in-the-door + Goal-Gradient). */}
-            {formStep === 2 && (
-              <>
             {/* Contact row — matches the address-row pattern: no visible
                 label, just a soft placeholder that fades when the user
                 starts typing. The example values ("Eleanor Whitaker",
@@ -1194,8 +1220,9 @@ function HeroScreen({
                 ← Edit address
               </button>
             </div>
-              </>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {formError && (
               <div
@@ -1643,6 +1670,13 @@ function ResultScreen({
   const [bookingState, setBookingState] = useState<"idle" | "sending" | "booked" | "error">("idle");
   const [bookingError, setBookingError] = useState<string | null>(null);
 
+  // CRO HI-4 — ref for the sticky mobile CTA bar. Points at the
+  // wrapper around RepCTACard so the IntersectionObserver inside
+  // StickyMobileCTA can decide visibility (off-screen → show bar),
+  // and so tapping the bar can smooth-scroll the customer to the
+  // real CTA + focus the consent checkbox.
+  const repCtaRef = useRef<HTMLDivElement>(null);
+
   // CRO QW-2 — social-proof count for the RepCTACard. Fetched once on
   // result mount. Endpoint caches 15 min at the edge, so this is
   // cheap. Stays null on any failure path; RepCTACard only renders
@@ -1887,7 +1921,16 @@ function ResultScreen({
             storms + property record, so the next thing under their
             eye should be the booking action — not a wall of fine
             print. Disclosure band moves below the CTA. */}
-        <div className="mt-6 mx-auto" style={{ maxWidth: "1000px" }}>
+        {/* CRO HI-4 — ref-wrapped RepCTACard so the sticky mobile bar
+            can both observe its visibility AND scroll/focus into it on
+            tap. The ref lives on the wrapping div (not the card
+            internals) to avoid threading another prop through
+            RepCTACard's signature. */}
+        <div
+          ref={repCtaRef}
+          className="mt-6 mx-auto"
+          style={{ maxWidth: "1000px" }}
+        >
           <RepCTACard
             bookingState={bookingState}
             bookingError={bookingError}
@@ -2030,6 +2073,16 @@ function ResultScreen({
       </div>
 
       <VoxarisFooter />
+
+      {/* CRO HI-4 — sticky mobile CTA bar. Renders only on viewports
+          below md and only when the RepCTACard above is off-screen
+          (intersection-observed via repCtaRef). Disabled once the
+          customer has booked, so the bar disappears the moment the
+          conversion event fires. */}
+      <StickyMobileCTA
+        targetRef={repCtaRef}
+        enabled={bookingState !== "booked"}
+      />
     </div>
   );
 }
@@ -2768,6 +2821,153 @@ function RepCTACard({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Sticky mobile CTA bar (CRO HI-4) ─────────────────────────────────
+//
+// Floating bottom-of-viewport CTA shown only on mobile. The
+// result-page scroll path is long (tier band → map → storms → parcel
+// → RepCTACard) and on phones the customer can finger-scroll for
+// many seconds before reaching the conversion action — long enough
+// to forget the action was there. The sticky bar keeps the CTA
+// always-tap-able while never covering content (auto-hides when the
+// RepCTACard is in view via IntersectionObserver).
+//
+// Why a separate component:
+//   - Tightly scoped behavior + ref-based intersection observation
+//   - md:hidden — desktop renders the wide RepCTACard directly, no
+//     sticky overlay needed (the desktop fold easily fits the CTA)
+//   - safe-area-inset-bottom respects iPhone home-indicator clearance
+//
+// What it does NOT do:
+//   - Never auto-checks the voice consent — compliance demands an
+//     affirmative customer action on that checkbox. Tap on this bar
+//     just scrolls + focuses the consent for the customer to tick.
+
+function StickyMobileCTA({
+  targetRef,
+  enabled,
+}: {
+  /** Ref to the RepCTACard wrapper. Used both for intersection
+   *  observation (hide when in view) and as the scrollIntoView
+   *  target when the customer taps the sticky bar. */
+  targetRef: React.RefObject<HTMLDivElement | null>;
+  /** Parent passes false to fully unmount the bar — e.g. when the
+   *  booking has succeeded ("You're on the list") and the bar would
+   *  be confusing. */
+  enabled: boolean;
+}): React.ReactElement | null {
+  const [visible, setVisible] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!enabled) return;
+    const target = targetRef.current;
+    if (!target) return;
+    // The bar should be VISIBLE when the RepCTACard is OFF-screen.
+    // rootMargin negative-bottom lets us hide the bar slightly
+    // before the CTA enters the viewport, avoiding a "flash" the
+    // moment the customer scrolls to the CTA naturally.
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        setVisible(!entry.isIntersecting);
+      },
+      { rootMargin: "0px 0px -25% 0px", threshold: 0 },
+    );
+    obs.observe(target);
+    return () => obs.disconnect();
+  }, [targetRef, enabled]);
+
+  const onTap = () => {
+    const target = targetRef.current;
+    if (!target) return;
+    // Smooth scroll keeps the spatial connection between the bar
+    // and the CTA — customer's eye follows the motion to the
+    // checkbox they then need to tap.
+    target.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      block: "center",
+    });
+    // Best-effort focus on the consent checkbox once the scroll
+    // settles. Wrapped in a timeout that matches a typical smooth
+    // scroll duration. Failing silently is fine — the visual scroll
+    // already accomplishes the main job.
+    setTimeout(
+      () => {
+        const checkbox = target.querySelector<HTMLInputElement>(
+          'input[type="checkbox"]',
+        );
+        checkbox?.focus({ preventScroll: true });
+      },
+      prefersReducedMotion ? 0 : 380,
+    );
+  };
+
+  if (!enabled) return null;
+
+  const transition = prefersReducedMotion
+    ? { duration: 0 }
+    : { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const };
+
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          key="sticky-cta"
+          className="md:hidden"
+          initial={{ y: "110%", opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: "110%", opacity: 0 }}
+          transition={transition}
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 50,
+            // Backdrop blur over the page — keeps the bar legible no
+            // matter what's underneath without fully blocking the
+            // content peek.
+            background:
+              "color-mix(in srgb, var(--vx-cream, #faf7f0) 92%, transparent)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+            borderTop: "1px solid var(--vx-rule)",
+            // env(safe-area-inset-bottom) clears the iPhone home
+            // indicator. Falls back to 12px on devices without one.
+            padding:
+              "12px 16px calc(12px + env(safe-area-inset-bottom)) 16px",
+            // Subtle shadow above the bar separates it from page
+            // content underneath without competing with the CTA button.
+            boxShadow: "0 -8px 24px rgba(0, 0, 0, 0.08)",
+          }}
+          // ARIA: announce as a complementary landmark so screen
+          // reader users discover the persistent action.
+          role="complementary"
+          aria-label="Quick booking action"
+        >
+          <button
+            type="button"
+            onClick={onTap}
+            className="btn-terra w-full"
+            style={{
+              fontSize: "15px",
+              fontWeight: 700,
+              letterSpacing: "0.02em",
+              padding: "14px 18px",
+              // Full-width inside the padded container.
+              width: "100%",
+              justifyContent: "center",
+            }}
+          >
+            Lock in my real number
+            <span className="arrow" aria-hidden="true">↓</span>
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
