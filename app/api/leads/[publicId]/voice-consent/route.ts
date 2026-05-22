@@ -187,11 +187,36 @@ export async function POST(
     user_agent: consentUserAgent,
   });
   if (consentErr) {
-    console.error(
-      "[voice-consent] supabase consent insert failed:",
-      consentErr.message,
+    // Verbose error logging: capture all fields PostgrestError exposes
+    // (message, details, hint, code) so the actual schema/constraint
+    // failure is visible in Vercel runtime logs. Temporary diagnostic
+    // payload also surfaces the message + code in the JSON response so
+    // it's debuggable from a browser DevTools tab when log access is
+    // slow. Trim back to plain `consent_write_failed` once this branch
+    // confirms the root cause.
+    console.error("[voice-consent] supabase consent insert failed", {
+      message: consentErr.message,
+      details: consentErr.details,
+      hint: consentErr.hint,
+      code: consentErr.code,
+      lead_id: lead.id,
+      office_id: lead.office_id,
+      office_id_is_null: lead.office_id == null,
+    });
+    return NextResponse.json(
+      {
+        error: "consent_write_failed",
+        // Diagnostic block — safe values, no PII. Remove after fix lands.
+        debug: {
+          code: consentErr.code,
+          message: consentErr.message,
+          details: consentErr.details,
+          hint: consentErr.hint,
+          office_id_is_null: lead.office_id == null,
+        },
+      },
+      { status: 500 },
     );
-    return NextResponse.json({ error: "consent_write_failed" }, { status: 500 });
   }
 
   // Fire the outbound dispatch (fire-and-forget under waitUntil so the
