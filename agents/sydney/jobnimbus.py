@@ -267,8 +267,19 @@ def create_measure_call_task(
         "hide_from_calendarview": False,
         "hide_from_tasklist": False,
     }
+    # Owner resolution order:
+    #   1. Explicit owner_id arg (per-office routing, when known)
+    #   2. JOBNIMBUS_NEW_LEAD_OWNER_IDS — full intake team tagged as
+    #      co-owners. Every team member sees the appointment on their
+    #      calendar feed + gets notified. Standing rule for Noland's
+    #      until per-office routing is in.
     if owner_id:
         payload["owners"] = [{"id": owner_id}]
+    else:
+        _owner_ids_raw = os.environ.get("JOBNIMBUS_NEW_LEAD_OWNER_IDS", "")
+        _owner_ids = [s.strip() for s in _owner_ids_raw.split(",") if s.strip()]
+        if _owner_ids:
+            payload["owners"] = [{"id": oid} for oid in _owner_ids]
 
     logger.info(
         "jobnimbus create_measure_call_task title=%s date_start=%d duration=%dm owner=%s",
@@ -393,6 +404,16 @@ def create_contact(
     # search_jobs_by_date_range. Noland's real reps own this field
     # (Nathan, Raymond, Gregory…); writing "Sydney ({office})" would
     # corrupt their assignment workflow. Let the office assign manually.
+
+    # Tag the intake team as owners so every new lead surfaces on
+    # their JN dashboard + sends an in-app notification. IDs from
+    # JOBNIMBUS_NEW_LEAD_OWNER_IDS env (comma-separated). Locked May
+    # 2026 for Noland's: Destiny Jones, Steven Olesen, Savannah
+    # Huffman, Myiah Ragone.
+    _owner_ids_raw = os.environ.get("JOBNIMBUS_NEW_LEAD_OWNER_IDS", "")
+    _owner_ids = [s.strip() for s in _owner_ids_raw.split(",") if s.strip()]
+    if _owner_ids:
+        payload["owners"] = [{"id": oid} for oid in _owner_ids]
 
     logger.info(
         "jobnimbus create_contact phone_hash=%s office=%s",
