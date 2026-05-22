@@ -795,4 +795,124 @@ async def check_availability(
     }
 
 
-ALL_TOOLS = [transfer_to_human, check_availability, book_inspection, log_lead]
+# ─── identify_caller — Phase 0 of INBOUND calls ───────────────────────
+# Sarah's FIRST action on every inbound call: look up the caller's
+# phone in JobNimbus to differentiate new homeowners from existing
+# customers. Drives the warmth + skip-redundant-intake branch in the
+# prompt. Returns a structured snapshot the LLM uses to choose the
+# right opener follow-up.
+
+
+@function_tool
+async def identify_caller(
+    phone: Annotated[
+        str,
+        "Caller's phone number as the call arrived (any format — E.164, raw 10-digit, formatted). Comes from the SIP From header or your runtime context.",
+    ],
+) -> dict:
+    """Look up an inbound caller in JobNimbus by phone number.
+
+    Call this SILENTLY at the very start of every inbound call —
+    BEFORE asking the caller's name or address. It tells you whether
+    they're an existing customer (skip redundant intake, branch by
+    job status) or a brand-new homeowner (run standard Phase 1-5).
+
+    Returns:
+      status: "new_caller" | "existing_active" | "existing_won" |
+              "existing_lost" | "existing_lead" | "lookup_failed"
+      display_name: str | None — full name on file (use first name)
+      sales_rep_name: str | None — the rep currently on their file
+      latest_job_status: str | None — pipeline stage of their newest job
+      recent_note_count: int — how many recent notes attached to it
+
+    Sarah behavior rules:
+      - NEW caller (status=new_caller or lookup_failed): standard
+        intake. Don't reference any prior history.
+      - EXISTING caller: warmly acknowledge by first name. Reference
+        the assigned rep by name ("looks like Raymond is on your
+        file"). NEVER quote prior notes verbatim — context only.
+      - status=existing_won (Contract Awarded / Paid & Closed):
+        loyalty warmth, transfer to warranty if they have an issue.
+      - status=existing_lost (Lost-Dead / Lost-Competitor): recovery
+        handler. "I see we talked before — happy to take another look?"
+    """
+    import asyncio
+    from . import jobnimbus  # type: ignore[import-not-found]
+
+    if not jobnimbus.is_enabled():
+        return {"status": "lookup_failed", "reason": "jobnimbus_not_configured"}
+
+    try:
+        result = await asyncio.to_thread(
+            jobnimbus.lookup_contact_by_phone,
+            phone=phone,
+            recent_notes_limit=2,
+        )
+    except Exception as e:
+        logger.warning("identify_caller unexpected: %s", e)
+        return {"status": "lookup_failed", "reason": str(e)[:120]}
+
+    if not result.get("found"):
+        # No PII logged — just the lookup miss for debug telemetry.
+        _log_tool_call("identify_caller", {
+            "phone_hash": _hash_fragment(phone),
+            "status": "new_caller",
+        })
+        return {"status": "new_caller"}
+
+    # Bucket the contact into one of four existing-caller states based
+    # on their newest job's pipeline status. This is the field the
+    # LLM branches on for warmth + warranty / recovery routing.
+    job_status = (result.get("latest_job_status") or "").strip()
+    if job_status in ("Contract Awarded", "Paid & Closed", "Final Invoice Sent"):
+        bucket = "existing_won"
+    elif job_status.startswith("Lost"):
+        bucket = "existing_lost"
+    elif job_status.startswith("Lead") or job_status in (
+        "Appointment Scheduled",
+        "Scope Pending",
+        "Estimating",
+        "Decision Pending",
+        "Follow Up 03 Days",
+        "Follow Up 07 Days",
+        "Inside Sales 03 Days",
+        "Inside Sales 07 Days",
+        "Inside Sales 15 Days",
+    ):
+        bucket = "existing_lead"
+    elif job_status in ("Order Materials", "Pending Estimate", "Reschedule"):
+        bucket = "existing_active"
+    else:
+        # Contact exists but no recognizable job status — likely a
+        # past customer with the job closed long ago. Treat as won
+        # for warmth posture.
+        bucket = "existing_won" if result.get("display_name") else "new_caller"
+
+    # Log a hashed event for ops telemetry. Don't log PII.
+    _log_tool_call("identify_caller", {
+        "phone_hash": _hash_fragment(phone),
+        "status": bucket,
+        "rep": result.get("sales_rep_name"),
+        "job_status": job_status,
+        "note_count": result.get("recent_note_count", 0),
+    })
+
+    return {
+        "status": bucket,
+        "display_name": result.get("display_name"),
+        "sales_rep_name": result.get("sales_rep_name"),
+        "latest_job_status": job_status or None,
+        "recent_note_count": result.get("recent_note_count", 0),
+        # Notes are NOT returned to the LLM — Sarah uses context, not
+        # quotes. Surface only the COUNT so she can say "I see we've
+        # spoken before" not "you told us X on Tuesday."
+    }
+
+
+ALL_TOOLS = [
+    identify_caller,
+    transfer_to_human,
+    check_availability,
+    book_inspection,
+    log_lead,
+]

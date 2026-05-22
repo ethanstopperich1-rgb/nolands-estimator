@@ -147,6 +147,180 @@ _MEASURE_CALL_RECORD_TYPES = (
 )
 
 
+def lookup_contact_by_phone(*, phone: str, recent_notes_limit: int = 3) -> dict[str, Any]:
+    """Identify an inbound caller by phone number.
+
+    Used by Sarah at the start of every inbound call to differentiate
+    new homeowners (full intake required) from existing customers
+    (skip redundant questions, branch by status, optionally read
+    prior context).
+
+    Returns a dict shape:
+      {
+        "found": bool,
+        "jnid": str | None,
+        "display_name": str | None,
+        "status_name": str | None,           # "New" / "Active"
+        "record_type_name": str | None,      # "Homeowner" / "Business"
+        "source_name": str | None,
+        "latest_job_jnid": str | None,
+        "latest_job_status": str | None,     # e.g. "Contract Awarded"
+        "sales_rep_name": str | None,
+        "recent_note_count": int,
+        "recent_notes": [{ "body": str, "author": str, "date": int }],
+      }
+
+    Match strategy: JN normalizes mobile_phone across formats, so we
+    search by the last 10 digits (US numbers). This catches +1xxxxx,
+    (xxx) xxx-xxxx, xxx-xxx-xxxx, and bare 10-digit entries.
+
+    Returns {"found": False} when no key configured or no match.
+    NEVER raises — caller path must never break on a lookup miss."""
+    import re as _re
+    import urllib.parse as _urlparse
+
+    if not is_enabled():
+        return {"found": False}
+
+    # Normalize input phone to last 10 digits (US E.164 → strip +1).
+    digits = _re.sub(r"\D", "", phone or "")
+    if len(digits) > 10:
+        digits = digits[-10:]
+    if len(digits) < 10:
+        return {"found": False}
+
+    try:
+        # JN indexes home_phone + work_phone for the `match` clause but
+        # NOT mobile_phone (probed May 2026 — mobile_phone match returns
+        # 0 even when the value is on the contact row). bool.should
+        # union of all three captures whichever field the rep entered
+        # the number into. minimum_should_match: 1 = OR semantics.
+        #
+        # IMPORTANT: urlencode + a pre-quoted filter value double-encodes
+        # the percent signs and JN returns 0. urlencode handles the
+        # quoting for us — pass the raw JSON string and let it encode.
+        filter_json = json.dumps({
+            "must": [{
+                "bool": {
+                    "should": [
+                        {"match": {"home_phone": digits}},
+                        {"match": {"work_phone": digits}},
+                        {"match": {"mobile_phone": digits}},
+                    ],
+                    "minimum_should_match": 1,
+                },
+            }],
+        })
+        qs = _urlparse.urlencode({"filter": filter_json, "size": "5"})
+        resp = _request("GET", f"/contacts?{qs}")
+        results = (
+            resp.get("results")
+            if isinstance(resp, dict)
+            else (resp if isinstance(resp, list) else [])
+        ) or []
+        if not results:
+            return {"found": False}
+
+        # Pick the most recently updated contact (rep workflow: the
+        # active one). JN doesn't expose a "modified desc" order
+        # parameter consistently, so sort client-side.
+        contact = max(
+            results,
+            key=lambda c: c.get("date_updated") or c.get("date_created") or 0,
+        )
+        jnid = contact.get("jnid")
+        result: dict[str, Any] = {
+            "found": True,
+            "jnid": jnid,
+            "display_name": contact.get("display_name") or "",
+            "status_name": contact.get("status_name") or None,
+            "record_type_name": contact.get("record_type_name") or None,
+            "source_name": contact.get("source_name") or None,
+            "sales_rep_name": contact.get("sales_rep_name") or None,
+            "latest_job_jnid": None,
+            "latest_job_status": None,
+            "recent_note_count": 0,
+            "recent_notes": [],
+        }
+
+        # Best-effort: pull the most-recent job for status context.
+        # If JN errors on this, return what we have — no exception.
+        try:
+            job_filter_json = json.dumps({
+                "must": [{"match": {"primary_contact_id": jnid}}],
+            })
+            job_qs = _urlparse.urlencode({"filter": job_filter_json, "size": "5"})
+            job_resp = _request("GET", f"/jobs?{job_qs}")
+            jobs = (
+                job_resp.get("results") if isinstance(job_resp, dict) else []
+            ) or []
+            if jobs:
+                latest_job = max(
+                    jobs,
+                    key=lambda j: j.get("date_updated") or 0,
+                )
+                result["latest_job_jnid"] = latest_job.get("jnid")
+                result["latest_job_status"] = latest_job.get("status_name")
+                # Override sales_rep_name from job when contact-level
+                # is unset (jobs carry the assigned rep more reliably).
+                if not result["sales_rep_name"]:
+                    result["sales_rep_name"] = latest_job.get("sales_rep_name")
+        except Exception as e:
+            logger.info("lookup_contact_by_phone: job lookup soft-failed: %s", e)
+
+        # Recent notes — bounded by recent_notes_limit. Notes attach
+        # to jobs (primary.type=job) in Noland's org, not to contacts
+        # directly. Skip if we don't have a job_jnid.
+        if recent_notes_limit > 0 and result["latest_job_jnid"]:
+            try:
+                note_filter_json = json.dumps({
+                    "must": [
+                        {"match": {"record_type_name": "Note"}},
+                        {"match": {"primary.id": result["latest_job_jnid"]}},
+                    ],
+                })
+                note_qs = _urlparse.urlencode({
+                    "filter": note_filter_json,
+                    "size": str(recent_notes_limit),
+                })
+                note_resp = _request("GET", f"/activities?{note_qs}")
+                notes = (
+                    note_resp.get("activity")
+                    if isinstance(note_resp, dict)
+                    else None
+                ) or (
+                    note_resp.get("results")
+                    if isinstance(note_resp, dict)
+                    else []
+                ) or []
+                # Sort newest first
+                notes_sorted = sorted(
+                    notes,
+                    key=lambda n: n.get("date_created") or 0,
+                    reverse=True,
+                )[:recent_notes_limit]
+                result["recent_note_count"] = len(notes_sorted)
+                result["recent_notes"] = [
+                    {
+                        "body": (n.get("note") or "").strip()[:400],
+                        "author": n.get("created_by_name") or "",
+                        "date": n.get("date_created") or 0,
+                    }
+                    for n in notes_sorted
+                ]
+            except Exception as e:
+                logger.info("lookup_contact_by_phone: notes lookup soft-failed: %s", e)
+
+        return result
+
+    except JobNimbusError as e:
+        logger.info("lookup_contact_by_phone JN error: %s", e)
+        return {"found": False}
+    except Exception as e:
+        logger.warning("lookup_contact_by_phone unexpected: %s", e)
+        return {"found": False}
+
+
 def search_tasks_by_date_range(
     *,
     start_unix: int,
