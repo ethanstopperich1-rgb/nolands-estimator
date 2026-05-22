@@ -217,7 +217,22 @@ export async function createContact(
   try {
     const [first, ...rest] = input.displayName.trim().split(/\s+/);
     const last = rest.join(" ");
-    const body = {
+    // Schema discovered May 2026 from Noland's live JN data:
+    //   record_type_name on contacts → "Homeowner" (95%) / Subcontractor /
+    //     Business. Sarah only ever creates homeowners.
+    //   status_name → "New" (92%) / "Active" (8%). Estimator-sourced
+    //     contacts are brand-new leads.
+    //   source_name → free-form string, Noland's existing taxonomy uses
+    //     "Web Site / SEO - Internet Organic", "Self Generated Lead -
+    //     Salesmen", "Paid Digital Ads - Google Ads", etc. Default the
+    //     estimator source to the web bucket so Noland's dashboards
+    //     attribute Voxaris leads correctly; env-override available.
+    //   sales_rep_name DELIBERATELY OMITTED — Noland's reps own this
+    //     field. Writing "Estimator" or "Sydney (clermont)" corrupts
+    //     their assignment workflow. Office assigns manually after
+    //     the contact lands. Set JOBNIMBUS_SALES_REP_NAME to force a
+    //     value only if a specific office requested it.
+    const body: Record<string, unknown> = {
       display_name: input.displayName,
       first_name: first || "",
       last_name: last || "",
@@ -225,10 +240,15 @@ export async function createContact(
       email: input.email ?? "",
       address_line1: input.address ?? "",
       tags: input.tags ?? [],
-      // Mark estimator as the source so JobNimbus reporting can break
-      // out "from form" vs "from inbound call".
-      sales_rep_name: process.env.JOBNIMBUS_SALES_REP_NAME ?? "Estimator",
+      record_type_name: "Homeowner",
+      status_name: "New",
+      source_name:
+        process.env.JOBNIMBUS_SOURCE_NAME ??
+        "Web Site / SEO - Internet Organic",
     };
+    if (process.env.JOBNIMBUS_SALES_REP_NAME) {
+      body.sales_rep_name = process.env.JOBNIMBUS_SALES_REP_NAME;
+    }
     const res = await jnFetch(`${BASE_URL}/contacts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -257,6 +277,11 @@ export async function createInspectionJob(
     return { ok: false, reason: "not_configured" };
   }
   try {
+    // Noland's job record_type_name vocabulary: "Retail" (81%) /
+    // "Insurance" (15%) / "New Construction" (4%). Estimator-created
+    // jobs default to "Retail" (residential walk-in inspection) unless
+    // the caller flags a storm event → "Insurance". status_name "Lead"
+    // matches their pipeline entry point.
     const body = {
       primary: { id: input.contactId },
       display_name: input.displayName,
@@ -264,7 +289,7 @@ export async function createInspectionJob(
       date_start: input.dateStart
         ? Math.floor(new Date(input.dateStart).getTime() / 1000)
         : undefined,
-      record_type_name: input.recordType ?? "Estimate",
+      record_type_name: input.recordType ?? "Retail",
       status_name: input.status ?? "Lead",
     };
     const res = await jnFetch(`${BASE_URL}/jobs`, {
