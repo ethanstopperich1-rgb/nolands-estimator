@@ -345,11 +345,15 @@ def test_check_availability_falls_back_to_mock_when_jn_unset(
 
 
 def test_check_availability_marks_taken_from_jn(monkeypatch) -> None:
-    """With JOBNIMBUS_API_KEY set + a stubbed jobs response, the slot
-    grid shows "taken" for any window where a JN job's date_start
+    """With JOBNIMBUS_API_KEY set + a stubbed tasks response, the slot
+    grid shows "taken" for any window where a JN task's date_start
     falls in the morning/afternoon range. Regression guard for the
     duplicate-booking bug — if Sydney ever loses sight of real
-    bookings, this test breaks."""
+    calendar entries, this test breaks.
+
+    Calendar source is /tasks (record_type_name="Measure Call" etc.),
+    NOT /jobs. Probed May 2026 — Noland's reps populate date_start on
+    tasks, never on jobs."""
     import asyncio
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -359,15 +363,19 @@ def test_check_availability_marks_taken_from_jn(monkeypatch) -> None:
     monkeypatch.setenv("JOBNIMBUS_API_KEY", "test-key")
     monkeypatch.setattr(jn_module, "JOBNIMBUS_API_KEY", "test-key")
 
-    # Stub the search function — return one job at 10am Eastern on
-    # 2026-06-01 (a Monday). Should mark "morning" of that date taken.
+    # Stub the search function — return one Measure Call task at 10am
+    # Eastern on 2026-06-01 (a Monday). Should mark morning of that
+    # date taken.
     tz = ZoneInfo("America/New_York")
     booked_dt = datetime(2026, 6, 1, 10, 0, tzinfo=tz)
 
-    def fake_search(*, start_unix, end_unix, office=None, limit=100):
-        return [{"date_start": int(booked_dt.timestamp())}]
+    def fake_search(*, start_unix, end_unix, record_types=None, office=None, limit=200):
+        return [{
+            "date_start": int(booked_dt.timestamp()),
+            "record_type_name": "Measure Call",
+        }]
 
-    monkeypatch.setattr(jn_module, "search_jobs_by_date_range", fake_search)
+    monkeypatch.setattr(jn_module, "search_tasks_by_date_range", fake_search)
 
     fn = tools.check_availability.__wrapped__
     result = asyncio.run(fn(office="clermont", earliest_date="2026-06-01"))
@@ -397,10 +405,10 @@ def test_check_availability_jn_error_falls_back_safely(monkeypatch) -> None:
     monkeypatch.setenv("JOBNIMBUS_API_KEY", "test-key")
     monkeypatch.setattr(jn_module, "JOBNIMBUS_API_KEY", "test-key")
 
-    def broken_search(*, start_unix, end_unix, office=None, limit=100):
+    def broken_search(*, start_unix, end_unix, record_types=None, office=None, limit=200):
         raise jn_module.JobNimbusError("simulated network failure")
 
-    monkeypatch.setattr(jn_module, "search_jobs_by_date_range", broken_search)
+    monkeypatch.setattr(jn_module, "search_tasks_by_date_range", broken_search)
 
     fn = tools.check_availability.__wrapped__
     result = asyncio.run(fn(office="clermont", earliest_date="2026-06-01"))

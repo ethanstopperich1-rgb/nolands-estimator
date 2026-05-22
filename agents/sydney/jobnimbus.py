@@ -112,6 +112,171 @@ def _request(
 # ─── Resource methods ─────────────────────────────────────────────────
 
 
+# JobNimbus calendar architecture (Noland's deployment, May 2026):
+#
+#   /contacts → homeowner records (we create these)
+#   /jobs     → the work order (we create these; date_start stays empty)
+#   /tasks    → the calendar entries (THE actual schedule)
+#
+# Reps see /tasks on their JN calendar view. A "Measure Call" task is
+# the inspection appointment — record_type_name="Measure Call" + a real
+# date_start/date_end timestamp + owners=[{id:<user>}] for the rep.
+#
+# Other task record_type_name values in Noland's vocabulary:
+#   Phone Call (31%), Measure Call (18%), Task (17%), TIME OFF (6%),
+#   Adjuster Meeting (5%), Meeting (5%), Appointment (4%), Final Sales,
+#   Upload Permit/NOC, F&F-Measure Call, Self Gen-Measure Call, Install.
+#
+# Tasks do NOT link to contacts or jobs via the `primary` field (probed
+# 200 tasks: zero with primary populated). They live as standalone
+# calendar entries owned by users. To attach context (the contact's
+# name + address) we put it in `title` / `description`.
+#
+# Caveat: there is no /users endpoint to resolve owner IDs → display
+# names. Owners stay as opaque IDs until JN exposes a user resolver
+# or we map IDs to names per office via JOBNIMBUS_OWNERS_<OFFICE> env.
+# For Sarah's writes today we leave owners unset → the task lands in
+# Noland's unrouted-tasks queue and the dispatcher assigns it to a rep.
+
+
+_MEASURE_CALL_RECORD_TYPES = (
+    "Measure Call",
+    "Self Gen-Measure Call",
+    "F&F -Measure Call",
+    "Appointment",
+)
+
+
+def search_tasks_by_date_range(
+    *,
+    start_unix: int,
+    end_unix: int,
+    record_types: tuple[str, ...] | None = None,
+    office: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List tasks scheduled in [start_unix, end_unix] (UNIX seconds).
+
+    THIS is the function check_availability should call to know which
+    slots are booked. Tasks are JN's canonical calendar entries; jobs
+    don't carry date_start in Noland's org.
+
+    Filter shape (Elasticsearch DSL):
+      {"must": [
+        {"range": {"date_start": {"gte": <unix>, "lte": <unix>}}},
+        {"terms": {"record_type_name": ["Measure Call", ...]}}  // optional
+      ]}
+
+    record_types: tuple of task types to count as "busy". Defaults to
+        the inspection-style types Sarah should avoid double-booking
+        (Measure Call + variants + generic Appointment). Pass None to
+        match all task types (catches Phone Call, Meeting, Final Sales,
+        etc. as busy too — usually too aggressive).
+    office: kept for signature symmetry with search_jobs_by_date_range.
+        Currently ignored; per-office calendar isolation requires a
+        per-office user-ID allowlist we don't have wired yet."""
+    import urllib.parse as _urlparse
+
+    types_to_match = record_types if record_types is not None else _MEASURE_CALL_RECORD_TYPES
+    must: list[dict[str, Any]] = [
+        {
+            "range": {
+                "date_start": {"gte": start_unix, "lte": end_unix},
+            }
+        },
+    ]
+    if types_to_match:
+        # JN's Elasticsearch parser does NOT support the `terms` clause
+        # (returns 0 results silently). Use bool.should with one match
+        # per value instead — empirically verified May 2026 against
+        # Noland's live data.
+        must.append({
+            "bool": {
+                "should": [
+                    {"match": {"record_type_name": t}}
+                    for t in types_to_match
+                ],
+                "minimum_should_match": 1,
+            }
+        })
+    filter_json = json.dumps({"must": must})
+    params = {"filter": filter_json, "size": str(limit)}
+    qs = _urlparse.urlencode(params)
+    path = f"/tasks?{qs}"
+
+    logger.info(
+        "jobnimbus search_tasks date_range=[%d, %d] types=%s",
+        start_unix, end_unix, types_to_match,
+    )
+    response = _request("GET", path)
+    if isinstance(response, dict):
+        results = response.get("results") or response.get("activity") or []
+    else:
+        results = response if isinstance(response, list) else []
+    if not isinstance(results, list):
+        return []
+    return results
+
+
+def create_measure_call_task(
+    *,
+    title: str,
+    date_start_unix: int,
+    duration_minutes: int = 60,
+    description: str = "",
+    owner_id: str | None = None,
+    record_type_name: str = "Measure Call",
+) -> dict[str, Any]:
+    """Create a Measure Call task on JN's calendar.
+
+    title: shows on the rep's calendar — convention is
+        "{address}-{homeowner name}" so the rep recognizes it at a glance.
+    date_start_unix: appointment start, UNIX seconds.
+    duration_minutes: defaults to 60 (1-hour inspection window). Noland's
+        typical Measure Call is 30-60 min.
+    description: Sarah's full call summary lands here.
+    owner_id: JN user_id of the field rep. None → unrouted (lands in
+        the office's task queue, dispatcher assigns manually).
+    record_type_name: "Measure Call" by default. Override to
+        "Self Gen-Measure Call" for door-knock leads or "F&F -Measure
+        Call" for friends-and-family referrals if the office wants
+        attribution segmentation.
+
+    Returns the JN task response with jnid. Raises JobNimbusError on
+    failure — caller MUST fall through to MOCK + still create the
+    contact/job so the homeowner isn't lost.
+
+    Schema notes:
+      - JN's /tasks POST returns the created task with jnid.
+      - date_end is derived from date_start + duration_minutes since
+        JN doesn't auto-fill it from a duration field.
+      - hide_from_calendarview=False is the default — task SHOULD show
+        on the rep's calendar UI.
+      - hide_from_tasklist=False is the default — task shows in the
+        task-list dashboard view too.
+    """
+    payload: dict[str, Any] = {
+        "record_type_name": record_type_name,
+        "title": title[:120],
+        "description": description[:5000] if description else "",
+        "date_start": int(date_start_unix),
+        "date_end": int(date_start_unix) + int(duration_minutes) * 60,
+        "all_day": False,
+        "priority": 0,
+        "is_completed": False,
+        "hide_from_calendarview": False,
+        "hide_from_tasklist": False,
+    }
+    if owner_id:
+        payload["owners"] = [{"id": owner_id}]
+
+    logger.info(
+        "jobnimbus create_measure_call_task title=%s date_start=%d duration=%dm owner=%s",
+        title[:30], date_start_unix, duration_minutes, owner_id or "(unrouted)",
+    )
+    return _request("POST", "/tasks", payload)
+
+
 def search_jobs_by_date_range(
     *,
     start_unix: int,

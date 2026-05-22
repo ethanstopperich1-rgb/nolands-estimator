@@ -428,7 +428,10 @@ async def book_inspection(
                         f"contact create returned no id: {contact}"
                     )
 
-            # 2. Create inspection job
+            # 2. Create the job (work-order record). date_start stays
+            #    empty here — Noland's reps don't use the job-level
+            #    appointment fields. The calendar entry is the TASK
+            #    we create in step 3.
             job = await asyncio.to_thread(
                 jobnimbus.create_inspection_job,
                 contact_id=contact_id,
@@ -441,7 +444,57 @@ async def book_inspection(
             )
             job_id = job.get("id") or job.get("job_id") or ""
 
-            # 3. Attach Sydney's call summary as a note
+            # 3. Create the calendar TASK. This is what actually shows
+            #    up on the field rep's JN calendar. Without this step
+            #    the job sits in the pipeline but no one sees the
+            #    appointment in their schedule view.
+            import datetime as _dt, zoneinfo as _zi
+            try:
+                tz = _zi.ZoneInfo("America/New_York")
+                start_h = 9 if time_window == "morning" else 13
+                start_dt = _dt.datetime.fromisoformat(date).replace(
+                    hour=start_h, tzinfo=tz
+                )
+                # Convention from probing Noland's tasks: title is
+                # "{address}-{name}" so the rep recognizes the entry
+                # in their calendar feed.
+                task_title = f"Measure Call-{address[:40]}-{name[:30]}"
+                task_desc = (
+                    f"Sydney booked {service_type} inspection.\n"
+                    f"Contact: {name} ({phone})\n"
+                    f"Window: {time_window} ({date})\n\n"
+                    f"{notes or ''}"
+                )
+                # Default unrouted (owner=None). Office dispatcher
+                # assigns to a specific rep from the unrouted-task
+                # queue. Per-office default owner via env var when
+                # the contractor wants automatic routing.
+                import os as _os
+                default_owner = _os.environ.get(
+                    f"JOBNIMBUS_DEFAULT_OWNER_ID_{office.upper()}"
+                ) or _os.environ.get("JOBNIMBUS_DEFAULT_OWNER_ID") or None
+
+                task = await asyncio.to_thread(
+                    jobnimbus.create_measure_call_task,
+                    title=task_title,
+                    date_start_unix=int(start_dt.timestamp()),
+                    duration_minutes=60,
+                    description=task_desc,
+                    owner_id=default_owner,
+                )
+                task_id = task.get("jnid") or task.get("id") or ""
+                logger.info(
+                    "jobnimbus task created task_id=%s owner=%s",
+                    task_id, default_owner or "(unrouted)",
+                )
+            except jobnimbus.JobNimbusError as e:
+                # Task creation failure does NOT fail the booking —
+                # contact + job were already saved. Log it; office will
+                # see the lead even without the calendar entry.
+                logger.warning("jobnimbus create_measure_call_task failed: %s", e)
+                task_id = ""
+
+            # 4. Attach Sydney's call summary as a note on the contact
             if notes:
                 try:
                     await asyncio.to_thread(
@@ -456,7 +509,8 @@ async def book_inspection(
                     logger.warning("jobnimbus attach_note failed: %s", e)
 
             redacted_real = {**redacted, "mode": "jobnimbus",
-                             "contact_id": contact_id, "job_id": job_id}
+                             "contact_id": contact_id, "job_id": job_id,
+                             "task_id": task_id}
             _log_tool_call("book_inspection", redacted_real)
             await _emit_tool_fired("book_inspection", redacted_real)
             return {
@@ -659,21 +713,28 @@ async def check_availability(
             range_end = __dt.datetime.combine(
                 last_date, __dt.time(23, 59), tzinfo=tz
             )
-            jobs = await _asyncio.to_thread(
-                jobnimbus.search_jobs_by_date_range,
+            # Query TASKS (not jobs) — Noland's calendar lives on the
+            # tasks endpoint. Jobs don't carry date_start in their
+            # org. The "Measure Call" record_type is the inspection
+            # appointment; "Appointment" is the generic catch-all.
+            tasks = await _asyncio.to_thread(
+                jobnimbus.search_tasks_by_date_range,
                 start_unix=int(range_start.timestamp()),
                 end_unix=int(range_end.timestamp()),
-                office=office,
+                # Default tuple in jobnimbus.py covers Measure Call +
+                # variants + generic Appointment. Don't broaden to
+                # Phone Call etc. — those don't block field-rep
+                # availability.
             )
 
-            # Bucket booked job timestamps into (date, window) pairs.
-            # Morning = job starts in [9:00, 12:00). Afternoon = job
-            # starts in [12:00, 17:00). Anything outside is ignored
-            # for slot-painting purposes (after-hours / before-hours).
+            # Bucket task timestamps into (date, window) pairs.
+            # Morning = task starts in [9:00, 12:00). Afternoon =
+            # task starts in [12:00, 17:00). Anything outside is
+            # ignored for slot-painting purposes (after-hours / break).
             taken: set[tuple[str, str]] = set()
-            for job in jobs:
-                ds = job.get("date_start")
-                if not isinstance(ds, (int, float)):
+            for task in tasks:
+                ds = task.get("date_start")
+                if not isinstance(ds, (int, float)) or ds <= 0:
                     continue
                 local = __dt.datetime.fromtimestamp(ds, tz=tz)
                 hr = local.hour
@@ -690,9 +751,9 @@ async def check_availability(
 
             real_mode = "jobnimbus"
             logger.info(
-                "check_availability used JobNimbus: jobs_in_window=%d "
+                "check_availability used JobNimbus: tasks_in_window=%d "
                 "windows_taken=%d office=%s",
-                len(jobs),
+                len(tasks),
                 len(taken),
                 office,
             )
