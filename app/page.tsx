@@ -33,6 +33,14 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LanguageToggle, useLanguage } from "@/components/LanguageToggle";
 import { t } from "@/lib/i18n";
 import { BRAND_CONFIG } from "@/lib/branding";
+import {
+  AGENT_DISPLAY_NAME,
+  AGENT_CALLER_ID_E164,
+  AGENT_CALLER_ID_FORMATTED,
+  MAIN_PHONE_E164,
+  MAIN_PHONE_FORMATTED,
+  PRICING_CONFIRMED,
+} from "@/lib/agent-config";
 import { buildMarketingConsentText } from "@/lib/tcpa-consent";
 import Link from "next/link";
 import { BotIdClient } from "botid/client";
@@ -2622,12 +2630,14 @@ function BookedSuccessCard(): React.ReactElement {
         >
           {calling ? (
             <span>
-              <span style={{ fontWeight: 600 }}>Sydney is calling now</span>
+              <span style={{ fontWeight: 600 }}>
+                {AGENT_DISPLAY_NAME} is calling now
+              </span>
               {" — please answer."}
             </span>
           ) : (
             <span>
-              Sydney will call in{" "}
+              {AGENT_DISPLAY_NAME} will call in{" "}
               <span
                 className="tabular"
                 style={{ fontWeight: 700, color: "var(--vx-terra)" }}
@@ -2662,9 +2672,9 @@ function BookedSuccessCard(): React.ReactElement {
               lineHeight: 1.5,
             }}
           >
-            Sydney calls from{" "}
+            {AGENT_DISPLAY_NAME} calls from{" "}
             <a
-              href="tel:+13219851104"
+              href={`tel:${AGENT_CALLER_ID_E164}`}
               style={{
                 color: "var(--vx-terra)",
                 fontWeight: 700,
@@ -2672,7 +2682,7 @@ function BookedSuccessCard(): React.ReactElement {
                 borderBottom: "1px solid var(--vx-terra)",
               }}
             >
-              (321) 985-1104
+              {AGENT_CALLER_ID_FORMATTED}
             </a>
             . Tap to save it so it doesn&apos;t show as Spam Likely.
           </div>
@@ -2727,14 +2737,14 @@ function BookedSuccessCard(): React.ReactElement {
 
         {/* SMS fallback — for customers who change their mind about
             taking a live call. We can't programmatically cancel
-            Sydney from the client (dispatch already fired), but we
+            the dispatch from the client (it already fired), but we
             can offer a low-friction alternate path: text her the
             details, she'll pick it up on the next pass. The
             sms:?body= prefill lands in the system message composer
             on iOS + Android with the body ready to edit. */}
         <div className="text-center">
           <a
-            href="sms:+13219851104?body=Can%20we%20message%20instead%20of%20talking%3F"
+            href={`sms:${AGENT_CALLER_ID_E164}?body=Can%20we%20message%20instead%20of%20talking%3F`}
             style={{
               fontSize: "12px",
               letterSpacing: "0.04em",
@@ -2744,7 +2754,7 @@ function BookedSuccessCard(): React.ReactElement {
               padding: "2px 0",
             }}
           >
-            Prefer to text instead? Message Sydney
+            Prefer to text instead? Message {AGENT_DISPLAY_NAME}
           </a>
         </div>
       </div>
@@ -2967,7 +2977,7 @@ function RepCTACard({
         >
           Prefer to talk?{" "}
           <a
-            href="tel:+13525007663"
+            href={`tel:${MAIN_PHONE_E164}`}
             style={{
               color: "var(--vx-terra)",
               fontWeight: 600,
@@ -2975,7 +2985,7 @@ function RepCTACard({
               borderBottom: "1px solid var(--vx-terra)",
             }}
           >
-            (352) 500-ROOF
+            {MAIN_PHONE_FORMATTED}
           </a>
         </div>
 
@@ -3812,46 +3822,88 @@ function TierCard({
         {tier.tier.name}
       </div>
 
-      {/* Price — serif tabular, hero number of the card. */}
-      <div style={{ textAlign: "center", marginBottom: "4px" }}>
-        <span
-          className="font-serif tabular"
-          style={{
-            fontSize: "28px",
-            fontWeight: 500,
-            color: "var(--vx-ink)",
-            letterSpacing: "-0.015em",
-            lineHeight: 1,
-          }}
-        >
-          ${tier.monthly.toLocaleString()}
-          <span
+      {/* Price — serif tabular, hero number of the card. Gated on
+          PRICING_CONFIRMED env var: when Noland's hasn't returned the
+          per-sqft rates yet, suppress the dollar values and show a
+          Pratfall "confirmed at walkthrough" line instead. Reframes
+          the missing price from "broken estimator" to "honest
+          contractor that doesn't quote sight-unseen." Flip the env
+          var the moment real pricing lands. */}
+      {PRICING_CONFIRMED ? (
+        <>
+          <div style={{ textAlign: "center", marginBottom: "4px" }}>
+            <span
+              className="font-serif tabular"
+              style={{
+                fontSize: "28px",
+                fontWeight: 500,
+                color: "var(--vx-ink)",
+                letterSpacing: "-0.015em",
+                lineHeight: 1,
+              }}
+            >
+              ${tier.monthly.toLocaleString()}
+              <span
+                style={{
+                  fontFamily: "var(--vx-font-ui)",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                  color: "var(--vx-muted)",
+                  marginLeft: "4px",
+                }}
+              >
+                /mo
+              </span>
+            </span>
+          </div>
+          <div
+            className="tabular"
             style={{
-              fontFamily: "var(--vx-font-ui)",
-              fontSize: "12px",
-              fontWeight: 600,
+              fontSize: "11px",
               letterSpacing: "0.04em",
               color: "var(--vx-muted)",
-              marginLeft: "4px",
+              fontFamily: "var(--vx-font-ui)",
+              textAlign: "center",
+              marginBottom: "12px",
             }}
           >
-            /mo
-          </span>
-        </span>
-      </div>
-      <div
-        className="tabular"
-        style={{
-          fontSize: "11px",
-          letterSpacing: "0.04em",
-          color: "var(--vx-muted)",
-          fontFamily: "var(--vx-font-ui)",
-          textAlign: "center",
-          marginBottom: "12px",
-        }}
-      >
-        est. ${tier.total.toLocaleString()} total
-      </div>
+            est. ${tier.total.toLocaleString()} total
+          </div>
+        </>
+      ) : (
+        <div
+          style={{
+            textAlign: "center",
+            marginBottom: "12px",
+            paddingTop: "4px",
+            paddingBottom: "4px",
+          }}
+        >
+          <div
+            className="font-serif"
+            style={{
+              fontSize: "15px",
+              fontWeight: 500,
+              color: "var(--vx-ink)",
+              lineHeight: 1.3,
+              marginBottom: "2px",
+            }}
+          >
+            Confirmed at walkthrough
+          </div>
+          <div
+            style={{
+              fontSize: "10.5px",
+              letterSpacing: "0.06em",
+              color: "var(--vx-muted)",
+              fontStyle: "italic",
+            }}
+          >
+            We don&apos;t quote sight-unseen
+          </div>
+        </div>
+      )}
 
       {/* Visible feature list — checkmarks. Always rendered, the
           conversion-critical piece of HI-2. */}

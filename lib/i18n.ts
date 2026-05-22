@@ -113,8 +113,13 @@ const en = {
   // Consent
   "consent.marketing":
     "By submitting, you agree to be contacted about your roofing project.",
+  // CRO P2.2 — humanized voice consent. Sarah is the homeowner-facing
+  // name (Destiny confirmed on the May 2026 onboarding form). FCC
+  // Feb 2024 AI-voice disclosure still satisfied: "AI assistant" is
+  // present in the SAME sentence as the name. Tests in
+  // tests/tcpa-consent.test.ts lock the disclosure phrase pattern.
   "consent.voice.label":
-    "Yes, call me with an AI voice assistant to schedule. I can hang up, say \"remove me,\" or reply STOP anytime.",
+    "Yes, Sarah (our AI assistant) can call to find a time. I can hang up, say \"remove me,\" or reply STOP anytime.",
   "consent.stop": "Reply STOP to opt out.",
   "consent.privacy_link": "Privacy Policy",
   "consent.terms_link": "Terms of Service",
@@ -232,7 +237,7 @@ const es: Record<StringKey, string> = {
   "consent.marketing":
     "Al enviar, aceptas que te contactemos sobre tu proyecto de techo.",
   "consent.voice.label":
-    "Sí, llámame con un asistente de voz AI para agendar. Puedo colgar, decir \"quítenme\" o responder STOP en cualquier momento.",
+    "Sí, Sarah (nuestra asistente de voz AI) puede llamarme para agendar. Puedo colgar, decir \"quítenme\" o responder STOP en cualquier momento.",
   "consent.stop": "Responde STOP para no recibir más mensajes.",
   "consent.privacy_link": "Política de Privacidad",
   "consent.terms_link": "Términos de Servicio",

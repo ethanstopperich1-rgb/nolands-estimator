@@ -78,7 +78,7 @@ block under the `--color-noland-*` namespace:
 Don't introduce other colors without a real design reason — the
 brand reads as "severe weather specialists" through restraint.
 
-## Services Noland's offers (locked)
+## Services Noland's offers (locked May 2026 per onboarding form)
 
 | Material | Notes |
 |---|---|
@@ -88,17 +88,61 @@ brand reads as "severe weather specialists" through restraint.
 | Flat (TPO / EPDM / mod-bit) | Commercial + low-slope residential |
 | **Solar** | New service line (May 2026). "Noland's Roofing Solar" sub-brand. |
 
-Plus renovations: drywall, gutters, soffit, fascia, siding, windows.
+Confirmed scope (from the May 2026 onboarding form Destiny returned):
+residential roofing, commercial, new construction, hail & storm
+repair, roof cleaning, windows, gutters, drywall, siding, soffit &
+fascia, solar roofing. Pole barns were explicitly crossed off.
 
-## Phone numbers
+## Service area (15 counties confirmed)
 
-- **Published / homeowner-facing:** (352) 500-ROOF — main published
-  Noland's line on door hangers + website
-- **Internal SIP routing:** `+13219851104` — wired to Sydney via
-  `voxaris-pitch/agents/sydney/setup_sip.py` (dispatch rule
-  `nolands-sydney`). Sydney's outbound caller-ID is also 321.
-- Decision pending: whether to forward 352 → 321 OR re-route Sydney
-  to live on 352 directly. Either works; not blocking launch.
+Lake · Volusia · Manatee · Lee · Orange · Seminole · Osceola ·
+Sarasota · Hillsborough · Marion · Brevard · Pasco · Hernando ·
+Citrus · Sumter
+
+Four offices: Clermont (HQ) · Orange City · Bradenton · Fort Myers.
+
+## Certifications (locked)
+
+- CertainTeed Shingle Master Premier
+- CertainTeed Triple Crown Champion (top 1% of US roofers)
+- BBB Accredited
+- Top 150 Roofing Contractors (Beacon)
+- Licensed General Contractor
+
+## Office hours
+
+Mon–Fri 8:00 AM – 5:00 PM (front office). Install crews 7:00 AM –
+7:00 PM. Sarah handles inbound after-hours.
+
+## Phone numbers (locked May 2026)
+
+- **Main office line — homeowner-facing:** `(352) 242-4322`. Where
+  Savannah, Myia, and Amanda answer in business hours. This is the
+  number on the "Prefer to talk?" escape hatch in the result-page
+  RepCTACard and the share-page header CTA. Confirmed on the
+  onboarding form Destiny returned.
+- **Sarah's outbound caller-ID (LK SIP trunk):** `+13219851104` —
+  wired via `voxaris-pitch/agents/sydney/setup_sip.py` (dispatch
+  rule `nolands-sydney`). The number homeowners see in the
+  BookedSuccessCard "save to contacts" prompt so the call doesn't
+  show as Spam Likely.
+- **Hot-transfer priority order:** Savannah → Myia → Amanda. All
+  three answer the 352-242-4322 line. Sarah's `transfer_to_human`
+  tool routes to that number; the office's phone tree handles the
+  per-person priority.
+
+The previously-listed `(352) 500-ROOF` number is **NOT** the real
+main line — that was a marketing aspiration that either never went
+live or got retired. Don't publish it.
+
+## Agent identity (customer-facing)
+
+- **Display name: Sarah.** Female voice, formal tone. Lives as
+  `AGENT_DISPLAY_NAME` in `lib/agent-config.ts` and as the
+  `AGENT_DISPLAY_NAME` env var in voxaris-pitch / LK Cloud secrets.
+- **Codename: Sydney.** The LK agent worker module name. Internal
+  identifier only — never shown to homeowners. Don't conflate the
+  two.
 
 ## Architectural invariants (carried over from voxaris-pitch)
 

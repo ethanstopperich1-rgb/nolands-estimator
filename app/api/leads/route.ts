@@ -684,7 +684,14 @@ export async function POST(req: Request) {
     // fork is Noland's-only so the fallback names the correct sender,
     // not the upstream platform vendor.
     const officeName = officeBranding?.displayName ?? "Noland's Roofing";
-    const agentName = officeBranding?.livekitAgentName ?? "Sydney";
+    // Default agent display name. "Sydney" is the LiveKit worker
+    // codename in voxaris-pitch; the homeowner-facing name was
+    // confirmed as "Sarah" on the Noland's onboarding form. When
+    // future white-label deploys ship under this codebase, set
+    // offices.livekit_agent_name to the contractor's preferred
+    // display name. Stays in lockstep with lib/agent-config.ts
+    // AGENT_DISPLAY_NAME so SMS + result-page copy never drift.
+    const agentName = officeBranding?.livekitAgentName ?? "Sarah";
     const estimateLine =
       body.estimateLow && body.estimateHigh
         ? t("sms.estimate_range", preferredLanguage, {
