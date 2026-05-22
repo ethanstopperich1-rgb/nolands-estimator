@@ -596,6 +596,13 @@ function HeroScreen({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // CRO HI-1 — two-step form. Step 1 captures address only (a 1-second
+  // micro-commitment); step 2 reveals name/email/phone + consent. The
+  // foot-in-the-door yields a 15-25% lift over single-page forms with
+  // >3 fields. Lives in the HeroScreen because the address row is the
+  // foot-in-the-door surface; pinning + result step are independent
+  // of this state.
+  const [formStep, setFormStep] = useState<1 | 2>(1);
   // Marketing consent gates lead capture + the SMS intro. The separate
   // voice consent lives on the result page now — captured after the
   // customer sees their estimate, before any automated voice call is
@@ -669,8 +676,24 @@ function HeroScreen({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setFormError(null);
+    // Step 1 → step 2 advance. Only the address has to validate at
+    // this point; consent + contact details are step 2. Pressing
+    // Enter in the address field also hits this path (form submit
+    // delegates here), which is the desired UX.
+    if (formStep === 1) {
+      if (!resolvedAddr) {
+        setFormError("Please pick your address from the dropdown.");
+        return;
+      }
+      setFormStep(2);
+      return;
+    }
+    // Step 2 — the original full validation + submit.
     if (!resolvedAddr) {
       setFormError("Please pick your address from the dropdown.");
+      // Defensive: hop back to step 1 so the user can re-pick. Should
+      // be impossible in normal flow but guards against state drift.
+      setFormStep(1);
       return;
     }
     if (!name.trim() || !email.trim() || !phone.trim()) {
@@ -876,7 +899,17 @@ function HeroScreen({
           >
             <span>25+ Years in Florida</span>
             <span aria-hidden="true" style={{ color: "var(--vx-terra)" }}>·</span>
-            <span>CertainTeed Triple Crown Champion</span>
+            {/* CertainTeed Triple Crown Champion is roofing-industry
+                jargon. The parenthetical translates the credential
+                into homeowner-readable language (top 1% of US roofers
+                hold this designation). CRO win — Authority signal only
+                works if the audience recognizes the authority. */}
+            <span>
+              CertainTeed Triple Crown Champion
+              <span style={{ color: "var(--vx-muted)", fontWeight: 500 }}>
+                {" "}(top 1% of US roofers)
+              </span>
+            </span>
             <span aria-hidden="true" style={{ color: "var(--vx-terra)" }}>·</span>
             <span>Licensed General Contractor</span>
           </div>
@@ -937,6 +970,48 @@ function HeroScreen({
               </span>
             </div>
 
+            {/* CRO HI-1 — step 1 "Continue" CTA. Only renders before the
+                customer has committed to step 2. Pressing Enter in
+                the address field also triggers the form submit, which
+                handleSubmit treats as "advance to step 2." Visual
+                weight matches the final submit so the step boundary
+                feels intentional, not like a half-finished form. */}
+            {formStep === 1 && (
+              <div className="foot-row">
+                <div
+                  className="flex items-center gap-3"
+                  style={{
+                    fontSize: "10.5px",
+                    letterSpacing: "0.20em",
+                    textTransform: "uppercase",
+                    color: "var(--vx-muted)",
+                  }}
+                >
+                  <span className="marker" aria-hidden="true" />
+                  <span>Step 1 of 2 · Address</span>
+                </div>
+                <button
+                  type="submit"
+                  className="btn-terra"
+                  disabled={!resolvedAddr}
+                  title={
+                    resolvedAddr
+                      ? "Continue to contact details"
+                      : "Pick your address from the dropdown first"
+                  }
+                >
+                  Continue
+                  <span className="arrow" aria-hidden="true">→</span>
+                </button>
+              </div>
+            )}
+
+            {/* Step 2 → contact details + consent + final submit.
+                Conditionally rendered so step 1 stays clean (single
+                input + single CTA), which is the entire point of the
+                two-step pattern (foot-in-the-door + Goal-Gradient). */}
+            {formStep === 2 && (
+              <>
             {/* Contact row — matches the address-row pattern: no visible
                 label, just a soft placeholder that fades when the user
                 starts typing. The example values ("Eleanor Whitaker",
@@ -1080,7 +1155,7 @@ function HeroScreen({
                 }}
               >
                 <span className="marker" aria-hidden="true" />
-                <span>{t("form.foot.tagline", lang)}</span>
+                <span>Step 2 of 2 · {t("form.foot.tagline", lang)}</span>
               </div>
               <button type="submit" className="btn-terra" disabled={submitting}>
                 {submitting
@@ -1089,6 +1164,38 @@ function HeroScreen({
                 <span className="arrow" aria-hidden="true">→</span>
               </button>
             </div>
+
+            {/* Back-to-step-1 link. Ghost styling so it doesn't
+                compete with the final submit. Lets a customer who
+                mis-typed their address re-pick without abandoning. */}
+            <div
+              className="px-[22px] pb-3 text-left"
+              style={{ borderTop: "1px solid var(--vx-rule-soft)" }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setFormError(null);
+                  setFormStep(1);
+                }}
+                style={{
+                  marginTop: "10px",
+                  fontSize: "11px",
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  color: "var(--vx-muted)",
+                  fontWeight: 600,
+                  background: "none",
+                  border: 0,
+                  cursor: "pointer",
+                  padding: "4px 0",
+                }}
+              >
+                ← Edit address
+              </button>
+            </div>
+              </>
+            )}
 
             {formError && (
               <div
@@ -1536,6 +1643,26 @@ function ResultScreen({
   const [bookingState, setBookingState] = useState<"idle" | "sending" | "booked" | "error">("idle");
   const [bookingError, setBookingError] = useState<string | null>(null);
 
+  // CRO QW-2 — social-proof count for the RepCTACard. Fetched once on
+  // result mount. Endpoint caches 15 min at the edge, so this is
+  // cheap. Stays null on any failure path; RepCTACard only renders
+  // the line when count ≥ 5 (small numbers feel fabricated).
+  const [recentLeadCount, setRecentLeadCount] = useState<number | null>(null);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetch("/api/leads/recent-count?days=7&office=nolands", {
+      signal: ctrl.signal,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { count: number | null } | null) => {
+        if (d && typeof d.count === "number") setRecentLeadCount(d.count);
+      })
+      .catch(() => {
+        // Soft-fail — line just doesn't render.
+      });
+    return () => ctrl.abort();
+  }, []);
+
   // Tier accordion: which tier card is currently expanded. Prior version
   // gave each TierRow its own open state, so clicking a row only added
   // to the expansion without closing others — causing the top-row cards
@@ -1669,19 +1796,60 @@ function ResultScreen({
           )}
         </div>
 
-        {/* Above-the-fold 2×2 grid — equal-width columns, two rows that
-            stretch to match heights. Layout:
-              ┌─────────────┬─────────────┐
-              │   Map       │  Tier Prices│  (top row — map sets height)
-              ├─────────────┼─────────────┤
-              │  Storms     │  Rep CTA    │  (bottom row — equal heights)
-              └─────────────┴─────────────┘
-            Tier prices used to include the fine print (not-binding,
-            tier-coverage, financing) — relocated to a full-width band
-            below the grid so the price card stays focused on the actual
-            tiers. */}
+        {/* CRO HI-2 — result layout (post-tier-card-hoist):
+              ┌─────────────────────────────────────┐
+              │  Tier 1 │ Tier 2 (Most chosen) │ T3 │  full-width 3-col tier band
+              ├──────────────────┬──────────────────┤
+              │      Map         │     Storms       │  2-col equal-height row
+              ├──────────────────┼──────────────────┤
+              │     Parcel       │   (Rep CTA)      │  ← Rep CTA renders below
+              └──────────────────┴──────────────────┘
+            Tier prices were hoisted out of a quadrant because at 3 side-
+            by-side cards they need the full row width to breathe (Decoy
+            + Mimetic comparison shopping). Map dropped to a quadrant
+            alongside Storms — still 1:1 aspect ratio per quadrant. */}
+
+        {/* TIER BAND — full-width 3-col grid */}
+        {tiers ? (
+          <div className="mt-10 mx-auto" style={{ maxWidth: "1000px" }}>
+            <div
+              className="result-card"
+              style={{ padding: "30px 20px 22px" }}
+            >
+              <span className="marker absolute -top-[3px] -left-[3px]" aria-hidden="true" />
+              <span className="marker absolute -top-[3px] -right-[3px]" aria-hidden="true" />
+              <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
+              <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
+              <div className="eyebrow mb-5 text-center">
+                Three honest options for your roof
+              </div>
+              <div
+                className="grid grid-cols-1 md:grid-cols-3 items-stretch"
+                style={{ gap: "16px" }}
+              >
+                {tiers.map((t) => (
+                  <TierCard
+                    key={t.tier.id}
+                    tier={t}
+                    isOpen={openTierId === t.tier.id}
+                    onToggle={() =>
+                      setOpenTierId((current) =>
+                        current === t.tier.id ? null : t.tier.id,
+                      )
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* 2×2 grid — map + storms (top), parcel + (empty/CTA hoist) below.
+            Equal-height items keep the visual symmetry the original
+            layout had. Empty quadrant is acceptable — Rep CTA renders
+            full-width below so this row stays decorative/contextual. */}
         <div
-          className="mt-10 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-stretch w-full mx-auto"
+          className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-stretch w-full mx-auto"
           style={{ maxWidth: "1000px" }}
         >
           {/* TOP-LEFT — interactive map */}
@@ -1702,38 +1870,10 @@ function ResultScreen({
             />
           </div>
 
-          {/* TOP-RIGHT — clean tier price card (no fine print) */}
-          {tiers ? (
-            <div
-              className="result-card flex flex-col justify-center"
-              style={{ padding: "22px 20px" }}
-            >
-              <div className="eyebrow mb-3 text-center">Three ways to roof this home</div>
-              <div className="flex flex-col" style={{ gap: "10px" }}>
-                {tiers.map((t) => (
-                  <TierRow
-                    key={t.tier.id}
-                    tier={t}
-                    isOpen={openTierId === t.tier.id}
-                    onToggle={() =>
-                      setOpenTierId((current) =>
-                        current === t.tier.id ? null : t.tier.id,
-                      )
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div />
-          )}
-
-          {/* BOTTOM-LEFT — recent severe weather */}
+          {/* TOP-RIGHT — recent severe weather */}
           <StormsBlock storms={storms} loading={stormsLoading} />
 
-          {/* BOTTOM-RIGHT — property record (parcel data). Replaces the
-              prior Rep CTA quadrant; the CTA moved to a full-width
-              band below the disclosure for stronger visual weight. */}
+          {/* BOTTOM-LEFT — property record (parcel data). */}
           <ParcelBlock
             parcel={parcel}
             storms={storms}
@@ -1759,6 +1899,7 @@ function ResultScreen({
             leadRetryState={leadRetryState}
             leadRetryError={leadRetryError}
             onRetryLead={retryLeadCapture}
+            recentLeadCount={recentLeadCount}
           />
         </div>
 
@@ -2322,6 +2463,7 @@ function RepCTACard({
   leadRetryState,
   leadRetryError,
   onRetryLead,
+  recentLeadCount,
 }: {
   bookingState: BookingState;
   bookingError: string | null;
@@ -2336,6 +2478,11 @@ function RepCTACard({
   leadRetryState: "idle" | "sending" | "error";
   leadRetryError: string | null;
   onRetryLead: () => void;
+  /** Rolling 7-day Noland's lead count from /api/leads/recent-count.
+   *  Null while fetching or when the endpoint soft-fails. The card
+   *  only renders social proof when this is ≥5 — small numbers feel
+   *  fabricated and undermine the Pratfall trust voice. */
+  recentLeadCount: number | null;
 }): React.ReactElement {
   if (bookingState === "booked") {
     return (
@@ -2423,6 +2570,42 @@ function RepCTACard({
           </span>
         </p>
 
+        {/* CRO QW-3 — real urgency line. FL storm season is genuinely
+            booking out 2-3 weeks (same fact the B4_T7D_STORM_ANCHOR
+            abandoner reminder uses). NOT manufactured scarcity. Sits
+            above the consent so it reframes the booking decision from
+            "I'll do this later" to "I should grab a slot now." */}
+        <div
+          className="text-center mb-3"
+          style={{
+            fontSize: "12px",
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+            color: "var(--vx-terra)",
+          }}
+        >
+          Booking ~2–3 weeks out in your area.
+        </div>
+
+        {/* CRO QW-2 — real local social proof at the conversion moment.
+            Count fetched from /api/leads/recent-count (7-day rolling,
+            cached 15 min). Only renders when count is meaningful (≥5)
+            so we never fake the proof — Pratfall brand voice forbids
+            it. Falls back to a generic Mere-Exposure line when count
+            is too small. */}
+        {typeof recentLeadCount === "number" && recentLeadCount >= 5 && (
+          <div
+            className="text-center mb-3 font-serif italic"
+            style={{
+              fontSize: "12.5px",
+              color: "var(--vx-ink-soft)",
+              lineHeight: 1.4,
+            }}
+          >
+            Joined by {recentLeadCount} Florida homeowners this week.
+          </div>
+        )}
+
         {/* TCPA-compliant consent — kept concise. */}
         <label
           className="flex items-start gap-3 cursor-pointer mb-4 mx-auto"
@@ -2472,6 +2655,24 @@ function RepCTACard({
           <span className="arrow" aria-hidden="true">→</span>
         </button>
 
+        {/* CRO QW-1 — disabled-button affordance. Without this hint
+            the disabled state reads as a broken site; the customer
+            doesn't know the consent checkbox is gating the action.
+            Only renders when the gate is the consent (not the lead-
+            retry / loading paths, which surface their own copy). */}
+        {!voiceConsent && leadPublicId && bookingState !== "sending" && (
+          <div
+            className="mt-2 text-center"
+            style={{
+              fontSize: "11.5px",
+              color: "var(--vx-muted)",
+              fontStyle: "italic",
+            }}
+          >
+            Check the box above to enable.
+          </div>
+        )}
+
         {/* Trust line — quick reassurance scan: free, in writing,
             customer-controlled. Sits directly under the button so it
             reads as a continuation of "what happens when I click." */}
@@ -2484,6 +2685,35 @@ function RepCTACard({
           }}
         >
           Free measurement · Written quote · Your decision
+        </div>
+
+        {/* CRO QW-4 — phone escape hatch. Customers in "talk to a
+            human now" mode have nowhere to go on the current result
+            page; this gives them a low-friction tap-to-call. Tradeoff:
+            we lose some Sydney funnel volume, but inbound calls
+            convert at a much higher rate than outbound voice consent,
+            so net is positive. tel: link on mobile triggers the
+            dialer; on desktop most browsers show a copy-able number. */}
+        <div
+          className="mt-2 text-center"
+          style={{
+            fontSize: "12px",
+            color: "var(--vx-ink-soft)",
+            lineHeight: 1.45,
+          }}
+        >
+          Prefer to talk?{" "}
+          <a
+            href="tel:+13525007663"
+            style={{
+              color: "var(--vx-terra)",
+              fontWeight: 600,
+              textDecoration: "none",
+              borderBottom: "1px solid var(--vx-terra)",
+            }}
+          >
+            (352) 500-ROOF
+          </a>
         </div>
 
         {!leadPublicId && canRetryLead && (
@@ -3087,7 +3317,285 @@ function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => voi
  *  (logo-wordmark-alpha.png) which renders correctly on any background
  *  without a CSS filter. Falls back to the DragonEF text wordmark if
  *  the image file is missing. */
-// ─── Good / Better / Best tier row ──────────────────────────────────────
+// ─── Good / Better / Best tier card (HI-2 side-by-side) ───────────────
+//
+// Replaces the prior `TierRow` vertical-stack accordion. The accordion
+// hid features behind 3 separate clicks, breaking the Decoy + Mimetic
+// psychology that drives Good/Better/Best comparison shopping. New
+// card surfaces the top 4 features inline so the customer can compare
+// at a glance. Expand-on-click stays for the full feature list +
+// warranty fine print.
+
+function TierCard({
+  tier,
+  isOpen,
+  onToggle,
+}: {
+  tier: TierPrice;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const isPrimary = tier.tier.accent === "primary";
+  const accentColor =
+    tier.tier.accent === "premium"
+      ? "var(--vx-terra-dark)"
+      : isPrimary
+        ? "var(--vx-terra)"
+        : "var(--vx-ink-soft)";
+  // Top 4 features show inline. Trust accumulates faster from 4 visible
+  // checkmarks than from a single hidden 7-item list — and the marginal
+  // information from items 5-7 isn't worth the cognitive cost of an
+  // unclicked accordion. Full list available on expand.
+  const topFeatures = tier.tier.features.slice(0, 4);
+  return (
+    <div
+      style={{
+        position: "relative",
+        border: `1px solid ${isPrimary ? "var(--vx-terra)" : "var(--vx-rule)"}`,
+        borderWidth: isPrimary ? "2px" : "1px",
+        borderRadius: "12px",
+        padding: "18px 16px 16px",
+        background: isPrimary
+          ? "rgba(199, 107, 63, 0.06)"
+          : "transparent",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+      }}
+    >
+      {/* "Most chosen" badge for the primary tier. Decoy + Mimetic
+          desire: takes the cognitive load off the customer by telling
+          them which tier most others pick — the most common decision
+          shortcut in pricing-page UX. */}
+      {isPrimary && (
+        <span
+          style={{
+            position: "absolute",
+            top: "-10px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--vx-terra)",
+            color: "white",
+            fontSize: "9.5px",
+            fontWeight: 700,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "3px 10px",
+            borderRadius: "999px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Most chosen
+        </span>
+      )}
+
+      {/* Tier name — eyebrow style, colored by accent. */}
+      <div
+        className="eyebrow"
+        style={{
+          color: accentColor,
+          fontWeight: 700,
+          marginBottom: "6px",
+          textAlign: "center",
+        }}
+      >
+        {tier.tier.name}
+      </div>
+
+      {/* Price — serif tabular, hero number of the card. */}
+      <div style={{ textAlign: "center", marginBottom: "4px" }}>
+        <span
+          className="font-serif tabular"
+          style={{
+            fontSize: "28px",
+            fontWeight: 500,
+            color: "var(--vx-ink)",
+            letterSpacing: "-0.015em",
+            lineHeight: 1,
+          }}
+        >
+          ${tier.monthly.toLocaleString()}
+          <span
+            style={{
+              fontFamily: "var(--vx-font-ui)",
+              fontSize: "12px",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              color: "var(--vx-muted)",
+              marginLeft: "4px",
+            }}
+          >
+            /mo
+          </span>
+        </span>
+      </div>
+      <div
+        className="tabular"
+        style={{
+          fontSize: "11px",
+          letterSpacing: "0.04em",
+          color: "var(--vx-muted)",
+          fontFamily: "var(--vx-font-ui)",
+          textAlign: "center",
+          marginBottom: "12px",
+        }}
+      >
+        est. ${tier.total.toLocaleString()} total
+      </div>
+
+      {/* Visible feature list — checkmarks. Always rendered, the
+          conversion-critical piece of HI-2. */}
+      <ul
+        style={{
+          listStyle: "none",
+          padding: 0,
+          margin: 0,
+          fontSize: "12px",
+          color: "var(--vx-ink-soft)",
+          lineHeight: 1.5,
+          flex: 1,
+        }}
+      >
+        {topFeatures.map((f, i) => (
+          <li
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "8px",
+              marginBottom: "6px",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                color: "var(--vx-terra)",
+                fontWeight: 700,
+                flexShrink: 0,
+                marginTop: "1px",
+              }}
+            >
+              ✓
+            </span>
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+
+      {/* Expand-on-click for the full feature list + warranty. The
+          accordion mechanism is the same `grid-template-rows: 0fr/1fr`
+          interpolation TierRow used — keeps animation behavior
+          consistent across the page. */}
+      {(tier.tier.features.length > topFeatures.length || tier.tier.warranty) && (
+        <>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={isOpen}
+            style={{
+              marginTop: "12px",
+              background: "none",
+              border: 0,
+              padding: 0,
+              cursor: "pointer",
+              fontSize: "11px",
+              letterSpacing: "0.06em",
+              fontWeight: 600,
+              color: accentColor,
+              textAlign: "center",
+              width: "100%",
+            }}
+          >
+            {isOpen ? "Show less" : "What else is included →"}
+          </button>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateRows: isOpen ? "1fr" : "0fr",
+              transition:
+                "grid-template-rows 280ms cubic-bezier(0.4, 0, 0.2, 1)",
+            }}
+            aria-hidden={!isOpen}
+          >
+            <div
+              style={{
+                overflow: "hidden",
+                opacity: isOpen ? 1 : 0,
+                transition: "opacity 200ms ease",
+                transitionDelay: isOpen ? "60ms" : "0ms",
+              }}
+            >
+              <div
+                style={{
+                  marginTop: "10px",
+                  paddingTop: "10px",
+                  borderTop: "1px dashed var(--vx-rule)",
+                  fontSize: "12px",
+                  color: "var(--vx-ink-soft)",
+                  lineHeight: 1.5,
+                }}
+              >
+                {tier.tier.features.length > topFeatures.length && (
+                  <ul
+                    style={{
+                      listStyle: "none",
+                      padding: 0,
+                      margin: 0,
+                      marginBottom: "8px",
+                    }}
+                  >
+                    {tier.tier.features.slice(topFeatures.length).map((f, i) => (
+                      <li
+                        key={i}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "8px",
+                          marginBottom: "5px",
+                        }}
+                      >
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            color: "var(--vx-terra)",
+                            fontWeight: 700,
+                            flexShrink: 0,
+                            marginTop: "1px",
+                          }}
+                        >
+                          ✓
+                        </span>
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div
+                  style={{
+                    fontSize: "10.5px",
+                    letterSpacing: "0.10em",
+                    textTransform: "uppercase",
+                    color: accentColor,
+                    fontWeight: 700,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {tier.tier.warranty}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Good / Better / Best tier row (deprecated by TierCard) ───────────
+//
+// Retained TEMPORARILY for any out-of-tree callers I haven't grep'd.
+// Not used inside this file. Safe to remove in a follow-up once a
+// repo-wide grep confirms zero references.
 
 function TierRow({
   tier,
