@@ -2591,9 +2591,10 @@ type BookingState = "idle" | "sending" | "booked" | "error";
 // answer right now."
 //
 // This card addresses all four:
-//   - Live countdown that ticks down from 30s, then sits on "Sydney
+//   - Live countdown that ticks down from 10s, then sits on "Sydney
 //     is calling now…" (purely visual — the actual dispatch fired
-//     server-side the moment booking succeeded).
+//     server-side the moment booking succeeded; Sarah's LK+Twilio
+//     SIP leg typically connects in 5-10s).
 //   - Tap-to-call line that pre-populates Sydney's caller-ID
 //     (321-985-1104) so the customer can save it to contacts and
 //     avoid the Spam-Likely screening that kills outbound conversion.
@@ -2603,11 +2604,13 @@ type BookingState = "idle" | "sending" | "booked" | "error";
 //     rather not talk live.
 
 function BookedSuccessCard(): React.ReactElement {
-  // Countdown clock from 30 → 0. Sydney's outbound dispatch typically
-  // connects in 5-15 seconds, but homeowners read "in a few minutes"
-  // as a vague window — a visible ticking clock concretizes the wait
-  // and short-circuits the impulse to walk away from the phone.
-  const [secondsLeft, setSecondsLeft] = useState(30);
+  // Countdown clock from 10 → 0. Sydney's outbound dispatch typically
+  // connects in 5-10 seconds (LK Cloud + Twilio SIP cold start), and
+  // the homeowner-facing copy promises a 10-second callback. Keeps the
+  // clock honest — a 30s clock that finishes BEFORE Sarah dials makes
+  // the page feel broken, but a 10s clock ending right as the phone
+  // rings makes the system feel real-time.
+  const [secondsLeft, setSecondsLeft] = useState(10);
   useEffect(() => {
     if (secondsLeft <= 0) return;
     const t = setTimeout(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
