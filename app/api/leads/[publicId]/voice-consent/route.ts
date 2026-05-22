@@ -146,12 +146,7 @@ export async function POST(
     .from("consents")
     .select("id", { head: true, count: "exact" })
     .eq("lead_id", lead.id)
-    // Match the same value the INSERT below uses.  Migration 0021 will
-    // widen the CHECK to permit a distinct "call_recording" tag again;
-    // until then, voice-consent rows share the tcpa_marketing label
-    // with the form-time row (disclosure_text disambiguates them).
-    .eq("consent_type", "tcpa_marketing")
-    .ilike("disclosure_text", "%voice%");
+    .eq("consent_type", "call_recording");
   if (existingErr) {
     console.error(
       "[voice-consent] existing-consent lookup failed:",
@@ -181,17 +176,10 @@ export async function POST(
   const { error: consentErr } = await supabase.from("consents").insert({
     office_id: lead.office_id,
     lead_id: lead.id,
-    // Production CHECK constraint on consents.consent_type rejects
-    // "call_recording" (verified May 2026 from 500 response code
-    // 23514). Until migration 0021_widen_consent_type_check is applied
-    // in Supabase to permit the full vocabulary listed in the schema
-    // comment, we write "tcpa_marketing" — the value /api/leads has
-    // been writing successfully on every form submit, so we know
-    // it's in the live constraint. The disclosure_text field carries
-    // the distinguishing voice-call authorization language, so the
-    // TCPA audit trail remains intact (case law cares about the
-    // disclosure content, not the type column label).
-    consent_type: "tcpa_marketing",
+    // Distinct from the form-time `tcpa_marketing` row — this is the
+    // voice-call authorization specifically. Migration 0021 widened
+    // the prod CHECK constraint to permit this value (May 2026).
+    consent_type: "call_recording",
     disclosure_text: disclosureText,
     email: null,
     phone: lead.phone,
