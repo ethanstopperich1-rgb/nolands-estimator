@@ -133,11 +133,22 @@ def search_jobs_by_date_range(
     Filter shape per JobNimbus REST docs (Elasticsearch DSL):
       {"must": [{"range": {"date_start": {"gte": <unix>, "lte": <unix>}}}]}
 
-    Office filtering: optional. JN orgs without per-office segmentation
-    pass office=None and get all jobs for the org. For Noland's, the
-    sales_rep_name custom field encodes office as "Sydney (clermont)"
-    etc.; we filter on the office substring to keep the dispatcher's
-    calendar to its own office's bookings."""
+    Office filtering: was previously a `sales_rep_name: "Sydney ({office})"`
+    match clause. Removed May 2026 after probing Noland's real JN org —
+    sales_rep_name holds the field rep's real name (Nathan Mitchell,
+    Raymond Aviles, Gregory Noland, …), NOT a "Sydney ({office})" marker.
+    The match was filtering out 100% of real jobs, making check_availability
+    silently mock-only. The office argument is kept in the signature for
+    API stability but no longer narrows the query — calendar reads pull
+    the entire org's booked jobs. Override the search-wide pull with
+    JOBNIMBUS_DISABLE_CALENDAR_READS=true if you want forced-mock mode.
+
+    Known limitation: Noland's reps do NOT populate date_start on most
+    job records (probed 50/50 had date_start=0). This filter will return
+    zero results for the foreseeable future, and check_availability will
+    fall back to mock-friction calendar. That's intentional — once the
+    office starts using JN's calendar OR we wire Google Calendar, this
+    same function lights up real availability without code changes."""
     import urllib.parse as _urlparse
 
     must: list[dict[str, Any]] = [
@@ -147,10 +158,9 @@ def search_jobs_by_date_range(
             }
         },
     ]
-    if office:
-        must.append(
-            {"match": {"sales_rep_name": f"Sydney ({office})"}}
-        )
+    # Office argument intentionally ignored — see docstring. Logged so
+    # the operator can see which office requested availability and
+    # correlate against the LK call ID.
     filter_json = json.dumps({"must": must})
     params = {
         "filter": filter_json,
@@ -191,23 +201,33 @@ def create_contact(
 
     Returns the JN response (includes JobNimbus contact_id). On failure
     raises JobNimbusError — caller falls back to MOCK + webhook + log."""
+    # Schema discovered from probing Noland's JN (May 2026):
+    #   record_type_name on contacts = "Homeowner" (95%) / "Subcontractor"
+    #     / "Business". We default to "Homeowner" — Sarah only creates
+    #     homeowner contacts.
+    #   status_name = "New" (92%) / "Active" (8%). Sarah-created contacts
+    #     are brand new leads → "New".
+    #   source / source_name — JN accepts both keys; we send `source` and
+    #     let JN normalize. Default falls into Noland's "Web Site / SEO"
+    #     bucket so Voxaris-sourced leads are attributable in their
+    #     dashboards. Override via JOBNIMBUS_SOURCE_NAME env or `source`
+    #     arg if the office wants its own attribution string.
     payload: dict[str, Any] = {
         "first_name": first_name,
         "last_name": last_name,
         "mobile_phone": phone,
-        "source": source,
-        # JobNimbus expects status_name "Lead" for new lead contacts
-        # (vs "Active" for converted customers, "Inactive" for churned).
-        "status_name": "Lead",
+        "source_name": source,
+        "status_name": "New",
+        "record_type_name": "Homeowner",
     }
     if email:
         payload["email"] = email
     if address:
         payload["address_line1"] = address
-    if office:
-        # Custom field — only present in JN orgs that defined it.
-        # Safe to send; ignored when not configured.
-        payload["sales_rep_name"] = f"Sydney ({office})"
+    # sales_rep_name deliberately NOT set here — see the docstring on
+    # search_jobs_by_date_range. Noland's real reps own this field
+    # (Nathan, Raymond, Gregory…); writing "Sydney ({office})" would
+    # corrupt their assignment workflow. Let the office assign manually.
 
     logger.info(
         "jobnimbus create_contact phone_hash=%s office=%s",
@@ -241,17 +261,26 @@ def create_inspection_job(
     start_h = 9 if time_window == "morning" else 13
     end_h = 12 if time_window == "morning" else 17
 
+    # Schema from Noland's JN (May 2026): record_type_name on jobs is
+    # "Retail" (81%) / "Insurance" (15%) / "New Construction" (4%) —
+    # NOT a literal "Job". Storm-damage service maps to "Insurance"
+    # (claim work); everything else defaults to "Retail" (residential
+    # walk-in). status_name "Appointment Scheduled" matches Noland's
+    # pipeline (14% of all jobs sit in that bucket; reps move them
+    # forward from there).
+    record_type = "Insurance" if service_type == "storm_damage" else "Retail"
     payload = {
         "primary_contact_id": contact_id,
-        "record_type_name": "Job",
+        "record_type_name": record_type,
         "address_line1": address,
         "date_start": f"{date_iso}T{start_h:02d}:00:00",
         "date_end": f"{date_iso}T{end_h:02d}:00:00",
         "type_name": _service_type_to_jn(service_type),
         "description": notes[:2000] if notes else "",
-        "sales_rep_name": f"Sydney ({office})",
-        "status_name": "Inspection Scheduled",
+        "status_name": "Appointment Scheduled",
     }
+    # sales_rep_name deliberately NOT set — Noland's reps own this
+    # field. Office assigns manually after Sarah creates the job.
 
     logger.info(
         "jobnimbus create_inspection_job contact=%s date=%s window=%s svc=%s",
