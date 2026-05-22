@@ -97,6 +97,50 @@ def _hash_fragment(value: str | None) -> str | None:
     return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()[:12]
 
 
+def _is_after_hours() -> bool:
+    """True when the current Eastern Time falls outside Noland's office
+    hours (Mon-Fri 8am-5pm). Used to source-attribute Sarah's JN writes
+    so the office can ROI-track after-hours lead capture distinctly
+    from web-form estimator submissions.
+
+    Mirrors the logic in agent.py:pick_opener() so the source tag and
+    the verbatim opener never disagree about which mode we're in."""
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+    now = _dt.now(_ZI("America/New_York"))
+    is_weekday = now.weekday() < 5
+    is_business_hours = 8 <= now.hour < 17
+    return not (is_weekday and is_business_hours)
+
+
+def _resolve_source(base_label: str) -> str:
+    """Resolve the source_name tag for a JN contact write based on
+    when the call is happening. After-hours calls land in JN as
+    "Sarah After Hours" so Noland's reporting can split:
+
+      - "Voxaris Estimator"  → web-form leads (form submission path)
+      - "Sarah After Hours"  → inbound calls Sarah handled overnight /
+                               weekend (no live rep available)
+      - "Sarah Inbound"      → business-hours inbound calls Sarah
+                               handled (rep was unavailable / call
+                               overflow / overnight catchup)
+
+    Override per-deployment via JOBNIMBUS_SOURCE_AFTER_HOURS /
+    JOBNIMBUS_SOURCE_INBOUND env vars when a contractor wants their
+    own taxonomy strings.
+
+    `base_label` is the legacy default the caller would have used
+    pre-attribution (kept for backward compat / non-call code paths
+    like outbound estimator follow-up which already pass "Voxaris
+    Estimator · {lead_type}")."""
+    if _is_after_hours():
+        return os.environ.get("JOBNIMBUS_SOURCE_AFTER_HOURS", "Sarah After Hours")
+    # Business-hours inbound also gets attributed — every Sarah-handled
+    # call should be tagged so the office can measure call-volume vs
+    # web-form lead capture independently.
+    return os.environ.get("JOBNIMBUS_SOURCE_INBOUND", base_label)
+
+
 def _log_tool_call(title: str, redacted_summary: dict) -> None:
     """Structured single-line log of a tool invocation.
 
@@ -412,6 +456,11 @@ async def book_inspection(
                 first_name = parts[0] if parts else "Unknown"
                 last_name = parts[1] if len(parts) > 1 else "Unknown"
 
+                # Source attribution: after-hours / business-hours
+                # inbound → "Sarah After Hours" / "Sarah Inbound".
+                # Outbound estimator follow-ups never hit this branch
+                # (they reuse an existing contact_id from job metadata).
+                contact_source = _resolve_source("Voxaris Estimator")
                 contact = await asyncio.to_thread(
                     jobnimbus.create_contact,
                     first_name=first_name,
@@ -419,7 +468,7 @@ async def book_inspection(
                     phone=phone,
                     email=email or None,
                     address=address or None,
-                    source="Voxaris Estimator",
+                    source=contact_source,
                     office=office,
                 )
                 contact_id = contact.get("id") or contact.get("contact_id") or ""
@@ -583,6 +632,13 @@ async def log_lead(
                 first_name = parts[0] if parts else "Unknown"
                 last_name = parts[1] if len(parts) > 1 else "Lead"
 
+                # Source attribution for log_lead path. Combine the
+                # time-resolved label with the lead_type so the office
+                # can filter "Sarah After Hours · warranty_callback"
+                # separately from "Sarah After Hours · new_inspection".
+                contact_source = (
+                    f"{_resolve_source('Voxaris Estimator')} · {lead_type}"
+                )
                 contact = await asyncio.to_thread(
                     jobnimbus.create_contact,
                     first_name=first_name,
@@ -590,7 +646,7 @@ async def log_lead(
                     phone=phone,
                     email=email or None,
                     address=address or None,
-                    source=f"Voxaris Estimator · {lead_type}",
+                    source=contact_source,
                     office=None,
                 )
             contact_id = contact.get("id") or contact.get("contact_id") or ""
