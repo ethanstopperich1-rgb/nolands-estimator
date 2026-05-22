@@ -249,6 +249,21 @@ export async function createContact(
     if (process.env.JOBNIMBUS_SALES_REP_NAME) {
       body.sales_rep_name = process.env.JOBNIMBUS_SALES_REP_NAME;
     }
+    // Notify the intake team on every new estimator lead. JN routes
+    // the contact to each listed user's dashboard + sends in-app
+    // notifications. IDs are env-driven so swapping personnel never
+    // needs a code push. Comma-separated JN user IDs (m7qb…/8-hex).
+    //
+    // Locked May 2026 for Noland's: Destiny Jones, Steven Olesen,
+    // Savannah Huffman, Myiah Ragone.
+    const ownerIdsRaw = process.env.JOBNIMBUS_NEW_LEAD_OWNER_IDS || "";
+    const ownerIds = ownerIdsRaw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ownerIds.length > 0) {
+      body.owners = ownerIds.map((id) => ({ id }));
+    }
     const res = await jnFetch(`${BASE_URL}/contacts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
