@@ -242,9 +242,13 @@ export async function createContact(
       tags: input.tags ?? [],
       record_type_name: "Homeowner",
       status_name: "New",
-      source_name:
-        process.env.JOBNIMBUS_SOURCE_NAME ??
-        "Web Site / SEO - Internet Organic",
+      // Default source: "Voxaris Estimator" — gives Destiny + team a
+      // clean attribution bucket in JN reporting so they can ROI-track
+      // estimator leads vs AIM / Angie / Google Ads side-by-side.
+      // Free-form string; JN accepts any source_name and groups records
+      // by exact match in their dashboards. Override via env if the
+      // contractor wants to map us into their existing taxonomy.
+      source_name: process.env.JOBNIMBUS_SOURCE_NAME ?? "Voxaris Estimator",
     };
     if (process.env.JOBNIMBUS_SALES_REP_NAME) {
       body.sales_rep_name = process.env.JOBNIMBUS_SALES_REP_NAME;
