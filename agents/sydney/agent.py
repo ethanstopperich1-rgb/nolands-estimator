@@ -57,6 +57,34 @@ _PROMPT_FILE = (
 PROMPT_PATH = Path(__file__).parent / "prompts" / _PROMPT_FILE
 SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
 
+# ─── Agent display name (homeowner-facing) ────────────────────────────
+#
+# "Sydney" is the CODENAME — the LiveKit agent worker module, dispatch
+# rule (nolands-sydney), and the canonical name written throughout the
+# system prompt and source code. The DISPLAY NAME is what homeowners
+# actually hear in the opener + see in SMS.
+#
+# For the Noland's production deploy on LK Cloud, set the secret:
+#   AGENT_DISPLAY_NAME=Sarah
+# Destiny confirmed this on the May 2026 onboarding form (female
+# voice, formal tone, Sarah). The Voxaris demo deploy leaves the env
+# unset — defaults to "Sydney" so the demo brand stays self-consistent.
+#
+# Substitution is applied to BOTH the system prompt + the openers
+# below, so the LLM's self-concept ("I am Sarah") stays aligned with
+# what the caller hears ("Hi, this is Sarah"). If the two diverge, the
+# LLM will occasionally correct itself mid-call — bad UX, worse brand.
+AGENT_DISPLAY_NAME = os.environ.get("AGENT_DISPLAY_NAME", "Sydney").strip() or "Sydney"
+if AGENT_DISPLAY_NAME != "Sydney":
+    # Whole-word substitution to avoid accidentally munging unrelated
+    # tokens (none exist today, but future copy might). Re-running this
+    # at module load is cheap.
+    SYSTEM_PROMPT = SYSTEM_PROMPT.replace("Sydney", AGENT_DISPLAY_NAME)
+    logger.info(
+        "sydney agent rename applied: prompt + openers reference %r (was Sydney)",
+        AGENT_DISPLAY_NAME,
+    )
+
 # ─── English voice — Rime mistv3 "moraine" ────────────────────────────
 # Same voice as Cassie (Cassie-HICV) and Deedy (voxaris-vba/apps/agent).
 # Unified brand voice across all three agents — homeowners + GVR members
@@ -189,13 +217,13 @@ def _sanitize_for_prompt(value: object) -> object:
 # random call sample hears it immediately. Wording matches the consent
 # language in lib/tcpa-consent.ts ("AI voice assistant").
 OPENER_BUSINESS_HOURS = (
-    "Hi, this is Sydney, an AI assistant calling for Noland's Roofing. "
+    f"Hi, this is {AGENT_DISPLAY_NAME}, an AI assistant calling for Noland's Roofing. "
     + _RECORDING_DISCLOSURE +
     "How can I help you today?"
 )
 
 OPENER_AFTER_HOURS = (
-    "Hi, this is Sydney, an AI assistant calling for Noland's Roofing. "
+    f"Hi, this is {AGENT_DISPLAY_NAME}, an AI assistant calling for Noland's Roofing. "
     + _RECORDING_DISCLOSURE +
     "Our offices are closed right now, but I can get you on the schedule "
     "or take down your info and have someone reach out first thing. "
@@ -269,7 +297,7 @@ def build_outbound_opener(lead: "dict[str, object]") -> str:
         # the first sentence ("asistente de voz AI") matches the
         # consent-time language in lib/tcpa-consent.ts.
         return (
-            f"Hola {first_name}, soy Sydney, asistente de voz AI de {company}. "
+            f"Hola {first_name}, soy {AGENT_DISPLAY_NAME}, asistente de voz AI de {company}. "
             "Gracias por haber probado nuestro estimador de techo hace unos "
             "minutos. Quería hacerte un seguimiento personal, responder "
             "cualquier pregunta que tengas, y ver si podemos enviar a uno "
@@ -283,7 +311,7 @@ def build_outbound_opener(lead: "dict[str, object]") -> str:
         # See OPENER_BUSINESS_HOURS for the full reasoning. The literal
         # phrase "AI assistant" carries the disclosure; the rest of the
         # opener can stay warm + personalized.
-        f"Hey {first_name}, this is Sydney, an AI assistant with {company}. "
+        f"Hey {first_name}, this is {AGENT_DISPLAY_NAME}, an AI assistant with {company}. "
         "Thanks so much for running your roof through our estimator a "
         "few minutes ago. I wanted to personally follow up, answer any "
         "questions you have, and see if we can get one of our project "

@@ -5,6 +5,34 @@ before editing `agent.py`, `tools.py`, `events.py`, or the prompts.
 Most of these were learned the hard way and reverting them creates
 production / compliance regressions.
 
+## Display name vs. codename (added May 2026)
+
+**"Sydney" is the CODENAME** — the LiveKit worker module, the
+dispatch rule (`nolands-sydney`), the system-prompt canonical name,
+and the source-tree directory. Never customer-facing.
+
+**The DISPLAY NAME** — what the homeowner hears in the opener and
+sees in SMS — is set via the `AGENT_DISPLAY_NAME` env var:
+
+| Deploy | Env value | What the caller hears |
+|---|---|---|
+| Voxaris demo (`pitch.voxaris.io`) | unset (defaults to "Sydney") | "Hi, this is Sydney, an AI assistant…" |
+| Noland's production (LK Cloud) | `AGENT_DISPLAY_NAME=Sarah` | "Hi, this is Sarah, an AI assistant…" |
+
+The substitution is applied to BOTH the system prompt + the openers
+at module load. The LLM's self-concept stays aligned with what the
+caller hears — never have the prompt say "Sydney" while the opener
+says "Sarah," or the LLM will occasionally correct itself mid-call.
+
+Set in LiveKit Cloud project secrets:
+
+```sh
+AGENT_DISPLAY_NAME=Sarah
+```
+
+Source of truth on the Noland's side: the May 2026 onboarding form
+Destiny returned (female voice, formal tone, name "Sarah").
+
 ## Locked invariants (don't break these)
 
 ### 1. Every opener identifies as AI (FCC Feb 2024)
@@ -160,11 +188,34 @@ Twilio Console for the toll-free number.
 Homeowners see Noland's familiar main line on their incoming-call
 screen when Sydney follows up post-quote. Maximizes answer rate.
 
-**In-call transfer destinations (`ESCALATION_*_PHONE`):** stay empty
-(mock-transfer mode). When real transfers are needed later, set them
-to a DIFFERENT number than 321 — dialing 321 from Sydney would create
-a loop (321 routes back into Sydney). Use Noland's direct extension
-or a dedicated escalation DID instead.
+**In-call transfer destinations (`ESCALATION_*_PHONE`):** set all
+four to Noland's main office line `+13522424322` for the Noland's
+production deploy. Savannah → Myia → Amanda answer that line in
+priority order (the office's phone tree handles the per-person
+routing). For the Voxaris demo deploy, leave them empty — `transfer_
+to_human` runs in mock-transfer mode then.
+
+```sh
+# Set in LiveKit Cloud project secrets (or .env for local dev):
+ESCALATION_EMERGENCY_PHONE=+13522424322
+ESCALATION_WARRANTY_PHONE=+13522424322
+ESCALATION_SALES_PHONE=+13522424322
+ESCALATION_GENERAL_PHONE=+13522424322
+TRANSFER_CALLER_ID=+13219851104   # Sarah's outbound caller-ID
+```
+
+Why all four point at the same number for Noland's: the four
+`reason` categories (emergency / warranty / sales / general) are
+classified by Sarah so the rep who picks up at 352-242-4322 knows
+WHY they're being transferred to. Audit-trail benefit even when the
+physical destination is the same. Future-proofs per-reason routing
+if Noland's later wants emergencies to ring a different number than
+warranty calls.
+
+**`TRANSFER_CALLER_ID`:** the number Noland's reps see when Sarah
+bridges a transfer. Set to Sarah's outbound caller-ID `+13219851104`
+so a glance at the missed-call list tells the rep "this came from
+Sarah."
 
 **Why the forward-not-port pattern:** keeps the LK + Sydney wiring
 simple (one number, one dispatch rule). Makes 888 a pure

@@ -278,17 +278,29 @@ def test_outbound_chat_ctx_quoted_opener_matches_actual_opener() -> None:
     checks the chat_ctx STRING in agent.py contains the 'an AI assistant'
     phrase that mirrors the real opener."""
     from pathlib import Path
+    import re
     agent_src = (
         Path(__file__).parent.parent / "agent.py"
     ).read_text(encoding="utf-8")
-    # The chat_ctx Stage 1 block must quote the opener including
-    # "an AI assistant". If a future edit drops it, this test fires.
-    # Look for the literal phrase appearing in the Stage 1 quoted block.
-    assert "this is Sydney, an AI assistant" in agent_src, (
-        "Outbound chat_ctx Stage 1 quote no longer contains "
-        "'an AI assistant'. The LLM will be told the opener didn't "
-        "disclose AI, breaking the A1 invariant in runtime context."
-    )
+    # The opener pattern must always include "an AI assistant" as the
+    # disclosure phrase. The agent name itself is templated via the
+    # AGENT_DISPLAY_NAME env var (default "Sydney", Noland's deploy
+    # uses "Sarah"), so we match the structure regardless of name:
+    #   "this is {AGENT_DISPLAY_NAME}, an AI assistant"
+    # If a future edit drops the disclosure phrase, this test fires.
+    # Three variants: the BUSINESS/AFTER_HOURS openers, the English
+    # outbound opener, and the Spanish opener ("asistente de voz AI").
+    disclosure_patterns = [
+        r'this is \{AGENT_DISPLAY_NAME\}, an AI assistant',
+        r'asistente de voz AI',
+    ]
+    for pattern in disclosure_patterns:
+        assert re.search(pattern, agent_src), (
+            f"agent.py no longer contains the AI-voice disclosure "
+            f"pattern {pattern!r}. The LLM will be told the opener "
+            f"didn't disclose AI, breaking the A1 invariant in runtime "
+            f"context."
+        )
 
 
 def test_outbound_chat_ctx_no_insurance() -> None:
