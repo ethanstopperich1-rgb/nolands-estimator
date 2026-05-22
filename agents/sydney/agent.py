@@ -270,57 +270,57 @@ def _resolve_lead_lang(lead: "dict[str, object]") -> str:
 def build_outbound_opener(lead: "dict[str, object]") -> str:
     """Personalized opener for OUTBOUND calls.
 
-    Customer just submitted a quote on /quote — their phone is ringing
-    seconds later. The opener does three things:
-      1. Greets by first name with energy
-      2. References "running your roof through our estimator a few
-         minutes ago" so the call feels like continuity, not cold
-      3. States intent — personal follow-up + schedule a PM inspection
-    Address confirmation happens on the FIRST LLM turn (instructed via
-    the system message attached to chat_ctx) so it lands right after
-    the customer's first response instead of all crammed into the
-    opener TTS playback.
+    Tightened May 2026 based on JN intake-pattern analysis across
+    2.9M activities + Savannah Huffman's winning Appointment-Scheduled
+    notes. Old opener was 4 sentences (~14 seconds of TTS); new opener
+    is 3 sentences (~9 seconds) with three structural improvements:
+
+      1. AI disclosure in the first sentence (FCC Feb 2024, unchanged)
+      2. Address callback — "about your place on {street}" — proves
+         this isn't a cold call and short-circuits the "wrong number?"
+         instinct. Pulls from lead.address; falls back gracefully when
+         the address is missing.
+      3. Permission-ask close: "have a quick second?" not "do you have
+         a couple minutes to find a time that works" — the second form
+         pre-commits to a scheduling negotiation before the homeowner
+         has even said yes. The shorter form respects their time and
+         lifts pick-up follow-through.
 
     Language: branches EN vs ES based on lead.preferredLanguage. The
-    Spanish opener is Florida-natural ("tu" not "usted", "techo" not
-    "tejado") and includes the FCC-mandated AI disclosure in Spanish
-    ("asistente de voz AI") — matches the consent capture wording on
-    the lib/tcpa-consent.ts Spanish branch.
+    Spanish opener mirrors the structure with Florida-natural diction
+    ("tu" not "usted", "techo" not "tejado") and the FCC-mandated AI
+    disclosure ("asistente de voz AI") matching lib/tcpa-consent.ts.
     """
     name_raw = (lead.get("name") or "").strip()
     first_name = name_raw.split()[0] if name_raw else "there"
     company = company_name_for_office(lead.get("office"))
     lang = _resolve_lead_lang(lead)
 
+    # Extract just the street portion of the address for the callback.
+    # "8450 Oak Park Ave, Orlando FL 32827" → "8450 Oak Park Ave"
+    # Falls back to no address callback when the field is empty.
+    addr_raw = (lead.get("address") or "").strip()
+    street = addr_raw.split(",")[0].strip() if addr_raw else ""
+
     if lang == "es":
-        # Florida-natural Spanish. "tu" not "usted". AI disclosure on
-        # the first sentence ("asistente de voz AI") matches the
-        # consent-time language in lib/tcpa-consent.ts.
+        addr_phrase_es = f"sobre tu casa en {street}" if street else "sobre el techo"
         return (
-            f"Hola {first_name}, soy {AGENT_DISPLAY_NAME}, asistente de voz AI de {company}. "
-            "Gracias por haber probado nuestro estimador de techo hace unos "
-            "minutos. Quería hacerte un seguimiento personal, responder "
-            "cualquier pregunta que tengas, y ver si podemos enviar a uno "
-            "de nuestros gerentes de proyecto para que le eche un vistazo. "
-            "¿Tienes un par de minutos ahora para coordinar un horario que "
-            "te funcione?"
+            f"Hola {first_name}, soy {AGENT_DISPLAY_NAME}, asistente de voz AI de {company}, "
+            f"llamando {addr_phrase_es}. "
+            "Acabas de ver el estimado en línea — quería hacer un seguimiento "
+            "rápido para responder preguntas y agendar un vistazo gratis. "
+            "¿Tienes un segundo ahora?"
         )
 
+    # English: AI disclosure first sentence (FCC compliance), address
+    # callback second, permission ask third. Total ~9 seconds of TTS.
+    addr_phrase_en = f"about your place on {street}" if street else "about the roof estimate you just ran"
     return (
-        # A1: AI-voice disclosure on the FIRST sentence. FCC Feb 2024.
-        # See OPENER_BUSINESS_HOURS for the full reasoning. The literal
-        # phrase "AI assistant" carries the disclosure; the rest of the
-        # opener can stay warm + personalized.
-        f"Hey {first_name}, this is {AGENT_DISPLAY_NAME}, an AI assistant with {company}. "
-        "Thanks so much for running your roof through our estimator a "
-        "few minutes ago. I wanted to personally follow up, answer any "
-        "questions you have, and see if we can get one of our project "
-        "managers out to take a look. "
-        # Closing question — gives the customer a clear next action and
-        # keeps the call moving forward. Open-ended "what works best"
-        # rather than yes/no so we don't dead-end the conversation.
-        "Do you have a couple minutes right now to find a time that "
-        "works for you?"
+        f"Hi {first_name}, this is {AGENT_DISPLAY_NAME}, an AI assistant with {company} "
+        f"calling {addr_phrase_en}. "
+        "I saw the estimate just came through — wanted to follow up real "
+        "quick, answer anything, and grab you a slot for a free walkthrough. "
+        "You have a quick second?"
     )
 
 
