@@ -35,7 +35,19 @@ export const contentType = "image/png";
 // once. `next/og`'s satori renderer needs absolute URLs or data URLs
 // for <img> tags — data URLs are the most reliable on Vercel's edge.
 function getLogoDataUrl(): string {
-  const logoPath = path.join(process.cwd(), "public", "nolands-logo.png");
+  // Switched May 2026 from the 400×322 web-grab to the print-grade
+  // 2450×1751 dark-bg variant Destiny shipped on the onboarding
+  // form. The "dark" file is identical in content to "light" but
+  // has punchier highlights on the metallic NOLAND'S wordmark — the
+  // OG background is #07080A deep black, so the brighter highlights
+  // are necessary for legibility at small Open Graph render sizes.
+  const logoPath = path.join(
+    process.cwd(),
+    "public",
+    "brand",
+    "nolands",
+    "logo-dark.png",
+  );
   const buf = readFileSync(logoPath);
   return `data:image/png;base64,${buf.toString("base64")}`;
 }
@@ -75,7 +87,10 @@ export default async function OpengraphImage() {
           <img
             src={logoDataUrl}
             alt=""
-            width={144}
+            // New high-res logo aspect = 2450:1751 ≈ 1.40 (was 1.24
+            // on the old 400×322 web-grab). Height preserved at 116px;
+            // width bumped to 162px so the logo doesn't squish.
+            width={162}
             height={116}
             style={{ display: "block" }}
           />
