@@ -227,14 +227,24 @@ def _sanitize_for_prompt(value: object) -> object:
 # in the FIRST sentence of every opener so a regulator listening to a
 # random call sample hears it immediately. Wording matches the consent
 # language in lib/tcpa-consent.ts ("AI voice assistant").
+#
+# Pattern note: INBOUND openers lead with the COMPANY name ("Thanks for
+# calling Noland's Roofing") because that's how every real receptionist
+# in America picks up a phone. Sarah's name comes second, AI disclosure
+# stays in the same first sentence (FCC compliant — clauses separated
+# by dashes still count as one sentence). The previous wording was
+# "calling for Noland's Roofing" which is grammatically wrong for an
+# INBOUND call (the homeowner is the caller, not Sarah).
 OPENER_BUSINESS_HOURS = (
-    f"Hi, this is {AGENT_DISPLAY_NAME}, an AI assistant calling for Noland's Roofing. "
+    f"Thanks for calling Noland's Roofing — this is {AGENT_DISPLAY_NAME}, "
+    "an AI assistant. "
     + _RECORDING_DISCLOSURE +
     "How can I help you today?"
 )
 
 OPENER_AFTER_HOURS = (
-    f"Hi, this is {AGENT_DISPLAY_NAME}, an AI assistant calling for Noland's Roofing. "
+    f"Thanks for calling Noland's Roofing — this is {AGENT_DISPLAY_NAME}, "
+    "an AI assistant. "
     + _RECORDING_DISCLOSURE +
     "Our offices are closed right now, but I can get you on the schedule "
     "or take down your info and have someone reach out first thing. "
