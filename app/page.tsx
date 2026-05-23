@@ -2008,7 +2008,7 @@ function ResultScreen({
                   marginRight: "auto",
                 }}
               >
-                Monthly estimates based on 120-month financing at 9.99% APR.
+                Monthly estimates based on 15-year financing at 9.99% APR.
                 Final price confirmed at on-site walkthrough — we don&apos;t
                 quote sight-unseen.
               </p>
@@ -3918,7 +3918,7 @@ function TierCard({
       {/* Price block.
           MONTHLY is ALWAYS shown — it's calibrated math from
           lib/pricing/calculate-waste.ts (Noland's Florida install costs
-          + FINANCE_TERMS at 9.99% APR / 120 months). Anchors the
+          + FINANCE_TERMS at 9.99% APR / 180 months). Anchors the
           affordability decision ("can I budget this?") which is the
           highest-leverage thing on this page.
 
