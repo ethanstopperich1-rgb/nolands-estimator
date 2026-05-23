@@ -1071,7 +1071,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 //      render). Anchored to photo-visible edges so we don't re-trigger
 //      the Oak-Park generative-fill failure. See lib/gemini-roof-prompt.ts.
 // Both bumps fold into one scope value so neither cached set leaks.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-parcel-keyed-facet-strokes";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-parity-unified-prompt";
 
 /** Cheap text-only model used solely for structured-output object
  *  detection alongside the painted-image call. Pro Image is expensive
