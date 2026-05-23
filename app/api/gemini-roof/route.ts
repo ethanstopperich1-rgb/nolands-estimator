@@ -1478,6 +1478,10 @@ async function persistEstimateToLead(
   // runs against.
   let estimateLow: number | null = null;
   let estimateHigh: number | null = null;
+  // Hoist `tiers` so the JN push (below) can render a per-tier breakdown
+  // in the job description — reps want the cash + monthly for each tier,
+  // not just the band.
+  let tiersForJn: Array<{ tier: { id: string; name: string }; total: number; monthly: number }> | null = null;
   const pricingSqft = result.solar.quotableSqft ?? result.solar.sqft ?? null;
   if (pricingSqft && result.pricing) {
     const wastePct = result.pricing.recommendedWastePercent;
@@ -1510,6 +1514,7 @@ async function persistEstimateToLead(
       const totals = tiers.map((t) => t.total);
       estimateLow = Math.min(...totals);
       estimateHigh = Math.max(...totals);
+      tiersForJn = tiers;
     } catch (err) {
       console.warn(
         "[gemini-roof v3] tier_price_calc_failed",
@@ -1649,6 +1654,22 @@ async function persistEstimateToLead(
               phone: customerPhone,
               email: priorLead.email,
               address: priorLead.address ?? undefined,
+              // Pass dedicated address columns when we have them so JN
+              // can index by city/zip without parsing the address string.
+              // priorLead.zip is captured at lock-in time from the
+              // Google Places autocomplete result.
+              zip: priorLead.zip ?? undefined,
+              // voiceConsent stamps the contact with a rep-actionable
+              // tag — they immediately know whether Sarah's been
+              // dispatched (yes) or whether they need to call (no).
+              voiceConsent:
+                priorLead.voice_consent === true
+                  ? true
+                  : priorLead.voice_consent === false
+                    ? false
+                    : undefined,
+              language:
+                priorLead.preferred_language === "es" ? "es" : "en",
               tags: ["estimator", "nolands"],
             });
             if (!created.ok) {
@@ -1679,26 +1700,89 @@ async function persistEstimateToLead(
             .eq("public_id", leadPublicId)
             .eq("office_id", priorLead.office_id);
 
-          // Create the Estimate job + attach the painted-roof note.
+          // Compose a rep-actionable job description: the painted roof,
+          // the secure share URL, the per-tier breakdown (cash + monthly
+          // because reps quote in both), the headline roof intel (sqft +
+          // facets + material), and the consent state so the rep knows
+          // whether Sarah's been dispatched.
+          //
+          // Prior version mislabeled CASH totals as "/mo financed" —
+          // a $25,651 number reading as "/mo" looked nonsensical to
+          // reps. Now we use the hoisted `tiersForJn` array (each entry
+          // has `.total` cash and `.monthly` monthly) so labels are
+          // honest.
+          const fmt$ = (n: number) =>
+            `$${Math.round(n).toLocaleString("en-US")}`;
+          const tierLines = tiersForJn
+            ? tiersForJn
+                .map(
+                  (t) =>
+                    `  • ${t.tier.name}: ${fmt$(t.total)} cash · ${fmt$(t.monthly)}/mo (15-yr @ 9.99%)`,
+                )
+                .join("\n")
+            : `  Cash range: ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}`;
+          const sqftLine =
+            result.solar.sqft != null
+              ? `Roof sqft: ${Math.round(result.solar.sqft).toLocaleString("en-US")} (Solar API)`
+              : "Roof sqft: unavailable";
+          const facetLine =
+            result.geminiAnalysis.facetCountEstimate?.count != null
+              ? `Facets: ${result.geminiAnalysis.facetCountEstimate.count} · complexity ${result.geminiAnalysis.facetCountEstimate.complexity ?? "unknown"}`
+              : "";
+          const materialLine =
+            result.geminiAnalysis.roofMaterial?.type
+              ? `Material (AI read): ${result.geminiAnalysis.roofMaterial.type}`
+              : "";
+          const consentLine =
+            priorLead.voice_consent === true
+              ? "Voice consent: YES — Sarah will call after SMS YES reply."
+              : "Voice consent: NO — rep should call directly.";
+          const description = [
+            `📐 ESTIMATE — ${shortAddress}`,
+            `Painted roof: ${paintedUrl}`,
+            `Secure share link: ${siteOrigin}/r/${leadPublicId}`,
+            ``,
+            sqftLine,
+            facetLine,
+            materialLine,
+            ``,
+            `Tier pricing (calibrated to Noland's JN ground truth):`,
+            tierLines,
+            ``,
+            consentLine,
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          // Compact note body — duplicates the share URL + consent state
+          // for at-a-glance scanning on the contact timeline. Reps read
+          // notes before opening jobs.
+          const noteBody = [
+            `Estimator submission — ${shortAddress}.`,
+            `Painted roof + tier pricing: ${siteOrigin}/r/${leadPublicId}`,
+            tiersForJn
+              ? `Standard tier: ${fmt$(tiersForJn.find((t) => t.tier.id === "better")?.total ?? 0)} cash · ${fmt$(tiersForJn.find((t) => t.tier.id === "better")?.monthly ?? 0)}/mo`
+              : `Cash range: ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}`,
+            consentLine,
+          ].join("\n");
+
+          // Create the Retail job + attach the painted-roof note.
           // Both fire-and-forget; failure is logged but doesn't
           // unwind the contact row that just landed.
           await Promise.all([
             jn.createInspectionJob({
               contactId,
               displayName: `Roof estimate — ${shortAddress}`,
-              description:
-                `Painted roof: ${paintedUrl}\n` +
-                `Share URL: ${siteOrigin}/r/${leadPublicId}\n` +
-                `Estimate range: $${estimateLow}–$${estimateHigh}/mo financed.`,
-              recordType: "Estimate",
+              description,
+              // Noland's JN record_type vocabulary: "Retail" (81%) is the
+              // residential walk-in default. "Estimate" is NOT a valid
+              // record_type in their org.
+              recordType: "Retail",
               status: "Lead",
             }),
             jn.attachNote({
               contactId,
-              body:
-                `Estimator submission received. Painted roof + tier ` +
-                `pricing ready at ${siteOrigin}/r/${leadPublicId}. ` +
-                `Estimate range $${estimateLow}–$${estimateHigh}/mo.`,
+              body: noteBody,
             }),
           ]);
 

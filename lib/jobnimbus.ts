@@ -52,10 +52,27 @@ export interface CreateContactInput {
   /** E.164 preferred but any valid US format accepted. */
   phone?: string;
   email?: string;
-  /** Street address. Single string; JobNimbus parses. */
+  /** Street address line 1. JN parses for city/state if those aren't passed. */
   address?: string;
+  /** US 5-digit ZIP. Populates JN's dedicated `zip` column so reps can
+   *  filter the contacts list + dashboards by city without parsing the
+   *  address string. */
+  zip?: string;
+  /** City (when known from Google Places autocomplete). Sets JN's `city`
+   *  column directly so reports can group by city. */
+  city?: string;
+  /** US state postal abbreviation (FL, GA, etc.). Sets JN's `state_text`. */
+  state?: string;
   /** Office/location attribution. JobNimbus uses "tags" for office routing. */
   tags?: string[];
+  /** TCPA voice-consent state captured at form-submit time. Surfaces as
+   *  a tag (`voice-consent-yes` | `voice-consent-no`) so reps know
+   *  whether Sarah's been dispatched or whether they need to call. */
+  voiceConsent?: boolean;
+  /** Homeowner's preferred language ("en" | "es"). Surfaces as a tag
+   *  (`lang-en` | `lang-es`) so the rep knows whether to send a
+   *  bilingual rep / Spanish-speaker to the inspection. */
+  language?: "en" | "es";
 }
 
 export interface JNContact {
@@ -72,8 +89,12 @@ export interface CreateJobInput {
   description?: string;
   /** ISO-8601 date string for scheduled inspection. Omit for "unscheduled". */
   dateStart?: string;
-  /** Record type / job category. Noland's uses "Estimate" or "Inspection". */
-  recordType?: string;
+  /** Record type / job category. Noland's JN vocabulary observed in their
+   *  live data: "Retail" (81%) / "Insurance" (15%) / "New Construction"
+   *  (4%). Estimator-created jobs default to "Retail" (residential
+   *  walk-in inspection). NEVER use "Estimate" — that's not a real
+   *  record_type in Noland's taxonomy and lands the job in a dead bucket. */
+  recordType?: "Retail" | "Insurance" | "New Construction";
   status?: string;
 }
 
@@ -232,6 +253,16 @@ export async function createContact(
     //     their assignment workflow. Office assigns manually after
     //     the contact lands. Set JOBNIMBUS_SALES_REP_NAME to force a
     //     value only if a specific office requested it.
+    // Tag set: caller-supplied tags + auto-tags from voiceConsent + language.
+    // Tags are JN's canonical free-text taxonomy — reps filter the contact
+    // list by them, so embedding rep-actionable state here means they
+    // don't have to open the contact + scroll to find it.
+    const autoTags: string[] = [];
+    if (input.voiceConsent === true) autoTags.push("voice-consent-yes");
+    if (input.voiceConsent === false) autoTags.push("voice-consent-no");
+    if (input.language === "es") autoTags.push("lang-es");
+    if (input.language === "en") autoTags.push("lang-en");
+
     const body: Record<string, unknown> = {
       display_name: input.displayName,
       first_name: first || "",
@@ -239,7 +270,14 @@ export async function createContact(
       mobile_phone: input.phone ?? "",
       email: input.email ?? "",
       address_line1: input.address ?? "",
-      tags: input.tags ?? [],
+      // JN has dedicated columns for city / state_text / zip — populate
+      // them when we have the data instead of relying on JN's loose
+      // address-string parsing. Enables city-level filtering and the
+      // /api/social-proof/jobs-by-zip query (which is keyed on `zip`).
+      city: input.city ?? "",
+      state_text: input.state ?? "",
+      zip: input.zip ?? "",
+      tags: [...(input.tags ?? []), ...autoTags],
       record_type_name: "Homeowner",
       status_name: "New",
       // Default source: "Voxaris Estimator" — gives Destiny + team a
