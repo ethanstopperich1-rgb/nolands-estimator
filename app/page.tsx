@@ -1745,6 +1745,38 @@ function ResultScreen({
     return () => ctrl.abort();
   }, []);
 
+  // Per-zip job count from JobNimbus — the homeowner sees "Noland's
+  // completed N reroofs in your zip code recently" above the tier
+  // cards. Powered by /api/social-proof/jobs-by-zip which queries
+  // JN's job history (won statuses, last 365 days) for the zip
+  // extracted from the resolved formatted address. Mimetic-desire
+  // + local-relevance social proof at the highest-converting moment.
+  //
+  // Gates: only renders when count ≥ 3 (smaller numbers feel weak).
+  // Endpoint caches 24h at the edge so this is cheap per pageview.
+  const [zipJobCount, setZipJobCount] = useState<number | null>(null);
+  useEffect(() => {
+    // Extract 5-digit zip from the formatted address ("818 Oak St,
+    // Orlando FL 32827" → "32827"). Robust regex anchors on a 5-digit
+    // group preceded by 1-2 spaces (the typical "ST 32827" pattern).
+    // Falls back to null if the address didn't include a zip.
+    const m = resolved.formatted.match(/\b(\d{5})\b/);
+    const zip = m?.[1];
+    if (!zip) return;
+    const ctrl = new AbortController();
+    fetch(`/api/social-proof/jobs-by-zip?zip=${zip}`, {
+      signal: ctrl.signal,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { count: number | null } | null) => {
+        if (d && typeof d.count === "number") setZipJobCount(d.count);
+      })
+      .catch(() => {
+        // Soft-fail — line just doesn't render.
+      });
+    return () => ctrl.abort();
+  }, [resolved.formatted]);
+
   // Tier accordion: which tier card is currently expanded. Prior version
   // gave each TierRow its own open state, so clicking a row only added
   // to the expansion without closing others — causing the top-row cards
@@ -1910,6 +1942,36 @@ function ResultScreen({
               <div className="eyebrow mb-5 text-center">
                 Three honest options for your roof
               </div>
+              {/* Per-zip social proof from live JobNimbus data. Powered by
+                  /api/social-proof/jobs-by-zip with the zip extracted from
+                  the resolved formatted address. Only renders when count
+                  ≥ 3 — smaller numbers feel fabricated rather than
+                  reassuring. Mimetic desire is the highest-leverage
+                  psychological lever at the pricing-decision moment. */}
+              {zipJobCount !== null && zipJobCount >= 3 && (
+                <div
+                  style={{
+                    textAlign: "center",
+                    marginTop: "-8px",
+                    marginBottom: "16px",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    color: "var(--vx-muted)",
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  Noland&apos;s completed{" "}
+                  <span
+                    style={{
+                      color: "var(--vx-terra)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {zipJobCount} roof project{zipJobCount === 1 ? "" : "s"}
+                  </span>{" "}
+                  in your zip code in the last year.
+                </div>
+              )}
               <div
                 className="grid grid-cols-1 md:grid-cols-3 items-stretch"
                 style={{ gap: "16px" }}
