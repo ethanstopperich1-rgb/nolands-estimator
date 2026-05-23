@@ -1061,12 +1061,14 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // channel. Composite gets Pro Image's anti-aliasing for free, killing
 // the jagged-edge / blob-smudge artifacts that needed morphological
 // chasing in the prior render. Force a re-roll of cached composites.
-// Bumped — cache keys now snap to FDOR parcel ID when available so
-// rep re-pins at the same property hit cache instead of burning a
-// fresh ~$0.08 Gemini Pro Image call. Falls back to lat/lng-keyed
-// caching when FDOR doesn't resolve. Previous bumps preserved
-// (full-sqft pricing, flash-lite-3-1, alpha-070, etc.)
-const CACHE_SCOPE_V3 = "gemini-roof-v3-parcel-keyed";
+// Bumped — Rule 1 in the paint prompt was restructured (1a fill /
+// 1b outer-perimeter stroke required / 1c interior facet strokes
+// required / 1d invent-no-edges guard) so interior ridges/hips/valleys
+// render every time instead of inconsistently. Anchors strokes to
+// photo evidence to keep Pro Image in edit mode on complex roofs.
+// Previous bumps preserved (parcel-keyed, full-sqft pricing,
+// flash-lite-3-1, alpha-070, etc.).
+const CACHE_SCOPE_V3 = "gemini-roof-v3-parcel-keyed-facet-strokes";
 
 /** Cheap text-only model used solely for structured-output object
  *  detection alongside the painted-image call. Pro Image is expensive
