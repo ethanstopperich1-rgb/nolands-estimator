@@ -43,9 +43,9 @@ Your output is the SUPPLIED 1280×1280 satellite photo with cyan paint added on 
 If you cannot identify a roof to paint with high confidence (e.g. the image is too obscured by clouds or trees, or the central pixel does not sit on a building), return the input image UNCHANGED with no cyan added. Do not invent a roof. Do not generate a new satellite image. Do not regenerate the scene from scratch.
 
 ## STYLE — Noland's Roofing brand hybrid
-- Fill: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan. (Cyan fill is the universal "this is a measurement layer" convention used by EagleView / Hover / GAF QuickMeasure — preserves the data-trust signal and stays high-contrast against warm-brown shingle.)
-- Outline: Noland's fire-orange #E84A1F at full opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring. (Orange edge is the Noland's brand signature — same fire-orange that bounds the STANDARD pricing tier card and the H1 accent. Tells the customer "Noland's painted this.")
-- Interior edges (ridges, hips, valleys, gable seams between two adjacent painted planes) are ALSO the fire-orange #E84A1F stroke — one crisp line where two planes meet.
+- **Fill**: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan. (Cyan fill is the universal "this is a measurement layer" convention used by EagleView / Hover / GAF QuickMeasure — preserves the data-trust signal and stays high-contrast against warm-brown shingle.)
+- **Outline**: Noland's fire-orange #E84A1F at full opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring. (Orange edge is the Noland's brand signature — same fire-orange that bounds the STANDARD pricing tier card and the H1 accent. Tells the customer "Noland's painted this.")
+- **Interior edges** (ridges, hips, valleys, gable seams between two adjacent painted planes) are ALSO the fire-orange #E84A1F stroke — one crisp line where two planes meet.
 - The effect is paint ADDED on top of the existing photo, not a replacement of it. Preserve the original pixels everywhere outside the painted area.
 
 ## RULE 1 — Fill every plane + stroke every visible edge. Both are required on every render.
