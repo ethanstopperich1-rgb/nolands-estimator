@@ -106,21 +106,39 @@ export function calculateSuggestedWaste(inputs: WasteInputs): WasteResult {
 // ─── Pricing constants ──────────────────────────────────────────────────
 
 /** 2026 Central Florida default for full-turnkey architectural-shingle
- *  reroof — tear-off included, 1–2 layers typical. Calibrated 2026-05
- *  against 399 Noland's JN closed-won invoices + FloridaGIO cadastral
- *  ground truth: typical FL full-reroof lands at $10/sqft on a 2,500
- *  sqft single-family. We anchor the default at $8.00/sqft — the
- *  Standard tier midpoint — which lands the median quote within 5%
- *  of what Noland's would actually invoice. Old value $7.00 was at
- *  the LOW end of the FL industry $6-$10/sqft band. */
-export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 8.0;
+ *  reroof — tear-off included, 1–2 layers typical.
+ *
+ *  Calibrated 2026-05-23 (v2) against 68 Noland's JN closed-won
+ *  invoices paired with Google Solar API sloped-roof sqft (85% match
+ *  rate on n=80 Solar API calls). The Solar API returns the true
+ *  sloped roof area in roofSegmentStats.areaMeters2 — no pitch
+ *  multiplier guesswork.
+ *
+ *  Observed $/sqft by JN record_type:
+ *    Retail              n=40  median $6.21  p25 $5.39  p75 $10.11
+ *    Insurance           n=18  median $7.83  p25 $7.34  p75 $8.87
+ *    New Construction    n=10  median $4.52  (low — new builds skip tear-off)
+ *    OVERALL             n=68  median $7.20  p25 $5.47  p75 $9.66
+ *
+ *  The Retail median ($6.21) is the most relevant — that's the cash
+ *  homeowner doing a roofing project from the estimator. We anchor
+ *  the Standard tier (most-chosen) at $7.25 to land slightly above
+ *  the Retail median, accounting for the fact that estimator-driven
+ *  jobs may skew toward higher complexity than door-knocked walk-ins.
+ *
+ *  Calibration v1 (earlier today): bumped tiers based on 1 single
+ *  high-confidence FGIO observation ($10/sqft). With 68 observations
+ *  from Solar API we now see that the actual Noland's Retail rate is
+ *  ~$6.21/sqft, NOT $10. v1 OVER-corrected. v2 reverts toward the
+ *  real median. */
+export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 7.25;
 
 /** Low and high bands for the customer-facing price-range display.
- *  ±12.5% around the default rate (slightly wider than the prior
- *  ±10% because the calibration pulled in more variance from
- *  insurance jobs and varied-pitch FL homes). */
-export const RATE_LOW_PER_SQFT = 7.0;
-export const RATE_HIGH_PER_SQFT = 9.0;
+ *  Anchored on the Solar-calibrated p25 ($5.47) and p75 ($9.66) so
+ *  the customer-shown band matches the observed IQR of real Noland's
+ *  invoices, not a synthetic ±10% guess. */
+export const RATE_LOW_PER_SQFT = 5.5;
+export const RATE_HIGH_PER_SQFT = 9.75;
 
 /**
  * Material-aware customer rate table.
@@ -141,8 +159,8 @@ export const CUSTOMER_MATERIAL_RATES: Record<
   string,
   { label: string; low: number; mid: number; high: number }
 > = {
-  "asphalt-3tab": { label: "Builder-grade shingle", low: 4.4, mid: 5.0, high: 5.8 },
-  "asphalt-architectural": { label: "Architectural shingle", low: 7.0, mid: 8.0, high: 9.0 },
+  "asphalt-3tab": { label: "Builder-grade shingle", low: 4.0, mid: 4.5, high: 5.25 },
+  "asphalt-architectural": { label: "Architectural shingle", low: 5.5, mid: 7.25, high: 9.75 },
   "metal-shingle": { label: "Metal shingle", low: 9.0, mid: 11.0, high: 13.5 },
   "metal-standing-seam": { label: "Standing-seam metal", low: 18.0, mid: 22.0, high: 28.0 },
   "tile-concrete": { label: "Concrete tile", low: 7.5, mid: 9.5, high: 12.0 },
@@ -493,40 +511,45 @@ export interface RoofingTier {
 // installer credentials (nolandsroofing.com — Triple Crown
 // Champion award reference).
 //
-// ─── 2026-05-23 CALIBRATION (Noland's JN ground-truth pass) ───
+// ─── 2026-05-23 CALIBRATION v2 (Solar API ground-truth, 85% match) ───
 //
-// Pulled 399 closed-won JN jobs ($5k+ invoice + lat/lng + Florida
-// addresses), cross-referenced with FloridaGIO cadastral building
-// sqft. High-confidence single-family Retail observation: a 2,159
-// sqft home at 1050 South Main, Leesburg invoiced $23,770 — that's
-// $10.01/sqft after the 1.10 slope multiplier (mid-pitch typical).
-// Median parent-job estimate across 142 contracts: $27,518 — at a
-// 2,500 sqft FL typical home, that's $10.00/sqft.
+// Real Noland's data pulled via /api/internal/pricing-calibration.
+// Pairs JN closed-won invoices with Google Solar API sloped-roof sqft
+// (which is what the V3 estimator uses, so calibration matches what
+// the estimator outputs by construction).
 //
-// Industry FL architectural shingle range: $6-$10/sqft (CertainTeed
-// distributor pricing + Beacon / ABC Supply / SRS sheets).
+// Observed $/sqft (n=68, sample=80, 85% Solar API match rate):
+//   Retail              n=40  median $6.21  p25 $5.39  p75 $10.11
+//   Insurance           n=18  median $7.83  p25 $7.34  p75 $8.87
+//   New Construction    n=10  median $4.52  (new builds skip tear-off)
+//   OVERALL             n=68  median $7.20  p25 $5.47  p75 $9.66
 //
-// Old Standard tier at $7.00/sqft was sitting at the LOW end of FL
-// reality — quoting $16,930 on a job Noland's would actually invoice
-// at $21,000+. The conservative correction bumps all three tiers by
-// ~14% to land Standard squarely in the FL median while keeping
-// Essentials credibly "entry-level" and Fortified credibly "premium
-// impact-rated."
+// v1 (earlier today) bumped tiers to $6/$8/$10.50 based on 1 single
+// FGIO observation at $10/sqft. With 68 Solar API observations we now
+// see that's an outlier — the actual Retail median is $6.21/sqft.
+// v1 OVER-corrected. v2 anchors Standard at $7.25 (slightly above
+// Retail median to account for estimator-driven jobs skewing toward
+// higher complexity than walk-ins) and preserves the tier spread
+// proportionally.
 //
 // New rate spread (sloped sqft, before per-fixture penetration adders):
-//   Essentials   $5.25 → $6.00  (+14%)
-//   Standard     $7.00 → $8.00  (+14%) ← FL median, calibrated to JN
-//   Fortified    $9.50 → $10.50 (+11%) ← Class 4 premium
+//   Essentials   $5.50  (just below Retail p25 of $5.39)
+//   Standard     $7.25  (Retail median + small premium)
+//   Fortified    $9.50  (between Retail p75 $10.11 and Insurance p75 $8.87)
 //
 // Verification math (2,500 sqft typical FL home @ 12% waste = 2,800 effSqft):
-//   Essentials   2,800 × $6.00  = $16,800
-//   Standard     2,800 × $8.00  = $22,400  ← matches Noland's $21k-23k typical reroof
-//   Fortified    2,800 × $10.50 = $29,400  ← matches parent-job median $27.5k
+//   Essentials   2,800 × $5.50  = $15,400
+//   Standard     2,800 × $7.25  = $20,300  ← Retail median $6.21 × 2,800 = $17,388 + premium
+//   Fortified    2,800 × $9.50  = $26,600  ← matches Insurance p75 + walkthrough adders
 //
 // Per-office override via env: NOLANDS_STANDARD_RATE_PER_SQFT will be
 // added when the four offices want per-region calibration (Clermont vs
 // Fort Myers vs Bradenton have different labor costs). For now the
 // rates are uniform across offices.
+//
+// To re-run the calibration: GET /api/internal/pricing-calibration with
+// `?sample=80` (or higher). Free as long as Solar API stays under 10K
+// calls/month for the billing account.
 export const ROOFING_TIERS: RoofingTier[] = [
   {
     id: "good",
@@ -542,7 +565,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "10-year workmanship warranty",
     ],
     warranty: "30-year limited manufacturer · 10-year workmanship",
-    ratePerSqft: 6.0,
+    ratePerSqft: 5.5,
     accent: "neutral",
   },
   {
@@ -560,7 +583,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Lifetime limited manufacturer warranty",
     ],
     warranty: "Lifetime limited manufacturer · 15-year workmanship",
-    ratePerSqft: 8.0,
+    ratePerSqft: 7.25,
     accent: "primary",
   },
   {
@@ -579,7 +602,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Hail / wind discount eligibility",
     ],
     warranty: "Lifetime transferable · 25-year workmanship",
-    ratePerSqft: 10.5,
+    ratePerSqft: 9.5,
     accent: "premium",
   },
 ];
