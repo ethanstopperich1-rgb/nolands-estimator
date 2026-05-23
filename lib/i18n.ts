@@ -98,7 +98,7 @@ const en = {
   // heuristics) so they still need to translate even though sighted
   // homeowners don't see them.
   "form.address.label": "Property street address",
-  "form.address.placeholder": "Begin typing your address…",
+  "form.address.placeholder": "Start typing your address…",
   "form.address.eta": "≈ 30 sec",
   "form.name.label": "Full name",
   "form.name.placeholder": "Your name",
@@ -141,11 +141,11 @@ const en = {
   "card.severe_weather.title": "Severe weather, last 12 months",
   "card.property_record.title": "Property record",
   "card.measurements.title": "Roof measurements",
-  "card.observations.title": "What we noticed from the imagery",
+  "card.observations.title": "What we spotted from above",
 
   // Disclosure / footer
   "disclosure.not_binding":
-    "Not a final or binding quote. Quick visual estimate from satellite imagery. Final price depends on what we find on site (decking condition, layers, code work). Confirmed by a licensed roofer.",
+    "Not a final or binding quote. Quick visual estimate from satellite imagery. The real price depends on what we find on site (decking condition, layers, code work). Confirmed by a licensed roofer.",
   "disclosure.tier_coverage":
     "Tier prices above cover the full {sqft} sqft, priced as {material} with {waste}% waste assumed. Any flat-roof sections are adjusted on site.",
   "disclosure.financing":
@@ -153,7 +153,7 @@ const en = {
 
   // SMS bodies
   "sms.confirmation":
-    "Hi {firstName}, this is {agentName} from {officeName}. We got your estimate request for {address}. {estimateLine}Your full report: {shareUrl} — keep it for your records. Reply YES and {agentName} (our AI voice assistant) will call you now to schedule a free inspection. Reply STOP to opt out.",
+    "Hi {firstName}, it's {agentName} from {officeName}. Got your estimate request for {address}. {estimateLine}Your full report: {shareUrl} — save it for later. Reply YES and {agentName} (our AI voice assistant) will call you now to schedule a free inspection. Reply STOP to opt out.",
   "sms.estimate_range": "Your estimate range: ${low}-${high}. ",
   "sms.yes_ack":
     "Got it — {agentName} will call you in a few seconds from {officeName}.",
@@ -174,7 +174,7 @@ const en = {
   // Duplicate-submission UX
   "duplicate.headline": "We've already got your request.",
   "duplicate.body":
-    "Your roof report is ready and a rep will be in touch. Tap below to re-open it.",
+    "Your roof report is ready and a rep will reach out. Tap below to open it again.",
   "duplicate.cta": "Open my report",
 
   // /r/[publicId] homeowner share surface — copy the homeowner sees
@@ -211,7 +211,7 @@ const es: Record<StringKey, string> = {
   // Hero / brand — Florida-natural Spanish, "tu" not "usted",
   // "techo" not "tejado". Headline splits across two spans (second
   // italic) — same composition as English.
-  "hero.eyebrow": "La #1 opción de Clermont · Especialistas en Clima Severo",
+  "hero.eyebrow": "La #1 opción de Clermont · Especialistas en clima severo",
   "hero.headline.line1": "Conoce el precio de tu techo",
   "hero.headline.line2": "en 30 segundos.",
   "hero.subhead.lead":
@@ -265,16 +265,16 @@ const es: Record<StringKey, string> = {
   "disclosure.not_binding":
     "No es una cotización final ni vinculante. Estimado visual rápido de imágenes satelitales. El precio final depende de lo que encontremos en sitio (condición del entablado, capas, código). Confirmado por un techador con licencia.",
   "disclosure.tier_coverage":
-    "Los precios cubren los {sqft} pies cuadrados completos, cotizados como {material} con {waste}% de desperdicio asumido. Las secciones de techo plano se ajustan en sitio.",
+    "Los precios incluyen los {sqft} pies cuadrados completos como {material}, con {waste}% de desperdicio. Las secciones de techo plano se ajustan en sitio.",
   "disclosure.financing":
     "Estimado mensual asume financiamiento a 15 años con 9.99% APR. Términos reales dependen del crédito y tu socio financiero.",
 
   // SMS bodies
   "sms.confirmation":
-    "Hola {firstName}, soy {agentName} de {officeName}. Recibimos tu solicitud de estimado para {address}. {estimateLine}Tu reporte completo: {shareUrl} — guárdalo para tu archivo. Responde SÍ y {agentName} (nuestro asistente de voz AI) te llamará ahora para agendar una inspección gratis. Responde STOP para no recibir más mensajes.",
+    "Hola {firstName}, soy {agentName} de {officeName}. Recibimos tu solicitud de estimado para {address}. {estimateLine}Tu reporte completo: {shareUrl} — guárdalo para después. Responde SÍ y {agentName} (nuestro asistente de voz AI) te llamará ahora para agendar una inspección gratis. Responde STOP para no recibir más mensajes.",
   "sms.estimate_range": "Tu rango estimado: ${low}-${high}. ",
   "sms.yes_ack":
-    "Listo — {agentName} te llamará en unos segundos de parte de {officeName}.",
+    "Listo — {agentName} de {officeName} te llamará en unos segundos.",
   "sms.postcall.appt_scheduled":
     "Hola {firstName}, tu inspección de techo con {officeName} está agendada para {when}. Un representante te confirmará pronto. Responde STOP para no recibir más mensajes.",
   "sms.postcall.callback_requested":
@@ -292,7 +292,7 @@ const es: Record<StringKey, string> = {
   // Duplicate-submission UX
   "duplicate.headline": "Ya tenemos tu solicitud.",
   "duplicate.body":
-    "Tu reporte de techo está listo y un representante se comunicará contigo. Toca aquí para volver a abrirlo.",
+    "Tu reporte de techo está listo y un representante te va a contactar. Toca aquí para abrirlo de nuevo.",
   "duplicate.cta": "Abrir mi reporte",
 
   // /r/[publicId] homeowner share surface — Florida-natural Spanish.
