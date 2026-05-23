@@ -209,15 +209,18 @@ export async function POST(req: Request) {
   const submittedAt = new Date().toISOString();
   const emailNorm = body.email.trim().toLowerCase();
   // Tenancy — every lead MUST land in a specific business. Allow the
-  // caller to omit `office` for back-compat (defaults to "nolands", the
-  // only live customer today) but VALIDATE the slug shape + active-
-  // status against the offices table before we accept it. Unknown /
-  // inactive slugs get rejected so a misconfigured embed snippet
-  // doesn't silently drop leads into the wrong office.
+  // caller to omit `office` for back-compat (defaults to "voxaris", the
+  // platform-internal demo tenant — keeps pitch.voxaris.io home-base
+  // traffic out of any real white-label customer's office_id). Each
+  // white-label embed snippet sets its own slug explicitly, and we
+  // VALIDATE the slug shape + active-status against the offices table
+  // before we accept it. Unknown / inactive slugs get rejected so a
+  // misconfigured embed doesn't silently drop leads into the wrong
+  // office.
   const rawOfficeSlug = normalizeOfficeSlug(body.office);
   if (!isValidOfficeSlug(rawOfficeSlug)) {
     return NextResponse.json(
-      { error: "invalid_office", message: "office must be a slug like 'nolands'." },
+      { error: "invalid_office", message: "office must be a slug like 'voxaris'." },
       { status: 400 },
     );
   }
@@ -281,8 +284,9 @@ export async function POST(req: Request) {
   // 1h in resolveOfficeIdBySlug.
   // Office-aware branding — used by SMS intro + the voice-agent persona.
   // We resolve once here so the SMS template + dispatch payload can both
-  // address the customer as the actual office name ("Nolands Roofing"
-  // not "Voxaris").
+  // address the customer as the actual office's display name (e.g. the
+  // white-label business that owns the lead) instead of the platform
+  // brand.
   const officeBranding = supabaseServiceRoleConfigured()
     ? await resolveOfficeBySlug(officeSlug)
     : null;

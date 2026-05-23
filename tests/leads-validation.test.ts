@@ -16,7 +16,7 @@ describe("leads validation", () => {
 
   it("normalizes office slug", () => {
     assert.equal(normalizeOfficeSlug("  Nolands  "), "nolands");
-    assert.equal(normalizeOfficeSlug(undefined), "nolands");
+    assert.equal(normalizeOfficeSlug(undefined), "voxaris");
   });
 
   it("validates office slug shape", () => {

@@ -17,10 +17,11 @@
  * page they can't figure out how to fill out.
  *
  * Per-office: the manifest is tenant-aware. When this same code
- * runs under `noland-roofing.com`, the office_name + phone + service
- * area auto-resolve to Noland's via the host header, so each
- * white-label deployment publishes its OWN tool manifest in the
- * contractor's brand.
+ * runs under a white-label contractor's own domain (e.g.
+ * estimate.example-roofing.com), the office_name + phone + service
+ * area auto-resolve to that contractor via the host header, so each
+ * deployment publishes its OWN tool manifest in the contractor's
+ * brand — never Voxaris's.
  *
  * No PII, no signed URLs, no auth — this is a public discovery
  * document by design.

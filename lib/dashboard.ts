@@ -95,11 +95,12 @@ export type SupabaseService = SupabaseClient<Database>;
  *  rep has migrated to magic-link login this constant goes away — the
  *  office_id will come from the rep's JWT instead.
  *
- *  Set to "nolands" because that's the only live customer office today.
- *  When a second customer onboards, flip this to a sentinel like
- *  "voxaris" (the platform-internal tenant) and force reps to bookmark
- *  /dashboard with their JWT so we don't have an implicit default. */
-export const FALLBACK_OFFICE_SLUG = "nolands";
+ *  Set to "voxaris" — the platform-internal demo tenant — so that
+ *  pitch.voxaris.io (the home-base demo / testing surface) never lands
+ *  traffic in a real white-label customer's office_id by accident. Each
+ *  white-label deployment overrides this via the host header → office
+ *  resolution path (see resolveOfficeBySlug + middleware tenancy). */
+export const FALLBACK_OFFICE_SLUG = "voxaris";
 
 /** Legacy alias kept for existing call sites. */
 export const DASHBOARD_OFFICE_SLUG = FALLBACK_OFFICE_SLUG;

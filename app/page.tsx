@@ -601,7 +601,7 @@ function HeroScreen({
   // customer sees their estimate, before any automated voice call is
   // placed (TCPA "prior express written consent" requirement met).
   const [marketingConsent, setMarketingConsent] = useState(false);
-  const [officeSlug, setOfficeSlug] = useState("nolands");
+  const [officeSlug, setOfficeSlug] = useState("voxaris");
   const [sellerName, setSellerName] = useState(BRAND_CONFIG.companyName);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -613,7 +613,7 @@ function HeroScreen({
   useEffect(() => {
     const slug =
       new URLSearchParams(window.location.search).get("office")?.trim().toLowerCase() ||
-      "nolands";
+      "voxaris";
     setOfficeSlug(slug);
     let cancelled = false;
     fetch(`/api/office/branding?office=${encodeURIComponent(slug)}`)

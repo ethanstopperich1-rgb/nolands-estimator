@@ -16,6 +16,7 @@
  */
 
 export type DemoOfficeSlug =
+  | "voxaris"
   | "nolands"
   | "quality-first"
   | "earl-johnston"
@@ -33,6 +34,15 @@ export interface DemoOffice {
 }
 
 export const DEMO_OFFICES: DemoOffice[] = [
+  {
+    slug: "voxaris",
+    name: "Voxaris Pitch",
+    shortName: "Voxaris",
+    state: "FL",
+    city: "Orlando",
+    initial: "V",
+    brand: "#67dcff",
+  },
   {
     slug: "nolands",
     name: "Noland's Roofing",
@@ -80,7 +90,7 @@ export const DEMO_OFFICES: DemoOffice[] = [
   },
 ];
 
-export const DEFAULT_OFFICE_SLUG: DemoOfficeSlug = "nolands";
+export const DEFAULT_OFFICE_SLUG: DemoOfficeSlug = "voxaris";
 
 export function getDemoOffice(slug: string | null | undefined): DemoOffice {
   if (!slug) return DEMO_OFFICES[0];
@@ -106,6 +116,16 @@ export interface DemoMetrics {
 }
 
 const METRICS_BY_OFFICE: Record<DemoOfficeSlug, DemoMetrics> = {
+  voxaris: {
+    leadsThisMonth: 124,
+    callsThisMonth: 218,
+    proposalsThisMonth: 82,
+    pipelineLow: 286_000,
+    pipelineHigh: 372_000,
+    supplementRecoveredMtd: 18_400,
+    supplementClaimsCount: 7,
+    supplementVsPrevMonthPct: 16,
+  },
   nolands: {
     leadsThisMonth: 187,
     callsThisMonth: 312,
@@ -163,10 +183,10 @@ export function getDemoMetrics(slug: string | null | undefined): DemoMetrics {
   return METRICS_BY_OFFICE[office.slug];
 }
 
-/** Legacy export — defaults to Noland's so any caller that still imports
- *  the const sees believable headline numbers. New callers should use
- *  getDemoMetrics(slug) instead. */
-export const DEMO_OVERVIEW_METRICS: DemoMetrics = METRICS_BY_OFFICE.nolands;
+/** Legacy export — defaults to the Voxaris demo office so any caller
+ *  that still imports the const sees believable, brand-neutral headline
+ *  numbers. New callers should use getDemoMetrics(slug) instead. */
+export const DEMO_OVERVIEW_METRICS: DemoMetrics = METRICS_BY_OFFICE.voxaris;
 
 // ─── Activity feed (per office) ───────────────────────────────────────
 
@@ -187,6 +207,16 @@ interface ActivitySeed {
 }
 
 const ACTIVITY_SEEDS: Record<DemoOfficeSlug, ActivitySeed[]> = {
+  voxaris: [
+    { ago: 3, kind: "lead", title: "New lead — Alex C.", detail: "215 Park Ave, Orlando FL" },
+    { ago: 11, kind: "call", title: "Sydney call — +1 (407) 555-0118", detail: "outcome: booked" },
+    { ago: 19, kind: "proposal", title: "Proposal sent", detail: "$11,400 – $14,200" },
+    { ago: 44, kind: "lead", title: "New lead — Jordan B.", detail: "2200 Mills Ave, Orlando FL" },
+    { ago: 80, kind: "call", title: "Sydney call — +1 (407) 555-0162", detail: "outcome: transferred" },
+    { ago: 150, kind: "lead", title: "New lead — Casey D.", detail: "618 Lake Underhill, Orlando FL" },
+    { ago: 210, kind: "proposal", title: "Proposal sent", detail: "$16,800 – $20,400" },
+    { ago: 290, kind: "call", title: "Sydney call — +1 (407) 555-0194", detail: "outcome: booked" },
+  ],
   nolands: [
     { ago: 2, kind: "lead", title: "New lead — Sarah M.", detail: "1234 Oak Ridge Dr, Orlando FL" },
     { ago: 8, kind: "call", title: "Sydney call — +1 (321) 555-0148", detail: "outcome: booked" },
@@ -263,6 +293,7 @@ export interface DemoFunnel {
 }
 
 const FUNNEL_BY_OFFICE: Record<DemoOfficeSlug, DemoFunnel> = {
+  voxaris: { leads: 124, calls: 218, proposals: 82, won: 16 },
   nolands: { leads: 187, calls: 312, proposals: 118, won: 24 },
   "quality-first": { leads: 94, calls: 168, proposals: 61, won: 11 },
   "earl-johnston": { leads: 142, calls: 241, proposals: 88, won: 19 },
@@ -274,12 +305,17 @@ export function getDemoFunnel(slug?: string | null): DemoFunnel {
   return FUNNEL_BY_OFFICE[getDemoOffice(slug).slug];
 }
 
-/** Legacy const — defaults to Noland's. */
-export const DEMO_FUNNEL = FUNNEL_BY_OFFICE.nolands;
+/** Legacy const — defaults to the brand-neutral Voxaris demo office. */
+export const DEMO_FUNNEL = FUNNEL_BY_OFFICE.voxaris;
 
 // Different 30-day call shapes per office — Noland's has the longest live
 // history, the others ramp up later in the month.
 const CALLS_BY_DAY_SHAPES: Record<DemoOfficeSlug, number[]> = {
+  voxaris: [
+    5, 7, 9, 11, 13, 14, 11, 10, 8, 7,
+    8, 11, 14, 16, 15, 12, 11, 14, 17, 19,
+    17, 13, 12, 15, 19, 21, 23, 24, 22, 19,
+  ],
   nolands: [
     8, 11, 13, 16, 18, 19, 15, 14, 12, 10,
     11, 16, 21, 23, 22, 18, 16, 21, 25, 27,
@@ -321,13 +357,20 @@ export function getDemoTotalCalls(slug?: string | null): number {
   return getDemoMetrics(slug).callsThisMonth;
 }
 
-/** Legacy const — defaults to Noland's. */
-export const DEMO_TOTAL_CALLS = METRICS_BY_OFFICE.nolands.callsThisMonth;
+/** Legacy const — defaults to the brand-neutral Voxaris demo office. */
+export const DEMO_TOTAL_CALLS = METRICS_BY_OFFICE.voxaris.callsThisMonth;
 
 const TOP_MATERIALS_BY_OFFICE: Record<
   DemoOfficeSlug,
   Array<{ material: string; count: number; avgLow: number; avgHigh: number }>
 > = {
+  voxaris: [
+    { material: "Architectural Shingle", count: 52, avgLow: 9_100, avgHigh: 12_300 },
+    { material: "Concrete Tile (S-Tile)", count: 34, avgLow: 14_600, avgHigh: 18_900 },
+    { material: "Standing Seam Metal", count: 18, avgLow: 18_400, avgHigh: 26_100 },
+    { material: "3-Tab Shingle", count: 12, avgLow: 6_300, avgHigh: 8_700 },
+    { material: "Flat / Modified Bitumen", count: 6, avgLow: 7_100, avgHigh: 9_500 },
+  ],
   nolands: [
     { material: "Architectural Shingle", count: 78, avgLow: 9_200, avgHigh: 12_400 },
     { material: "Concrete Tile (S-Tile)", count: 54, avgLow: 14_800, avgHigh: 19_200 },
@@ -367,13 +410,21 @@ export function getDemoTopMaterials(slug?: string | null) {
   return TOP_MATERIALS_BY_OFFICE[getDemoOffice(slug).slug];
 }
 
-/** Legacy const — defaults to Noland's. */
-export const DEMO_TOP_MATERIALS = TOP_MATERIALS_BY_OFFICE.nolands;
+/** Legacy const — defaults to the brand-neutral Voxaris demo office. */
+export const DEMO_TOP_MATERIALS = TOP_MATERIALS_BY_OFFICE.voxaris;
 
 // Outcomes match the real enum in /api/agent/events line 64 EXACTLY:
 // booked / transferred / logged_lead / no_show / wrong_number /
 // cap_duration / cap_turns. No invented states.
 const OUTCOMES_BY_OFFICE: Record<DemoOfficeSlug, Array<{ outcome: string; count: number }>> = {
+  voxaris: [
+    { outcome: "booked", count: 92 },
+    { outcome: "transferred", count: 42 },
+    { outcome: "logged_lead", count: 32 },
+    { outcome: "no_show", count: 18 },
+    { outcome: "wrong_number", count: 14 },
+    { outcome: "cap_duration", count: 9 },
+  ],
   nolands: [
     { outcome: "booked", count: 138 },
     { outcome: "transferred", count: 62 },
@@ -420,5 +471,5 @@ export function getDemoOutcomes(slug?: string | null) {
   return OUTCOMES_BY_OFFICE[getDemoOffice(slug).slug];
 }
 
-/** Legacy const — defaults to Noland's. */
-export const DEMO_OUTCOMES = OUTCOMES_BY_OFFICE.nolands;
+/** Legacy const — defaults to the brand-neutral Voxaris demo office. */
+export const DEMO_OUTCOMES = OUTCOMES_BY_OFFICE.voxaris;

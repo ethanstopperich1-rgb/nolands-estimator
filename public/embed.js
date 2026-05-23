@@ -3,14 +3,14 @@
  *
  * Install:
  *   <div data-voxaris-pitch
- *        data-brand="noland"
+ *        data-brand="acme"
  *        data-accent="67dcff"></div>
  *   <script src="https://pitch.voxaris.io/embed.js" async></script>
  *
  * Optional data-* attributes (all optional, sane defaults):
- *   data-brand     — "noland", "westorange", "earljohnston" etc. Tags every
- *                    lead with `source: embed-{brand}` so per-brand attribution
- *                    works. Default: "default".
+ *   data-brand     — short slug for your business (e.g. "acme", "summit-roofing").
+ *                    Tags every lead with `source: embed-{brand}` so per-brand
+ *                    attribution works. Default: "default".
  *   data-accent    — hex color (no #) for the CTA button. Default "67dcff".
  *   data-headline  — H1 override.
  *   data-sub       — subheadline override.

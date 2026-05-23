@@ -7,7 +7,7 @@ export function isValidLeadPublicId(id: unknown): id is string {
   return typeof id === "string" && LEAD_PUBLIC_ID_RE.test(id.trim());
 }
 
-export function normalizeOfficeSlug(raw: unknown, defaultSlug = "nolands"): string {
+export function normalizeOfficeSlug(raw: unknown, defaultSlug = "voxaris"): string {
   if (typeof raw === "string" && raw.trim()) {
     return raw.trim().toLowerCase();
   }

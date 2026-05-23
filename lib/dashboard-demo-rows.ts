@@ -108,6 +108,15 @@ const CITY_META: Record<
     closeOfficeLabel: string;
   }
 > = {
+  voxaris: {
+    area: "407",
+    city: "Orlando",
+    county: "Orange",
+    lat: 28.5383,
+    lng: -81.3792,
+    company: "Voxaris Pitch",
+    closeOfficeLabel: "Orlando",
+  },
   nolands: {
     area: "321",
     city: "Orlando",
@@ -175,6 +184,17 @@ function estimateBand(material: Material, sqft: number) {
 
 // Per-office seed people. ~15 each. Status mix targets a healthy funnel.
 const SEEDS: Record<DemoOfficeSlug, PersonSeed[]> = {
+  voxaris: [
+    { first: "Alex",    last: "Carrington", phone4: "0118", street: "215 Park Ave",          zip: "32801", status: "new",       material: "Architectural Shingle", sqft: 2250 },
+    { first: "Jordan",  last: "Bell",       phone4: "0162", street: "2200 N Mills Ave",      zip: "32803", status: "contacted", material: "Concrete Tile (S-Tile)", sqft: 2700 },
+    { first: "Casey",   last: "Diaz",       phone4: "0194", street: "618 Lake Underhill Rd", zip: "32807", status: "quoted",    material: "Architectural Shingle", sqft: 2100 },
+    { first: "Morgan",  last: "Reed",       phone4: "0226", street: "412 Pine Hollow Cir",   zip: "32803", status: "won",       material: "Standing Seam Metal",    sqft: 2500 },
+    { first: "Riley",   last: "Patel",      phone4: "0274", street: "5044 Curry Ford Rd",    zip: "32812", status: "quoted",    material: "Architectural Shingle", sqft: 1900 },
+    { first: "Avery",   last: "Nguyen",     phone4: "0289", street: "1715 N Mills Ave",      zip: "32803", status: "new",       material: "Concrete Tile (S-Tile)", sqft: 3000 },
+    { first: "Sam",     last: "Brooks",     phone4: "0312", street: "9904 Lee Vista Blvd",   zip: "32827", status: "contacted", material: "Architectural Shingle", sqft: 2200 },
+    { first: "Quinn",   last: "Sullivan",   phone4: "0345", street: "3320 Conway Rd",        zip: "32812", status: "won",       material: "Architectural Shingle", sqft: 2600 },
+    { first: "Drew",    last: "Foster",     phone4: "0421", street: "780 Lake Holden Ter",   zip: "32839", status: "lost",      material: "3-Tab Shingle",          sqft: 1700 },
+  ],
   nolands: [
     { first: "Sarah",   last: "Mitchell",  phone4: "0148", street: "1234 Oak Ridge Dr",   zip: "32801", status: "new",       material: "Architectural Shingle", sqft: 2400 },
     { first: "Mike",    last: "Rodriguez", phone4: "0192", street: "44 Lakeshore Way",    zip: "34741", status: "contacted", material: "Concrete Tile (S-Tile)", sqft: 2800 },
@@ -255,6 +275,7 @@ const SEEDS: Record<DemoOfficeSlug, PersonSeed[]> = {
 // Per-office spacing scales with volume — bigger offices = newer leads
 // land closer together.
 const SPACING_HOURS: Record<DemoOfficeSlug, number> = {
+  voxaris: 10,
   nolands: 6,
   "quality-first": 14,
   "earl-johnston": 9,
@@ -598,6 +619,11 @@ const CALL_SHAPES: Record<Outcome, CallShape> = {
 // cap_duration/cap_turns. All outcomes match the enum in
 // /api/agent/events line 64 EXACTLY — no invented states.
 const CALL_OUTCOMES_PER_OFFICE: Record<DemoOfficeSlug, Outcome[]> = {
+  voxaris: [
+    "booked", "transferred", "booked", "logged_lead", "booked",
+    "booked", "no_show", "transferred", "booked", "wrong_number",
+    "booked", "cap_duration",
+  ],
   nolands: [
     "booked", "booked", "transferred", "booked", "logged_lead",
     "booked", "no_show", "transferred", "booked", "logged_lead",
@@ -809,6 +835,7 @@ export function getDemoEventsByCall(slug: DemoOfficeSlug): Record<string, Event[
 // plausible rep email, never sydney@voxaris.io.
 
 const REP_EMAILS: Record<DemoOfficeSlug, string[]> = {
+  voxaris: ["alex@voxaris.io", "jordan@voxaris.io"],
   nolands: ["mike.r@nolandsroofing.com", "jen.b@nolandsroofing.com"],
   "quality-first": ["chris.t@qualityfirstroof.com", "sandra.m@qualityfirstroof.com"],
   "earl-johnston": ["alex.p@earljohnstonroofing.com", "monica.r@earljohnstonroofing.com"],
