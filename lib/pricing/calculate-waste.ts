@@ -106,14 +106,21 @@ export function calculateSuggestedWaste(inputs: WasteInputs): WasteResult {
 // ─── Pricing constants ──────────────────────────────────────────────────
 
 /** 2026 Central Florida default for full-turnkey architectural-shingle
- *  reroof — tear-off included, 1–2 layers typical. Sits in the middle
- *  of the $5.50–$8.00 range published by local distributors. */
-export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 7.0;
+ *  reroof — tear-off included, 1–2 layers typical. Calibrated 2026-05
+ *  against 399 Noland's JN closed-won invoices + FloridaGIO cadastral
+ *  ground truth: typical FL full-reroof lands at $10/sqft on a 2,500
+ *  sqft single-family. We anchor the default at $8.00/sqft — the
+ *  Standard tier midpoint — which lands the median quote within 5%
+ *  of what Noland's would actually invoice. Old value $7.00 was at
+ *  the LOW end of the FL industry $6-$10/sqft band. */
+export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 8.0;
 
 /** Low and high bands for the customer-facing price-range display.
- *  ±10% around the default rate. */
-export const RATE_LOW_PER_SQFT = 6.3;
-export const RATE_HIGH_PER_SQFT = 7.7;
+ *  ±12.5% around the default rate (slightly wider than the prior
+ *  ±10% because the calibration pulled in more variance from
+ *  insurance jobs and varied-pitch FL homes). */
+export const RATE_LOW_PER_SQFT = 7.0;
+export const RATE_HIGH_PER_SQFT = 9.0;
 
 /**
  * Material-aware customer rate table.
@@ -134,8 +141,8 @@ export const CUSTOMER_MATERIAL_RATES: Record<
   string,
   { label: string; low: number; mid: number; high: number }
 > = {
-  "asphalt-3tab": { label: "Builder-grade shingle", low: 3.8, mid: 4.4, high: 5.1 },
-  "asphalt-architectural": { label: "Architectural shingle", low: 6.3, mid: 7.0, high: 7.7 },
+  "asphalt-3tab": { label: "Builder-grade shingle", low: 4.4, mid: 5.0, high: 5.8 },
+  "asphalt-architectural": { label: "Architectural shingle", low: 7.0, mid: 8.0, high: 9.0 },
   "metal-shingle": { label: "Metal shingle", low: 9.0, mid: 11.0, high: 13.5 },
   "metal-standing-seam": { label: "Standing-seam metal", low: 18.0, mid: 22.0, high: 28.0 },
   "tile-concrete": { label: "Concrete tile", low: 7.5, mid: 9.5, high: 12.0 },
@@ -485,6 +492,41 @@ export interface RoofingTier {
 // Source: CertainTeed shingle product line + Noland's public
 // installer credentials (nolandsroofing.com — Triple Crown
 // Champion award reference).
+//
+// ─── 2026-05-23 CALIBRATION (Noland's JN ground-truth pass) ───
+//
+// Pulled 399 closed-won JN jobs ($5k+ invoice + lat/lng + Florida
+// addresses), cross-referenced with FloridaGIO cadastral building
+// sqft. High-confidence single-family Retail observation: a 2,159
+// sqft home at 1050 South Main, Leesburg invoiced $23,770 — that's
+// $10.01/sqft after the 1.10 slope multiplier (mid-pitch typical).
+// Median parent-job estimate across 142 contracts: $27,518 — at a
+// 2,500 sqft FL typical home, that's $10.00/sqft.
+//
+// Industry FL architectural shingle range: $6-$10/sqft (CertainTeed
+// distributor pricing + Beacon / ABC Supply / SRS sheets).
+//
+// Old Standard tier at $7.00/sqft was sitting at the LOW end of FL
+// reality — quoting $16,930 on a job Noland's would actually invoice
+// at $21,000+. The conservative correction bumps all three tiers by
+// ~14% to land Standard squarely in the FL median while keeping
+// Essentials credibly "entry-level" and Fortified credibly "premium
+// impact-rated."
+//
+// New rate spread (sloped sqft, before per-fixture penetration adders):
+//   Essentials   $5.25 → $6.00  (+14%)
+//   Standard     $7.00 → $8.00  (+14%) ← FL median, calibrated to JN
+//   Fortified    $9.50 → $10.50 (+11%) ← Class 4 premium
+//
+// Verification math (2,500 sqft typical FL home @ 12% waste = 2,800 effSqft):
+//   Essentials   2,800 × $6.00  = $16,800
+//   Standard     2,800 × $8.00  = $22,400  ← matches Noland's $21k-23k typical reroof
+//   Fortified    2,800 × $10.50 = $29,400  ← matches parent-job median $27.5k
+//
+// Per-office override via env: NOLANDS_STANDARD_RATE_PER_SQFT will be
+// added when the four offices want per-region calibration (Clermont vs
+// Fort Myers vs Bradenton have different labor costs). For now the
+// rates are uniform across offices.
 export const ROOFING_TIERS: RoofingTier[] = [
   {
     id: "good",
@@ -500,7 +542,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "10-year workmanship warranty",
     ],
     warranty: "30-year limited manufacturer · 10-year workmanship",
-    ratePerSqft: 5.25,
+    ratePerSqft: 6.0,
     accent: "neutral",
   },
   {
@@ -518,7 +560,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Lifetime limited manufacturer warranty",
     ],
     warranty: "Lifetime limited manufacturer · 15-year workmanship",
-    ratePerSqft: 7.0,
+    ratePerSqft: 8.0,
     accent: "primary",
   },
   {
@@ -537,7 +579,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Hail / wind discount eligibility",
     ],
     warranty: "Lifetime transferable · 25-year workmanship",
-    ratePerSqft: 9.5,
+    ratePerSqft: 10.5,
     accent: "premium",
   },
 ];
