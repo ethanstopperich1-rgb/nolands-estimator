@@ -1713,40 +1713,55 @@ async function persistEstimateToLead(
           // honest.
           const fmt$ = (n: number) =>
             `$${Math.round(n).toLocaleString("en-US")}`;
+          // Reps scan these in the JN job + contact timeline. Plain
+          // intake-log voice: short lines, no jargon, no marketing
+          // brag about how the pricing was calibrated. The rep doesn't
+          // care about the source pipeline — they care about the
+          // numbers + what action they need to take.
           const tierLines = tiersForJn
             ? tiersForJn
-                .map(
-                  (t) =>
-                    `  • ${t.tier.name}: ${fmt$(t.total)} cash · ${fmt$(t.monthly)}/mo (15-yr @ 9.99%)`,
-                )
+                .map((t) => {
+                  // Right-pad the tier name to align the columns so the
+                  // job description scans like an intake sheet, not a
+                  // bullet list.
+                  const name = t.tier.name.padEnd(11);
+                  return `  ${name} ${fmt$(t.total)}  (${fmt$(t.monthly)}/mo, 15-yr @ 9.99%)`;
+                })
                 .join("\n")
-            : `  Cash range: ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}`;
-          const sqftLine =
-            result.solar.sqft != null
-              ? `Roof sqft: ${Math.round(result.solar.sqft).toLocaleString("en-US")} (Solar API)`
-              : "Roof sqft: unavailable";
-          const facetLine =
-            result.geminiAnalysis.facetCountEstimate?.count != null
-              ? `Facets: ${result.geminiAnalysis.facetCountEstimate.count} · complexity ${result.geminiAnalysis.facetCountEstimate.complexity ?? "unknown"}`
-              : "";
+            : `  ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}`;
+          const sqft = result.solar.sqft;
+          const facets = result.geminiAnalysis.facetCountEstimate?.count;
+          const complexity = result.geminiAnalysis.facetCountEstimate?.complexity;
+          // Combine sqft + facets + complexity into one declarative line —
+          // reps read this in 2 seconds. Source attribution dropped;
+          // they already know the estimator measures from satellite.
+          const roofLineParts: string[] = [];
+          if (sqft != null) {
+            roofLineParts.push(`${Math.round(sqft).toLocaleString("en-US")} sqft`);
+          }
+          if (facets != null) roofLineParts.push(`${facets} facets`);
+          if (complexity) roofLineParts.push(`${complexity} complexity`);
+          const roofLine = roofLineParts.length > 0
+            ? `Roof: ${roofLineParts.join(", ")}.`
+            : "";
           const materialLine =
             result.geminiAnalysis.roofMaterial?.type
-              ? `Material (AI read): ${result.geminiAnalysis.roofMaterial.type}`
+              ? `Material: ${result.geminiAnalysis.roofMaterial.type} (confirm on site).`
               : "";
           const consentLine =
             priorLead.voice_consent === true
-              ? "Voice consent: YES — Sarah will call after SMS YES reply."
-              : "Voice consent: NO — rep should call directly.";
+              ? "Voice consent: yes (Sarah calls after they reply YES)."
+              : "Voice consent: no — rep should call directly.";
           const description = [
-            `📐 ESTIMATE — ${shortAddress}`,
-            `Painted roof: ${paintedUrl}`,
-            `Secure share link: ${siteOrigin}/r/${leadPublicId}`,
+            `Estimator lead — ${shortAddress}`,
             ``,
-            sqftLine,
-            facetLine,
+            `Painted roof: ${paintedUrl}`,
+            `Share with homeowner: ${siteOrigin}/r/${leadPublicId}`,
+            ``,
+            roofLine,
             materialLine,
             ``,
-            `Tier pricing (calibrated to Noland's JN ground truth):`,
+            `Pricing:`,
             tierLines,
             ``,
             consentLine,
@@ -1757,13 +1772,13 @@ async function persistEstimateToLead(
           // Compact note body — duplicates the share URL + consent state
           // for at-a-glance scanning on the contact timeline. Reps read
           // notes before opening jobs.
+          const standardTier = tiersForJn?.find((t) => t.tier.id === "better");
           const noteBody = [
-            `Estimator submission — ${shortAddress}.`,
-            `Painted roof + tier pricing: ${siteOrigin}/r/${leadPublicId}`,
-            tiersForJn
-              ? `Standard tier: ${fmt$(tiersForJn.find((t) => t.tier.id === "better")?.total ?? 0)} cash · ${fmt$(tiersForJn.find((t) => t.tier.id === "better")?.monthly ?? 0)}/mo`
-              : `Cash range: ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}`,
-            consentLine,
+            `New estimator lead at ${shortAddress}.`,
+            `Painted roof + pricing: ${siteOrigin}/r/${leadPublicId}`,
+            standardTier
+              ? `Standard ${fmt$(standardTier.total)} (${fmt$(standardTier.monthly)}/mo). ${consentLine}`
+              : `Cash range ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}. ${consentLine}`,
           ].join("\n");
 
           // Create the Retail job + attach the painted-roof note.
