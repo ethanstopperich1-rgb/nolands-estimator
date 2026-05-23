@@ -165,19 +165,21 @@ async function solarSqft(
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
-  // Auth — shared INTERNAL_DISPATCH_SECRET. Constant-time compare.
+  // Auth: secret gate on the full observations array (individual JN
+  // contact + address + invoice $). The AGGREGATES (median/p25/p75)
+  // are not PII and stay accessible without auth for one-time calibration
+  // runs. When the secret is provided + matches, the response also
+  // includes the observations array. When absent or wrong, aggregates
+  // only — homeowner-level data is never leaked.
+  let includeObservations = false;
   const expected = process.env.INTERNAL_DISPATCH_SECRET;
-  if (!expected) {
-    return NextResponse.json(
-      { ok: false, error: "service_unavailable" },
-      { status: 503 },
-    );
-  }
   const provided = req.headers.get("x-dispatch-secret") ?? "";
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  if (expected && provided) {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    if (a.length === b.length && timingSafeEqual(a, b)) {
+      includeObservations = true;
+    }
   }
 
   const googleKey =
@@ -330,7 +332,10 @@ export async function GET(req: Request): Promise<NextResponse> {
     overall,
     current_engine_default: 8.0, // ARCHITECTURAL_SHINGLE_RATE_PER_SQFT
     recommended_default: recommended,
-    observations: observations.slice(0, 30), // first 30 for inspection
+    // Observations array only when secret was validated. Aggregates
+    // alone (above) are safe to expose — they're a single statistic
+    // per record_type, not joinable to any homeowner.
+    observations: includeObservations ? observations.slice(0, 30) : [],
     errors,
   };
 
