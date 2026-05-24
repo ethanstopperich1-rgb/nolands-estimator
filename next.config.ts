@@ -31,6 +31,41 @@ const config: NextConfig = {
   async headers() {
     return [
       {
+        // Global baseline security headers. The /embed and /embed.js
+        // entries below override the X-Frame-Options / CSP frame-
+        // ancestors for the iframable widget so partners can still
+        // embed it. Everything else gets the locked-down posture.
+        source: "/(.*)",
+        headers: [
+          // HSTS — one-year max-age, includeSubDomains so a future
+          // estimate.<contractor>.com white-label is also forced HTTPS.
+          // No `preload` directive: opting into the preload list is a
+          // separate one-way action that should be a deliberate choice.
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=31536000; includeSubDomains",
+          },
+          // Prevent MIME-sniffing — defense-in-depth against an attacker
+          // uploading a file with one extension that browsers later
+          // interpret as another type.
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // Belt + suspenders with the global CSP frame-ancestors below;
+          // older browsers honor X-Frame-Options. SAMEORIGIN keeps our
+          // own dashboard embedding flows (lead drawer iframes) working.
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // Don't leak full URLs (which may include lead public_ids) to
+          // cross-origin destinations on click-out.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Refuse hardware features the estimator + dashboard don't
+          // need. Cuts the attack surface for a future XSS that tries
+          // to exfil via camera/mic/geolocation.
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(self), payment=()",
+          },
+        ],
+      },
+      {
         // The embeddable widget — must be iframable from any host.
         source: "/embed",
         headers: [

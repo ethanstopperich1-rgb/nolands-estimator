@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { waitUntil } from "@vercel/functions";
 import { rateLimit } from "@/lib/ratelimit";
+import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 import { checkBotId } from "botid/server";
 import { verifyRecaptcha } from "@/lib/recaptcha";
 import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
@@ -28,6 +29,10 @@ import {
   isValidLeadPublicId,
   isValidOfficeSlug,
   normalizeOfficeSlug,
+  isReasonableLength,
+  ADDRESS_MAX_LEN,
+  NAME_MAX_LEN,
+  FREEFORM_MAX_LEN,
 } from "@/lib/leads/validation";
 
 export const runtime = "nodejs";
@@ -117,6 +122,12 @@ export { buildMarketingConsentText as getMarketingConsentTextForOffice } from "@
  * LEAD_WEBHOOK_URL for CRM intake.
  */
 export async function POST(req: Request) {
+  // Lead capture body includes an optional base64 painted PNG (capped
+  // to 2 MB inside validatePaintedPngBase64). Cap the whole body at
+  // 5 MB so an attacker can't pre-buffer a gigabyte before reaching
+  // the PNG validator.
+  const oversized = checkPayloadSize(req, { maxBytes: PAYLOAD_LIMITS.large });
+  if (oversized) return oversized;
   const __rl = await rateLimit(req, "public");
   if (__rl) return __rl;
 
@@ -182,6 +193,30 @@ export async function POST(req: Request) {
   if (!body.name?.trim() || !body.email?.trim() || !body.address?.trim()) {
     return NextResponse.json(
       { error: "name, email and address are required" },
+      { status: 400 },
+    );
+  }
+
+  // Length caps — defense against storage / log bloat AND amplifies the
+  // prompt-injection defense in lib/sanitize-prompt-input.ts (the
+  // sanitizer truncates too, but rejecting at the boundary is cheaper
+  // and surfaces a clearer error to a buggy caller). The notes / source
+  // fields also accept freeform text.
+  if (!isReasonableLength(body.name, NAME_MAX_LEN)) {
+    return NextResponse.json(
+      { error: "name_too_long", max_length: NAME_MAX_LEN },
+      { status: 400 },
+    );
+  }
+  if (!isReasonableLength(body.address, ADDRESS_MAX_LEN)) {
+    return NextResponse.json(
+      { error: "address_too_long", max_length: ADDRESS_MAX_LEN },
+      { status: 400 },
+    );
+  }
+  if (body.notes != null && !isReasonableLength(body.notes, FREEFORM_MAX_LEN)) {
+    return NextResponse.json(
+      { error: "notes_too_long", max_length: FREEFORM_MAX_LEN },
       { status: 400 },
     );
   }

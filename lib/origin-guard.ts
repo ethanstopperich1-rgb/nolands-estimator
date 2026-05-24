@@ -84,8 +84,17 @@ export function checkOrigin(req: Request): NextResponse | null {
   // Explicit allowlist (env-configurable + hard-coded prod hosts).
   if (allowedHosts().has(candidate)) return null;
 
-  // Vercel preview / branch deploys served from *.vercel.app.
-  if (candidate.endsWith(".vercel.app")) return null;
+  // Vercel preview / branch deploys served from *.vercel.app — allowed
+  // only outside production. In prod this was a wide-open hole: any
+  // third-party Vercel project could call our APIs and burn billing.
+  // Same-host preview deploys are already covered by the same-origin
+  // check above (deploy URL === request host).
+  if (
+    process.env.NODE_ENV !== "production" &&
+    candidate.endsWith(".vercel.app")
+  ) {
+    return null;
+  }
 
   return NextResponse.json(
     { error: "Origin not allowed" },

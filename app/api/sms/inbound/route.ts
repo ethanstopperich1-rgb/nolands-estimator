@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
+import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 import {
   sendSms,
   toE164,
@@ -49,6 +50,11 @@ export const maxDuration = 60;
  * Qwen call = <$0.002 per customer reply.
  */
 export async function POST(req: Request) {
+  // Twilio inbound bodies are form-encoded and well under 10 KB in
+  // normal operation. Cap at 100 KB so a forged POST can't pre-buffer
+  // megabytes before we can verify the signature.
+  const oversized = checkPayloadSize(req, { maxBytes: PAYLOAD_LIMITS.normal });
+  if (oversized) return oversized;
   if (!twilioConfigured()) {
     return new Response("Twilio not configured", { status: 503 });
   }
@@ -321,7 +327,11 @@ async function handleYesCallback(opts: {
     return false;
   }
   if (!lead) {
-    console.log("[sms-inbound:yes] no lead found for phone", opts.from);
+    // Mask phone in logs — full E.164 is PII / TCPA-sensitive and ends
+    // up in long-retention log sinks. Keep enough to correlate (last 4)
+    // without exposing the full number.
+    const masked = opts.from ? `***${opts.from.slice(-4)}` : "(unknown)";
+    console.log("[sms-inbound:yes] no lead found for phone", masked);
     return false;
   }
 

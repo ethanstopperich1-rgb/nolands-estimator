@@ -138,9 +138,19 @@ export async function rateLimit(
       },
     );
   } catch (err) {
-    // Redis hiccup — fail open. We'd rather serve a request than 503 on
-    // a transient Upstash outage.
+    // Redis hiccup — fail OPEN for cheap buckets (`public`, `standard`,
+    // `auth`) but CLOSED for `expensive`. The expensive bucket protects
+    // Gemini Pro Image / Anthropic calls billed at $0.05-0.15 each; a
+    // Redis outage that disabled rate limiting on this surface could
+    // cost hundreds of dollars in a one-minute flood. We'd rather serve
+    // 503 here than let it fail open silently.
     console.warn(`[ratelimit] limiter.limit threw for ${bucket}:`, err);
+    if (bucket === "expensive") {
+      return NextResponse.json(
+        { error: "rate_limit_unavailable" },
+        { status: 503, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     return null;
   }
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { checkBotId } from "botid/server";
 import { rateLimit } from "@/lib/ratelimit";
 import { checkOrigin } from "@/lib/origin-guard";
+import { getGoogleServerKey } from "@/lib/google-server-key";
 
 interface AddressComponent {
   types?: string[];
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
   if ("isBot" in __bot && __bot.isBot && !__bot.isVerifiedBot) {
     return NextResponse.json({ error: "Bot detected" }, { status: 403 });
   }
-  const apiKey = process.env.GOOGLE_SERVER_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  const apiKey = getGoogleServerKey();
   if (!apiKey) return NextResponse.json({ error: "Missing key" }, { status: 503 });
   const { searchParams } = new URL(req.url);
   const placeId = searchParams.get("placeId");
@@ -41,7 +42,14 @@ export async function GET(req: Request) {
   });
   const data = await res.json();
   if (!res.ok) {
-    return NextResponse.json({ error: "places error", detail: data }, { status: res.status });
+    console.error("[places/details] google error", {
+      status: res.status,
+      detail: data,
+    });
+    return NextResponse.json(
+      { error: "address_lookup_failed" },
+      { status: res.status },
+    );
   }
   const components = data.addressComponents as AddressComponent[] | undefined;
   const zip = components?.find((c) => c.types?.includes("postal_code"))?.shortText;
