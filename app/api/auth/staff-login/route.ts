@@ -6,6 +6,7 @@ import {
   LOGIN_THROTTLE_MAX,
   LOGIN_THROTTLE_WINDOW_SECONDS,
 } from "@/lib/login-throttle";
+import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,10 @@ export const runtime = "nodejs";
  * password.
  */
 export async function POST(req: Request): Promise<NextResponse> {
+  // Login body is `{ username, password }` JSON — tiny. Reject anything
+  // larger than 16 KB before reading.
+  const oversized = checkPayloadSize(req, { maxBytes: PAYLOAD_LIMITS.small });
+  if (oversized) return oversized;
   // Brute-force throttle — 5 failed attempts in a 15-minute sliding
   // window blocks further attempts from the same IP until the window
   // expires. Read-only check up front; we don't consume budget on a

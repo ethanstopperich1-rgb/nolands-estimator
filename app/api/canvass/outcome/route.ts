@@ -27,7 +27,9 @@
  */
 
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { rateLimit } from "@/lib/ratelimit";
+import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 import {
   createServiceRoleClient,
   supabaseServiceRoleConfigured,
@@ -73,6 +75,8 @@ interface Body {
 }
 
 export async function POST(req: Request) {
+  const oversized = checkPayloadSize(req, { maxBytes: PAYLOAD_LIMITS.normal });
+  if (oversized) return oversized;
   const __rl = await rateLimit(req, "standard");
   if (__rl) return __rl;
 
@@ -86,10 +90,17 @@ export async function POST(req: Request) {
   // ─── Auth: webhook bearer OR authenticated dashboard user ────────
   const auth = req.headers.get("authorization") ?? "";
   const webhookSecret = process.env.CANVASS_OUTCOME_WEBHOOK_SECRET;
-  const isWebhook =
-    webhookSecret != null &&
-    auth.toLowerCase().startsWith("bearer ") &&
-    auth.slice(7).trim() === webhookSecret;
+  const isWebhook = (() => {
+    if (!webhookSecret) return false;
+    if (!auth.toLowerCase().startsWith("bearer ")) return false;
+    const provided = Buffer.from(auth.slice(7).trim(), "utf8");
+    const expected = Buffer.from(webhookSecret, "utf8");
+    // Constant-time comparison — `===` leaks character-prefix timing,
+    // letting a remote attacker brute-force the secret. Same pattern as
+    // dispatch-outbound + sms/post-call.
+    if (provided.length !== expected.length) return false;
+    return timingSafeEqual(provided, expected);
+  })();
 
   let scopedOfficeId: string | null = null;
   let userId: string | null = null;

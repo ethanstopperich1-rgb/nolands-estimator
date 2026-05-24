@@ -38,6 +38,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { AgentDispatchClient, SipClient } from "livekit-server-sdk";
 import { rateLimit } from "@/lib/ratelimit";
+import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 
 interface DispatchPayload {
   leadId: string;
@@ -94,6 +95,11 @@ function isE164(s: string): boolean {
 }
 
 export async function POST(req: Request) {
+  // Body is a small JSON dispatch payload (~1 KB realistic). Cap small
+  // so an attacker who learns INTERNAL_DISPATCH_SECRET can't flood
+  // memory before the route's validators run.
+  const oversized = checkPayloadSize(req, { maxBytes: PAYLOAD_LIMITS.small });
+  if (oversized) return oversized;
   // Standard rate-limit bucket — agent dispatch is "expensive" enough
   // to deserve protection but not "expensive" tier (which is for AI
   // pipelines billed per token).
@@ -317,12 +323,13 @@ export async function POST(req: Request) {
       metadata: e?.metadata,
       status: e?.status,
     });
+    // Don't leak SIP status codes, trunk IDs, or upstream Twirp metadata
+    // to the caller. Internal route, but the response can still end up
+    // in monitoring sinks (Sentry) and external log shippers. Operators
+    // get the full detail from the structured log above; callers get a
+    // correlation-friendly opaque error.
     return NextResponse.json(
-      {
-        error: "dispatch_failed",
-        message: e?.message ?? String(err),
-        sip_status_code: (e?.metadata as { sip_status_code?: string })?.sip_status_code ?? null,
-      },
+      { error: "dispatch_failed" },
       { status: 500 },
     );
   }

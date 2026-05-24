@@ -237,11 +237,14 @@ function diff(
 }
 
 function authorized(req: Request): boolean {
-  // Vercel cron signature header — present on real cron invocations.
-  if (req.headers.get("x-vercel-cron-signature")) return true;
+  const expected = process.env.CRON_SECRET ?? "";
+  // Vercel cron signs requests with CRON_SECRET — accept the header only
+  // when its value matches. Presence-alone is NOT sufficient (any caller
+  // can add an arbitrary header). Mirrors /api/cron/storm-pulse.
+  const vercelSig = req.headers.get("x-vercel-cron-signature");
+  if (expected && vercelSig && vercelSig === expected) return true;
   // Manual / out-of-band trigger — accept Bearer + CRON_SECRET.
   const auth = req.headers.get("authorization") ?? "";
-  const expected = process.env.CRON_SECRET ?? "";
   if (expected && auth === `Bearer ${expected}`) return true;
   return false;
 }

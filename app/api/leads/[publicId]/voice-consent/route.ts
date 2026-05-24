@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { rateLimit } from "@/lib/ratelimit";
+import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
+import {
+  checkAuthLockout,
+  recordAuthFailure,
+  AUTH_THROTTLE_MAX,
+  AUTH_THROTTLE_WINDOW_SECONDS,
+} from "@/lib/auth-throttle";
 import {
   createServiceRoleClient,
   supabaseServiceRoleConfigured,
@@ -60,11 +67,40 @@ export async function POST(
   req: Request,
   context: { params: Promise<{ publicId: string }> },
 ): Promise<NextResponse> {
+  // Payload size cap — body is `{ consent: true }`, never large.
+  const oversized = checkPayloadSize(req, { maxBytes: PAYLOAD_LIMITS.small });
+  if (oversized) return oversized;
+
   const rl = await rateLimit(req, "public");
   if (rl) return rl;
 
+  // Brute-force throttle. The publicId is the only thing protecting
+  // against a forced-consent attack: an attacker who scrapes or guesses
+  // a lead_<32hex> id could POST a `{consent:true}` and trigger an
+  // outbound call to the victim's phone. The id space is large (2^128),
+  // but defense in depth — cap failures per IP at 5 in a 15-min window.
+  const lock = await checkAuthLockout(req, "voice-consent");
+  if (lock.locked) {
+    return NextResponse.json(
+      {
+        error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSeconds / 60)} minutes.`,
+        retryAfterSeconds: lock.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(lock.retryAfterSeconds),
+          "X-RateLimit-Limit": String(AUTH_THROTTLE_MAX),
+          "X-RateLimit-Window": String(AUTH_THROTTLE_WINDOW_SECONDS),
+          "Cache-Control": "no-store",
+        },
+      },
+    );
+  }
+
   const { publicId } = await context.params;
   if (!publicId || !/^lead_[0-9a-f]{32}$/i.test(publicId)) {
+    await recordAuthFailure(req, "voice-consent");
     return NextResponse.json({ error: "invalid_public_id" }, { status: 400 });
   }
 
@@ -127,6 +163,9 @@ export async function POST(
     return NextResponse.json({ error: "lookup_failed" }, { status: 500 });
   }
   if (!leadRaw) {
+    // Treat publicId-not-found as a brute-force signal — feeds the
+    // throttle so an attacker scanning the id space gets locked out.
+    await recordAuthFailure(req, "voice-consent");
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   const lead = leadRaw as unknown as LeadWithOffice;

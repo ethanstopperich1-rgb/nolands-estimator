@@ -20,6 +20,8 @@
  *     observations + per-image identity verdicts.
  */
 
+import { sanitizePromptText } from "./sanitize-prompt-input";
+
 const PIN_TILE_ZOOM = 21;
 const TILE_SIZE_PX = 640;
 const TILE_SCALE = 2;
@@ -255,10 +257,11 @@ async function callGeminiPro(args: {
   parts.push({
     inline_data: { mime_type: "image/png", data: args.topDownBase64 },
   });
+  const safeAddress = sanitizePromptText(args.address);
   parts.push({
     text:
       `Image 1 above: top-down satellite of target building at ` +
-      `lat=${args.lat}, lng=${args.lng}. The address is ${args.address}.`,
+      `lat=${args.lat}, lng=${args.lng}. The address is ${safeAddress}.`,
   });
   if (
     args.streetViewBase64 &&

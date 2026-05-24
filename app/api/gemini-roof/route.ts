@@ -74,6 +74,7 @@ import {
 import { fetchGisFootprint } from "@/lib/reconcile-roof-polygon";
 import { polygonAreaSqft } from "@/lib/polygon";
 import { rotateAllFacets } from "@/lib/solar-facets";
+import { getGoogleServerKey } from "@/lib/google-server-key";
 import { classifyEdges } from "@/lib/roof-engine";
 import {
   createServiceRoleClient,
@@ -1609,8 +1610,7 @@ async function handleV3Pinned(
     }
   }
 
-  const googleKey =
-    process.env.GOOGLE_SERVER_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  const googleKey = getGoogleServerKey();
   if (!googleKey) {
     return NextResponse.json({ error: "missing_google_key" }, { status: 503 });
   }
@@ -2756,8 +2756,7 @@ async function handle(
     }
   }
 
-  const googleKey =
-    process.env.GOOGLE_SERVER_KEY ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  const googleKey = getGoogleServerKey();
   if (!googleKey) {
     return NextResponse.json(
       { error: "missing_google_key" },

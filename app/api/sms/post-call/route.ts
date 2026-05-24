@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
+import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
 import {
   createServiceRoleClient,
@@ -84,6 +85,8 @@ function authorize(req: Request): boolean {
 }
 
 export async function POST(req: Request) {
+  const oversized = checkPayloadSize(req, { maxBytes: PAYLOAD_LIMITS.small });
+  if (oversized) return oversized;
   if (!authorize(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

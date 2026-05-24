@@ -9,6 +9,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { RoofVision } from "@/types/estimate";
 import { fetchSatelliteImage as fetchTile } from "./satellite-tile";
+import { sanitizePromptText } from "./sanitize-prompt-input";
 
 const MODEL = "claude-sonnet-4-6";
 
@@ -420,7 +421,11 @@ export async function findPrimaryResidence(opts: {
   const cosLat = Math.cos((opts.lat * Math.PI) / 180);
 
   const IMG_CENTER = VIEW_IMG_PX / 2;
-  const RESIDENCE_PROMPT = `You are looking at a satellite image (${VIEW_IMG_PX}×${VIEW_IMG_PX} pixels) of a property${opts.address ? ` at ${opts.address}` : ""}.
+  // Address is user-supplied free text — must be scrubbed for control
+  // chars, bidi marks, and steering phrases before interpolation into
+  // the system prompt. See lib/sanitize-prompt-input.ts.
+  const safeAddress = sanitizePromptText(opts.address);
+  const RESIDENCE_PROMPT = `You are looking at a satellite image (${VIEW_IMG_PX}×${VIEW_IMG_PX} pixels) of a property${safeAddress ? ` at ${safeAddress}` : ""}.
 
 YOUR TASK: identify the PRIMARY RESIDENCE — the HOUSE where people live — at this address.
 

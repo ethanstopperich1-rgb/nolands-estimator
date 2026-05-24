@@ -11,6 +11,11 @@ export const PROTECTED_API_PREFIXES = [
   "/api/verify-polygon",
   "/api/estimates",
   "/api/aerial",
+  // NOTE on /api/canvass/*: intentionally NOT here. The /outcome
+  // handler has its own dual auth (CRM webhook Bearer OR dashboard
+  // session) — putting it in this list would block legitimate webhook
+  // POSTs (no Supabase session cookie, no HTTP Basic). The handler's
+  // in-route check + Supabase JWT validation downstream is the gate.
 ] as const;
 
 export const PROTECTED_PAGE_PATHS = new Set<string>();

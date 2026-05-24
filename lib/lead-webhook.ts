@@ -38,6 +38,46 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { OfficeBranding } from "@/lib/supabase";
 
+/**
+ * Reject URLs that point at private / link-local / loopback ranges or
+ * use plain HTTP. Used as the SSRF gate before any outbound webhook
+ * fetch. Conservative — better to fail closed than let a misconfigured
+ * per-office URL hit the metadata service.
+ *
+ * We can't safely defeat DNS rebinding here without resolving + pinning
+ * the IP; that's a deeper change. This catches the bulk of the obvious
+ * abuse: `http://169.254.169.254/...`, `http://10.x.x.x/...`,
+ * `http://localhost/...`, IPv6 loopback, etc.
+ */
+function isSafePublicHttpsUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  if (!host) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return false;
+  // IPv4 private / link-local / loopback / reserved ranges.
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = v4.slice(1).map(Number);
+    if (a === 10) return false;
+    if (a === 127) return false;
+    if (a === 0) return false;
+    if (a === 169 && b === 254) return false; // link-local + metadata
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && b === 168) return false;
+    if (a >= 224) return false; // multicast + reserved
+  }
+  // IPv6 — reject anything bracketed (URL form), which covers all
+  // numeric IPv6 addresses including ::1 and fc00::/7.
+  if (host.startsWith("[")) return false;
+  return true;
+}
+
 /** Bump this when required fields change. Add nullable fields freely. */
 export const LEAD_WEBHOOK_SCHEMA_VERSION = "1.0.0";
 
@@ -156,6 +196,19 @@ export async function publishLeadEvent(opts: {
 }): Promise<{ ok: true; status: number } | null> {
   const target = resolveLeadWebhook(opts.office);
   if (!target) return null;
+
+  // SSRF guard. The webhook URL today comes from env (operator-set), but
+  // the future per-office column (offices.lead_webhook_url) will be
+  // dashboard-writable — meaning a compromised staff session could point
+  // it at internal endpoints (Vercel metadata, internal Supabase, the
+  // LiveKit cluster). Refuse plain HTTP and refuse hostnames that
+  // resolve to private/link-local ranges. Run this BEFORE the fetch.
+  if (!isSafePublicHttpsUrl(target.url)) {
+    console.error("[lead-webhook] refusing unsafe webhook URL", {
+      source: target.source,
+    });
+    return null;
+  }
 
   const body = JSON.stringify(opts.event);
   const headers: Record<string, string> = {
