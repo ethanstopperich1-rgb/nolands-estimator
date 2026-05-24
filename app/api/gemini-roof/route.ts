@@ -1069,7 +1069,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // photo evidence to keep Pro Image in edit mode on complex roofs.
 // Previous bumps preserved (parcel-keyed, full-sqft pricing,
 // flash-lite-3-1, alpha-070, etc.).
-const CACHE_SCOPE_V3 = "gemini-roof-v3-parity-unified-prompt";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-bright-cyan-stroke";
 
 /** Cheap text-only model used solely for structured-output object
  *  detection alongside the painted-image call. Pro Image is expensive

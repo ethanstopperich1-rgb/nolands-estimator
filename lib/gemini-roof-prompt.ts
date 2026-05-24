@@ -42,10 +42,10 @@ Your output is the SUPPLIED 1280×1280 satellite photo with cyan paint added on 
 
 If you cannot identify a roof to paint with high confidence (e.g. the image is too obscured by clouds or trees, or the central pixel does not sit on a building), return the input image UNCHANGED with no cyan added. Do not invent a roof. Do not generate a new satellite image. Do not regenerate the scene from scratch.
 
-## STYLE — Noland's Roofing brand hybrid
-- **Fill**: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan. (Cyan fill is the universal "this is a measurement layer" convention used by EagleView / Hover / GAF QuickMeasure — preserves the data-trust signal and stays high-contrast against warm-brown shingle.)
-- **Outline**: Noland's fire-orange #E84A1F at full opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring. (Orange edge is the Noland's brand signature — same fire-orange that bounds the STANDARD pricing tier card and the H1 accent. Tells the customer "Noland's painted this.")
-- **Interior edges** (ridges, hips, valleys, gable seams between two adjacent painted planes) are ALSO the fire-orange #E84A1F stroke — one crisp line where two planes meet.
+## STYLE
+- **Fill**: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan.
+- **Outline**: brighter cyan #00E5FF at FULL opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring. The outline is a CLEARLY brighter, more saturated cyan than the fill — the visual hierarchy reads as glowing edges on a translucent overlay.
+- **Interior edges** (ridges, hips, valleys, gable seams between two adjacent painted planes) are ALSO the brighter cyan #00E5FF stroke — one crisp line where two planes meet.
 - The effect is paint ADDED on top of the existing photo, not a replacement of it. Preserve the original pixels everywhere outside the painted area.
 
 ## RULE 1 — Fill every plane + stroke every visible edge. Both are required on every render.
@@ -54,10 +54,10 @@ If you cannot identify a roof to paint with high confidence (e.g. the image is t
 Every distinct roof plane (each unique direction the roof faces) is filled as ONE solid, gap-free polygon of cyan #38C5EE at ~40% opacity. **No notches. No triangular cutouts. No holes around fixtures. No bite-outs along inside edges. No indentations that follow shadow lines.** If a plane is an L or T shape, the polygon is continuous — it just has corners.
 
 ### 1b. Outer perimeter stroke — always required
-A crisp 2–3 pixel Noland's fire-orange #E84A1F stroke at full opacity runs continuously along the OUTER PERIMETER of the painted area: every eave, rake, and gable-end edge. This stroke is required on every render. Never skip it.
+A crisp 2–3 pixel brighter cyan #00E5FF stroke at full opacity runs continuously along the OUTER PERIMETER of the painted area: every eave, rake, and gable-end edge. This stroke is required on every render. Never skip it.
 
 ### 1c. Interior facet strokes — required, anchored to visible photo evidence
-The same crisp 2–3 pixel fire-orange #E84A1F stroke at full opacity ALSO runs along every VISIBLE INTERIOR EDGE between roof planes:
+The same crisp 2–3 pixel brighter cyan #00E5FF stroke at full opacity ALSO runs along every VISIBLE INTERIOR EDGE between roof planes:
 - **Ridges** — highest horizontal line where two opposing slopes meet at a peak.
 - **Hips** — sloped diagonal from a peak corner down to a building corner.
 - **Valleys** — inward-V where two adjacent planes meet (dormers, intersecting wings).
