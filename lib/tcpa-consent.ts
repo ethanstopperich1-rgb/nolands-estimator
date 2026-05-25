@@ -62,5 +62,33 @@ export function buildVoiceConsentDisclosureText(officeDisplayName: string): stri
   return VOICE_CONSENT_DISCLOSURE_TEMPLATE.replace(/\{\{office_name\}\}/g, name);
 }
 
+/**
+ * Quick-capture consent — phone-only "text me my estimate" path.
+ *
+ * Narrower than full marketing consent because the homeowner has NOT
+ * given name/email yet. They're trading one phone number for one
+ * transactional SMS (their estimate). FCC one-to-one rule still
+ * applies: we name the office explicitly.
+ *
+ * We DO claim the right to follow up with additional messages because
+ * (a) the Podium SMS chain we already run on full leads includes the
+ * estimator confirmation + "Reply YES" voice-consent prompt + follow-up
+ * abandoner nurture, and (b) treating quick-capture as a strict
+ * one-time send would mean immediately re-asking consent on the next
+ * touchpoint. We disclose this explicitly so the legal posture stays
+ * clean.
+ */
+export const QUICK_CAPTURE_CONSENT_TEMPLATE =
+  "By tapping \"Text me this estimate,\" you consent to receive " +
+  "automated text messages from {{office_name}} about your roof " +
+  "estimate and follow-ups. Consent is not required to make a " +
+  "purchase. Message frequency varies; message and data rates may " +
+  "apply. Reply STOP to opt out, HELP for help.";
+
+export function buildQuickCaptureConsentText(officeDisplayName: string): string {
+  const name = officeDisplayName.trim() || TCPA_PLATFORM_VENDOR;
+  return QUICK_CAPTURE_CONSENT_TEMPLATE.replace(/\{\{office_name\}\}/g, name);
+}
+
 /** @deprecated Use buildMarketingConsentText — kept for imports during migration */
 export const TCPA_CONSENT_TEXT = buildMarketingConsentText(TCPA_PLATFORM_VENDOR);

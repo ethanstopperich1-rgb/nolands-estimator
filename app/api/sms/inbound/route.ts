@@ -123,8 +123,12 @@ export async function POST(req: Request) {
         // Upsert keyed on phone_e164 so a repeat STOP doesn't error.
         // We don't update opted_out_at on conflict — the original
         // timestamp is the legally-relevant one.
+        // sms_opt_outs has an office_id column but we intentionally
+        // leave it null — TCPA defensibility requires treating opt-out
+        // as system-wide. Documented in migrations/0004_sms_opt_outs.sql.
         await sb
           .from("sms_opt_outs")
+          // office-id-check: ok-tcpa-opt-outs-are-system-wide-by-design
           .upsert(
             {
               phone_e164: from,

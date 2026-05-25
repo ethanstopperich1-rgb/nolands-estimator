@@ -22,6 +22,14 @@ test("dbpr filter yields CCC prospects from cached extract", () => {
     console.log("skip dbpr filter test — no cached CSV");
     return;
   }
+  // Skip when the contractor-intel venv is missing — the test imports
+  // `dbpr_fetch` and `dbpr_filter` modules that aren't on the system
+  // python path. CI machines + fresh checkouts won't have the venv;
+  // it's bootstrapped manually with `scripts/contractor-intel/setup.sh`.
+  if (!existsSync(VENV_PY)) {
+    console.log("skip dbpr filter test — no .venv-intel (run scripts/contractor-intel/setup.sh to enable)");
+    return;
+  }
   const code = `
 from pathlib import Path
 from dbpr_fetch import parse_dbpr_csv

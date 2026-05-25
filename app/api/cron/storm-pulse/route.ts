@@ -292,6 +292,7 @@ export async function GET(req: Request) {
             };
           })
             .from("canvass_targets")
+            // office-id-check: ok-rows-literal-above-includes-office_id
             .insert(rows);
           if (!insertRes.error) {
             result.newCanvassTargets += top.length;
