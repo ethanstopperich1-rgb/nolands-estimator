@@ -157,4 +157,8 @@ Disallow: /staff-login
 Disallow: /demo
 
 # ─── Sitemap ─────────────────────────────────────────────────────────
-Sitemap: https://estimate.nolandsroofing.com/sitemap.xml
+# Points at the live origin. When DNS for estimate.nolandsroofing.com
+# lands in Cloudflare, flip this back — GSC reads this declaration
+# directly and a dead host here shows as a "Couldn't fetch" error
+# even though the in-origin /sitemap.xml is reachable via fallback.
+Sitemap: https://nolands-estimator.vercel.app/sitemap.xml

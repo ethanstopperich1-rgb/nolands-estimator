@@ -160,9 +160,16 @@ export function buildOrganizationJsonLd(): Record<string, unknown> {
     foundingDate: "2001-01-01",
     dateModified: currentDateStamp(),
     sameAs: [
+      // Confirmed live + actively maintained as of 2026-05-25
+      // (pulled from the footer of nolandsroofing.com). AI engines
+      // (ChatGPT, Perplexity, Claude, Gemini) cross-validate entity
+      // identity against this array — three high-confidence links beat
+      // one. Add Google Business Profile, BBB, and Yelp URLs as they
+      // are confirmed.
       "https://nolandsroofing.com",
-      // Add Facebook / Instagram / Google Business Profile URLs as they
-      // are confirmed. Avoid dead or unmaintained handles.
+      "https://www.facebook.com/nolandsroofing",
+      "https://www.instagram.com/nolandsroofingfl/",
+      "https://www.youtube.com/c/Nolandsroofing",
     ],
   };
 }
