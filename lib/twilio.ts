@@ -253,12 +253,13 @@ export interface EstimateReadySendResult {
 
 /**
  * Compose the estimate-ready message body. Three clean reply paths:
- *   YES      → Sarah (AI assistant) calls in 10 sec
- *   SCHEDULE → pick a time, no immediate call
- *   call the office line directly
+ *   YES / SCHEDULE → we text 2 open windows; homeowner picks A or B
+ *                    → JN Measure Call task gets booked at that time
+ *   CALL           → Sarah (our AI assistant) calls in 10 seconds
+ *   Or call the office line directly
  *
  * FCC Feb 2024 AI-voice disclosure satisfied by naming Sarah as
- * "our AI assistant" in the same sentence as the YES instruction.
+ * "our AI assistant" alongside the CALL instruction.
  *
  * Kept SMS-segment-aware (under 480 chars = 3 segments worst case)
  * even though MMS doesn't strictly cap — defensive in case Twilio
@@ -271,9 +272,8 @@ function renderEstimateReadyBody(input: EstimateReadyInput): string {
   return (
     `Your roof estimate is ready, ${firstName}. ` +
     `Three options between $${low}–$${high} cash. ` +
-    `Reply YES and Sarah (our AI assistant) calls in 10 seconds, ` +
-    `or SCHEDULE to pick a time. ` +
-    `Prefer to talk? Call (352) 242-4322. ` +
+    `Reply YES or SCHEDULE — we'll text 2 open times to pick from. ` +
+    `Or reply CALL and Sarah (our AI assistant) calls in 10 sec. ` +
     `Full report: ${input.shareUrl}. Reply STOP to opt out.`
   ).slice(0, 480);
 }

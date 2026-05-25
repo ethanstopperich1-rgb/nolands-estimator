@@ -365,6 +365,93 @@ export async function createInspectionJob(
   }
 }
 
+export interface CreateMeasureCallTaskInput {
+  /** The JN contact this task is bound to. */
+  contactId: string;
+  /** Convention: "Measure Call-{address}-{name}" so the rep recognizes
+   *  the entry in their calendar feed at a glance. */
+  title: string;
+  /** Task start time, ISO 8601 with timezone offset. */
+  dateStartIso: string;
+  /** Window length in minutes. Defaults to 60 (Noland's typical
+   *  Measure Call window). */
+  durationMinutes?: number;
+  /** Free-form description shown when the rep opens the task. Customer
+   *  call summary + caller contact info lands here. */
+  description?: string;
+  /** JN user_id of the field rep this task is assigned to. Omit for
+   *  the unrouted queue (dispatcher routes manually). */
+  ownerId?: string;
+  /** Defaults to "Measure Call" (Noland's standard residential measure
+   *  task). Override to "Self Gen-Measure Call" for canvass leads. */
+  recordType?: string;
+}
+
+export interface JNTask {
+  ok: true;
+  jnid: string;
+}
+
+/**
+ * Create a Measure Call task on Noland's JobNimbus calendar.
+ *
+ * Mirrors the Python client at voxaris-pitch/agents/sydney/jobnimbus.py
+ * `create_measure_call_task` (Sarah's voice agent uses the same shape).
+ * Both clients writing the same task type means SMS-booked + voice-
+ * booked appointments look identical on the rep's calendar.
+ *
+ * Schema notes (probed live, May 2026):
+ *   - JN's /tasks POST returns the created task with jnid.
+ *   - date_end is computed as date_start + duration_minutes (JN
+ *     accepts either explicit date_end or this implicit form; we
+ *     send both for safety).
+ *   - hide_from_calendarview=false is the default — task SHOWS on the
+ *     rep's calendar feed (the whole point of using tasks instead of
+ *     jobs for scheduling).
+ *   - owners: optional. When unset, the task lands in the office's
+ *     unrouted queue. The Noland's dispatcher routes manually.
+ */
+export async function createMeasureCallTask(
+  input: CreateMeasureCallTaskInput,
+): Promise<JNTask | JobNimbusError> {
+  if (!jobNimbusConfigured()) {
+    return { ok: false, reason: "not_configured" };
+  }
+  try {
+    const startUnix = Math.floor(new Date(input.dateStartIso).getTime() / 1000);
+    if (!Number.isFinite(startUnix)) {
+      return { ok: false, reason: "error", error: "invalid_dateStartIso" };
+    }
+    const durationMinutes = input.durationMinutes ?? 60;
+    const endUnix = startUnix + durationMinutes * 60;
+    const body: Record<string, unknown> = {
+      primary: { id: input.contactId },
+      title: input.title,
+      description: input.description ?? "",
+      date_start: startUnix,
+      date_end: endUnix,
+      record_type_name: input.recordType ?? "Measure Call",
+      hide_from_calendarview: false,
+    };
+    if (input.ownerId) {
+      body.owners = [{ id: input.ownerId }];
+    }
+    const res = await jnFetch(`${BASE_URL}/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return res;
+    const data = res.json as { jnid?: string };
+    if (!data.jnid) {
+      return { ok: false, reason: "error", error: "no_jnid_in_response" };
+    }
+    return { ok: true, jnid: data.jnid };
+  } catch (err) {
+    return jnUnexpected(err);
+  }
+}
+
 /**
  * Attach a note to a contact. Used to log "painted roof report
  * generated at {url}, estimate range $X-$Y/mo".

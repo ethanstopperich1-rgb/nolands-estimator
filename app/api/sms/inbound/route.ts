@@ -10,8 +10,17 @@ import {
 import {
   appendTurn,
   getConversation,
+  saveConversation,
   type SmsConversation,
+  type SlotOffer,
 } from "@/lib/sms-conversation";
+import {
+  nextBusinessSlots,
+  buildSlotOfferBody,
+  buildSlotConfirmedBody,
+  parseSlotPick,
+  isOfferStale,
+} from "@/lib/sms-scheduler";
 import {
   createServiceRoleClient,
   resolveOfficeByTwilioNumber,
@@ -140,30 +149,55 @@ export async function POST(req: Request) {
     });
   }
 
-  // ─── YES / SCHEDULE → trigger Sydney callback ─────────────────────
-  // Deterministic intercept BEFORE the AI-reply pipeline. The
-  // estimate-ready MMS sent from /api/gemini-roof V3 success ends with:
-  //   "Reply YES and Sarah (our AI assistant) calls in 10 seconds,
-  //    or SCHEDULE to pick a time."
-  // When the homeowner replies YES, SCHEDULE, or close variants, we:
-  //   1. Look up their most-recent lead row by phone (Supabase service
-  //      role; office_id comes from the lead row).
-  //   2. POST /api/dispatch-outbound with the lead context. The
-  //      INTERNAL_DISPATCH_SECRET gate keeps this server-to-server.
-  //   3. Reply via SMS: "Got it — calling you in a few seconds."
-  //   4. Append the turn so the SMS thread shows the YES + reply.
+  // ─── Three-way state machine ──────────────────────────────────────
   //
-  // Both YES and SCHEDULE route to the same Sarah dispatch — Sarah's
-  // prompt already handles the scheduling intent within the call
-  // (she asks for preferred date + window and books a JN task at the
-  // homeowner's chosen time). Single intercept = simpler state.
+  // Order matters — A/B slot-pick check must run BEFORE the YES/
+  // SCHEDULE matcher, otherwise "yes A" routes back into the slot-
+  // offer flow and the slot never books.
   //
-  // TCPA note: the homeowner's affirmative reply to a clear AI-voice
-  // disclosure ("Sarah, our AI assistant, will call you") is express
-  // written consent under TCPA + the FCC Feb 2024 AI-voice ruling. We
-  // log a consent row alongside the dispatch for the audit trail.
-  const yesMatch = body.match(/^(yes|y|yeah|yep|yup|sure|ok|okay|call me|call|schedule|book)\b/i);
-  if (yesMatch) {
+  // 1) A / B / 1 / 2 with offered slots in the conversation
+  //    → book the JN Measure Call task at that exact time, reply confirm
+  // 2) "call" / "call me"
+  //    → immediate Sarah dispatch (existing handleYesCallback path)
+  // 3) "yes" / "y" / "yeah" / "sure" / "ok" / "schedule" / "book"
+  //    → offer two business-day slots, persist on conversation
+  //
+  // TCPA note: replying YES / SCHEDULE / A / B to a message that
+  // explicitly disclosed Sarah is an AI voice assistant is express
+  // written consent under TCPA + the FCC Feb 2024 AI-voice ruling.
+  // We log a consent row only on the path that dispatches Sarah (the
+  // CALL handler) — the A/B path books a task without triggering a
+  // call, so no separate consent row is needed.
+
+  // (1) Slot pick — only if we have an active offer
+  const existingConv = await getConversation(from);
+  if (
+    existingConv?.offeredSlots &&
+    existingConv.offeredSlots.length > 0 &&
+    !isOfferStale(existingConv.offeredAt)
+  ) {
+    const picked = parseSlotPick(body, existingConv.offeredSlots);
+    if (picked) {
+      const handled = await handleSlotPick({
+        from,
+        body,
+        picked,
+        conv: existingConv,
+        inboundOffice,
+        replyFrom,
+      });
+      if (handled) {
+        return new Response("<Response/>", {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        });
+      }
+    }
+  }
+
+  // (2) CALL / CALL ME → immediate Sarah dispatch
+  const callMatch = body.match(/^(call me|call|callback)\b/i);
+  if (callMatch) {
     const handled = await handleYesCallback({
       from,
       body,
@@ -176,8 +210,24 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "text/xml" },
       });
     }
-    // If the YES handler couldn't find a lead, fall through to the AI
-    // path so the homeowner gets some response instead of silence.
+  }
+
+  // (3) YES / SCHEDULE → offer two business-day slots
+  const scheduleMatch = body.match(/^(yes|y|yeah|yep|yup|sure|ok|okay|schedule|book)\b/i);
+  if (scheduleMatch) {
+    const handled = await handleScheduleOffer({
+      from,
+      body,
+      inboundOffice,
+      replyFrom,
+    });
+    if (handled) {
+      return new Response("<Response/>", {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
+    // Fall through to AI path if no lead found.
   }
 
   // Append the inbound user message.
@@ -457,6 +507,196 @@ async function handleYesCallback(opts: {
 
   await appendTurn({ phone: opts.from, role: "user", body: opts.body });
   await appendTurn({ phone: opts.from, role: "assistant", body: ackBody });
+  return true;
+}
+
+/**
+ * Look up the homeowner's most-recent lead, generate two business-day
+ * time slots, persist them on the SmsConversation (Redis-backed, 24h
+ * TTL), and reply with the offer. Returns true when the offer was
+ * sent. The homeowner's A/B reply gets handled by handleSlotPick.
+ *
+ * v1 always offers the next two business-day windows (morning + after-
+ * noon) without checking JN for conflicts. Risk of double-booking is
+ * low at launch volume; v2 should call searchTasksByDateRange and
+ * filter out booked slots. The voice path (Sarah's check_availability
+ * in tools.py) already does this — we'll port that lens later.
+ */
+async function handleScheduleOffer(opts: {
+  from: string;
+  body: string;
+  inboundOffice: OfficeBranding | null;
+  replyFrom: string | undefined;
+}): Promise<boolean> {
+  if (!supabaseServiceRoleConfigured()) return false;
+  const sb = createServiceRoleClient();
+
+  // Lookup lead by phone — fuzzy match on last 10 digits since stored
+  // leads.phone may be raw user input rather than E.164.
+  const digits = opts.from.replace(/\D/g, "").slice(-10);
+  let leadQuery = sb
+    .from("leads")
+    .select("public_id, office_id, name, address")
+    .ilike("phone", `%${digits}%`)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (opts.inboundOffice) {
+    leadQuery = leadQuery.eq("office_id", opts.inboundOffice.id);
+  }
+  const { data: lead, error } = await leadQuery.maybeSingle();
+  if (error || !lead) {
+    console.log("[sms-inbound:schedule] no lead match", { last4: digits.slice(-4) });
+    return false;
+  }
+
+  // Generate two slots starting from the next business day.
+  const slots = nextBusinessSlots({ count: 2 });
+  if (slots.length < 2) {
+    console.warn("[sms-inbound:schedule] could not compute 2 slots");
+    return false;
+  }
+
+  // Persist the offer on the conversation (Redis-backed). 24h TTL is
+  // baked into the helper — stale offers get re-issued automatically.
+  const conv = (await getConversation(opts.from)) ?? {
+    phone: opts.from,
+    turns: [],
+    lastActivityAt: new Date().toISOString(),
+  };
+  conv.offeredSlots = slots;
+  conv.offeredAt = new Date().toISOString();
+  await saveConversation(conv);
+
+  const firstName = (lead.name ?? "").split(/\s+/)[0] || "there";
+  const reply = buildSlotOfferBody({ firstName, slots });
+  try {
+    await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
+    await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+    await appendTurn({ phone: opts.from, role: "assistant", body: reply });
+    console.log(
+      `[sms-inbound:schedule] offered slots to ${opts.from.slice(-4)} for lead=${lead.public_id}`,
+    );
+  } catch (err) {
+    console.error("[sms-inbound:schedule] send failed:", err);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Book the chosen slot in JobNimbus, send the confirmation SMS, clear
+ * the offer from the conversation. Idempotent on the conversation
+ * level — if the homeowner replies A twice, the second one re-sends
+ * the confirmation but doesn't double-book (clearing happens on the
+ * first successful book).
+ */
+async function handleSlotPick(opts: {
+  from: string;
+  body: string;
+  picked: SlotOffer;
+  conv: SmsConversation;
+  inboundOffice: OfficeBranding | null;
+  replyFrom: string | undefined;
+}): Promise<boolean> {
+  if (!supabaseServiceRoleConfigured()) return false;
+  const sb = createServiceRoleClient();
+
+  // Look up the lead so we can grab the jobnimbus_contact_id + name +
+  // address for the JN task title. jobnimbus_contact_id was added in
+  // migration 0019 but the TS types haven't been regenerated — same
+  // `as any` cast pattern used in app/api/gemini-roof/route.ts:1676.
+  const digits = opts.from.replace(/\D/g, "").slice(-10);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let leadQuery: any = (sb as any)
+    .from("leads")
+    .select("public_id, office_id, name, address, jobnimbus_contact_id")
+    .ilike("phone", `%${digits}%`)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (opts.inboundOffice) {
+    leadQuery = leadQuery.eq("office_id", opts.inboundOffice.id);
+  }
+  const leadRes = await leadQuery.maybeSingle();
+  const lead = leadRes?.data as
+    | {
+        public_id: string;
+        office_id: string;
+        name: string | null;
+        address: string | null;
+        jobnimbus_contact_id: string | null;
+      }
+    | null;
+  if (!lead) {
+    console.warn("[sms-inbound:pick] no lead match");
+    return false;
+  }
+
+  // Book the JN Measure Call task. Soft-fails to "still booked, rep
+  // will call to confirm" if JN isn't configured — the homeowner's
+  // experience stays consistent either way.
+  const jn = await import("@/lib/jobnimbus");
+  let bookOk = false;
+  if (jn.jobNimbusConfigured() && lead.jobnimbus_contact_id) {
+    const shortAddr = (lead.address ?? "").split(",")[0].trim();
+    const taskTitle = `Measure Call-${shortAddr.slice(0, 40)}-${(lead.name ?? "").slice(0, 30)}`;
+    const result = await jn.createMeasureCallTask({
+      contactId: lead.jobnimbus_contact_id,
+      title: taskTitle,
+      dateStartIso: opts.picked.iso,
+      durationMinutes: 60,
+      description: `Homeowner picked slot ${opts.picked.key} via SMS (${opts.picked.label}). Lead ${lead.public_id}.`,
+    });
+    if (result.ok) {
+      bookOk = true;
+      console.log(
+        `[sms-inbound:pick] booked JN task=${result.jnid} for lead=${lead.public_id} at ${opts.picked.iso}`,
+      );
+    } else {
+      console.warn(
+        `[sms-inbound:pick] JN booking failed reason=${result.reason} ${result.error ?? ""}`,
+      );
+    }
+  } else {
+    console.log(
+      "[sms-inbound:pick] JN not configured or contact_id missing — soft-fail to confirm-only",
+    );
+  }
+
+  // Update the lead row: set appointment_at + status. This drives the
+  // pre-appointment reminder cron (podium-reminders) so the homeowner
+  // gets A1-A5 reminders without further wiring. Same `as any` cast
+  // as the read above — appointment_at exists in the schema but the
+  // TS types haven't been regenerated since the migration.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (sb as any)
+      .from("leads")
+      .update({
+        appointment_at: opts.picked.iso,
+        status: bookOk ? "appt_scheduled" : "scheduled_pending_jn",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("public_id", lead.public_id);
+  } catch (err) {
+    console.warn("[sms-inbound:pick] lead update failed:", err);
+  }
+
+  // Clear the offer from the conversation so a duplicate A/B reply
+  // doesn't re-book.
+  opts.conv.offeredSlots = undefined;
+  opts.conv.offeredAt = undefined;
+  await saveConversation(opts.conv);
+
+  // Send confirmation SMS.
+  const firstName = (lead.name ?? "").split(/\s+/)[0] || "there";
+  const reply = buildSlotConfirmedBody({ firstName, slot: opts.picked });
+  try {
+    await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
+    await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+    await appendTurn({ phone: opts.from, role: "assistant", body: reply });
+  } catch (err) {
+    console.error("[sms-inbound:pick] confirm SMS failed:", err);
+  }
   return true;
 }
 

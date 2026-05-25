@@ -72,12 +72,32 @@ export interface SmsTurn {
   at: string;
 }
 
+/** A single time-slot offer the homeowner can pick from via SMS. */
+export interface SlotOffer {
+  /** Single-letter shortcode the homeowner replies with ("A", "B"). */
+  key: string;
+  /** Booking start time in ISO 8601 with timezone offset. */
+  iso: string;
+  /** Human-readable label shown in the SMS body. e.g. "Wed May 27, 9 AM". */
+  label: string;
+  /** Window classifier — used downstream when creating the JN task. */
+  window: "morning" | "afternoon";
+}
+
 export interface SmsConversation {
   phone: string; // E.164
   lead?: LeadContext;
   turns: SmsTurn[];
   /** ISO time of the most recent inbound or outbound message. */
   lastActivityAt: string;
+  /** Time slots offered to the homeowner via the YES/SCHEDULE → "pick a
+   *  time" flow. Cleared after the homeowner replies A or B and we
+   *  book the slot in JobNimbus. Stale offers (>24h old) are re-issued
+   *  by the inbound handler. */
+  offeredSlots?: SlotOffer[];
+  /** ISO time the current offeredSlots were sent. Drives the 24h
+   *  staleness check. */
+  offeredAt?: string;
 }
 
 function key(phone: string): string {
