@@ -34,6 +34,10 @@ import {
   createServiceRoleClient,
   resolveOfficeBySlug,
 } from "@/lib/supabase";
+import {
+  sendPostCallNotifications,
+  type PostCallOutcome,
+} from "@/lib/post-call-notifications";
 
 export const runtime = "nodejs";
 // Short ceiling — this is purely a database write, not a long-running job.
@@ -123,15 +127,21 @@ async function handleCallEnded(
 ): Promise<void> {
   const roomName = payload.room_name as string;
 
-  // Find the existing calls row.
-  const { data: call } = await sb
+  // Find the existing calls row + capture pre-update outcome. The
+  // pre_existing_outcome read is the idempotency gate for post-call
+  // SMS fan-out below: if outcome was already non-null, this is a
+  // retry of the same call_ended event and we should NOT fire SMS
+  // again.
+  const { data: callRow } = await sb
     .from("calls")
-    .select("id")
+    .select("id, lead_id, outcome")
     .eq("office_id", officeId)
     .eq("room_name", roomName)
     .maybeSingle();
+  const pre_existing_outcome = callRow?.outcome ?? null;
+  const lead_id = callRow?.lead_id ?? null;
 
-  if (!call) {
+  if (!callRow) {
     // Race condition or inbound call without a prior call_started. Create
     // the row now so we don't lose the call record entirely.
     await handleCallStarted(sb, officeId, {
@@ -165,6 +175,109 @@ async function handleCallEnded(
       error: error.message,
     });
   }
+
+  // ─── POSTCALL-FANOUT: fire homeowner + rep SMS via shared lib ──────
+  // Gate on (a) we have a lead to text, (b) outcome is meaningful,
+  // and (c) we haven't already fired for this call (idempotency).
+  await maybeFanOutPostCallSms({
+    sb,
+    lead_id,
+    pre_existing_outcome,
+    sarah_outcome: (payload.outcome as string | null) ?? null,
+    sarah_summary: (payload.summary as string | null) ?? null,
+    room_name: roomName,
+  });
+}
+
+/**
+ * POSTCALL-FANOUT helper. Maps Sarah's outcome strings to PostCallOutcome
+ * and triggers the homeowner + rep SMS chain via the shared lib.
+ *
+ * Idempotency: if pre_existing_outcome is non-null, this is a retry of the
+ * same call_ended event — skip to avoid double-sending.
+ *
+ * Outcome mapping (Sarah's vocabulary → notification vocabulary):
+ *   - "booked"       → "appt_scheduled"   (book_inspection fired)
+ *   - "transferred"  → "callback_requested" (transfer_to_human fired)
+ *   - "logged_lead"  → "no_appointment"   (log_lead fired — qualified only)
+ *   - "voicemail"    → "voicemail"        (pass-through if Sarah ever sets it)
+ *   - null/unknown   → skip (don't send wrong SMS — let rep see in dashboard)
+ */
+async function maybeFanOutPostCallSms(opts: {
+  sb: SB;
+  lead_id: string | null;
+  pre_existing_outcome: string | null;
+  sarah_outcome: string | null;
+  sarah_summary: string | null;
+  room_name: string;
+}): Promise<void> {
+  // Idempotency gate — outcome was already set, this is a retry.
+  if (opts.pre_existing_outcome) {
+    return;
+  }
+  // No lead to text (inbound call with no lead linkage).
+  if (!opts.lead_id) {
+    return;
+  }
+  // Map Sarah's vocabulary to PostCallOutcome. Skip on unknown.
+  const mapped = mapSarahOutcome(opts.sarah_outcome);
+  if (!mapped) {
+    return;
+  }
+
+  // Look up lead.public_id from the FK.
+  const { data: lead } = await opts.sb
+    .from("leads")
+    .select("public_id")
+    .eq("id", opts.lead_id)
+    .maybeSingle();
+  if (!lead?.public_id) {
+    console.warn(
+      "[agent-events] postcall-fanout: lead not found for call",
+      { room_name: opts.room_name, lead_id: opts.lead_id },
+    );
+    return;
+  }
+
+  // Fire-and-forget. Don't block the 200 response on a 5s Twilio
+  // round-trip — Sarah's worker doesn't care about the result.
+  void sendPostCallNotifications({
+    leadPublicId: lead.public_id,
+    outcome: mapped,
+    summary: opts.sarah_summary ?? undefined,
+  })
+    .then((res) => {
+      console.log("[agent-events] postcall-fanout result", {
+        room_name: opts.room_name,
+        lead_public_id: lead.public_id,
+        outcome: mapped,
+        notified: res.notified,
+        ok: res.ok,
+        reason: res.reason ?? null,
+      });
+    })
+    .catch((err) => {
+      console.error("[agent-events] postcall-fanout threw", {
+        room_name: opts.room_name,
+        lead_public_id: lead.public_id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
+
+function mapSarahOutcome(raw: string | null): PostCallOutcome | null {
+  if (!raw) return null;
+  const v = raw.trim().toLowerCase();
+  if (v === "booked") return "appt_scheduled";
+  if (v === "appt_scheduled") return "appt_scheduled";
+  if (v === "transferred") return "callback_requested";
+  if (v === "callback_requested") return "callback_requested";
+  if (v === "logged_lead") return "no_appointment";
+  if (v === "no_appointment") return "no_appointment";
+  if (v === "voicemail") return "voicemail";
+  if (v === "failed") return "failed";
+  // Unknown — let the dashboard show the raw outcome but don't send SMS.
+  return null;
 }
 
 async function handleToolFired(
@@ -191,12 +304,14 @@ async function handleToolFired(
     // union that TypeScript can't narrow from Record<string, unknown>.
     // JSON.parse(JSON.stringify(...)) ensures no non-serialisable values land
     // in the jsonb column.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    payload: JSON.parse(JSON.stringify({
-      tool: String(payload.tool ?? ""),
-      agent_name: String(payload.agent_name ?? ""),
-      summary: payload.summary ?? null,
-    })) as any,
+    payload: JSON.parse(
+      JSON.stringify({
+        tool: String(payload.tool ?? ""),
+        agent_name: String(payload.agent_name ?? ""),
+        summary: payload.summary ?? null,
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) as any,
     at: (payload.at as string | null) ?? new Date().toISOString(),
   });
 
