@@ -169,9 +169,10 @@ export async function POST(req: Request) {
   // TCPA note: replying YES / SCHEDULE / A / B to a message that
   // explicitly disclosed Sarah is an AI voice assistant is express
   // written consent under TCPA + the FCC Feb 2024 AI-voice ruling.
-  // We log a consent row only on the path that dispatches Sarah (the
-  // CALL handler) — the A/B path books a task without triggering a
-  // call, so no separate consent row is needed.
+  // The CALL handler dispatches Sarah immediately + logs consent.
+  // The A/B handler books a JN task AND logs consent — the CAL-2
+  // scheduled-callback cron will dispatch Sarah at appointment_at,
+  // and the cron pre-checks that a consents row exists before dialing.
 
   // (1) Slot pick — only if we have an active offer
   const existingConv = await getConversation(from);
@@ -633,6 +634,33 @@ async function handleSlotPick(opts: {
   if (!lead) {
     console.warn("[sms-inbound:pick] no lead match");
     return false;
+  }
+
+  // TCPA paper trail — the A/B slot pick IS express written consent
+  // under the FCC Feb 2024 AI-voice ruling because the offer SMS
+  // disclosed Sarah is "our AI assistant." The CAL-2 scheduled-
+  // callback cron checks for this row before dialing the homeowner
+  // at appointment_at. Reusing the voice_sms_yes consent_type rather
+  // than minting a new one — the disclosure_text below disambiguates
+  // the exact path for audit (slot pick vs immediate yes).
+  try {
+    // office-id-check: ok-tenant-table-explicit-office_id
+    await sb.from("consents").insert({
+      consent_type: "voice_sms_yes",
+      consented_at: new Date().toISOString(),
+      disclosure_text:
+        "Homeowner replied " +
+        (opts.picked.key ?? "A/B").toUpperCase() +
+        " to a SMS offering two appointment slots from Noland's Roofing's AI assistant Sarah. Selection booked the slot at " +
+        opts.picked.iso +
+        ". Lead public_id: " +
+        lead.public_id,
+      phone: opts.from,
+      office_id: lead.office_id,
+      user_agent: "twilio-sms-webhook-slot-pick",
+    });
+  } catch (err) {
+    console.warn("[sms-inbound:pick] consent insert failed:", err);
   }
 
   // Book the JN Measure Call task. Soft-fails to "still booked, rep

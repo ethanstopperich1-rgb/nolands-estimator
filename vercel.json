@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/podium-abandoners",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/scheduled-callback",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
