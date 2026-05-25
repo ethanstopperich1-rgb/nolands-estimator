@@ -1590,13 +1590,19 @@ async function persistEstimateToLead(
     const siteOrigin =
       process.env.NEXT_PUBLIC_SITE_ORIGIN ?? "https://nolands-estimator.vercel.app";
     const customerPhone = priorLead.phone;
-    void import("@/lib/podium")
-      .then(({ sendEstimateReadyViaPodium }) =>
-        sendEstimateReadyViaPodium({
+    // May 2026 — swapped from sendEstimateReadyViaPodium to Twilio MMS
+    // direct. Same Twilio number (888-786-9134) that already sends the
+    // TCPA confirmation SMS, so the conversation lives in one thread
+    // on the homeowner's phone. Bypasses the Podium dev-portal apply
+    // loop entirely. Podium adapter (lib/podium.ts) is retained for
+    // future use but no longer called from the V3 success path.
+    void import("@/lib/twilio")
+      .then(({ sendEstimateReadyViaTwilio }) =>
+        sendEstimateReadyViaTwilio({
           customerPhone,
           customerName,
           address: shortAddress,
-          paintedImageUrl: paintedUrl,
+          paintedImageUrl: paintedUrl ?? undefined,
           shareUrl: `${siteOrigin}/r/${leadPublicId}`,
           lowEstimate: estimateLow!,
           highEstimate: estimateHigh!,
@@ -1606,17 +1612,17 @@ async function persistEstimateToLead(
       .then((result) => {
         if (result.sent) {
           console.log(
-            `[gemini-roof v3] podium_estimate_sent uid=${result.messageUid} lead=${leadPublicId}`,
+            `[gemini-roof v3] twilio_estimate_sent sid=${result.sid} lead=${leadPublicId}`,
           );
         } else if (result.reason !== "not_configured") {
           console.warn(
-            `[gemini-roof v3] podium_estimate_failed reason=${result.reason} ${result.error ?? ""}`,
+            `[gemini-roof v3] twilio_estimate_failed reason=${result.reason} ${result.error ?? ""}`,
           );
         }
       })
       .catch((err) => {
         console.warn(
-          "[gemini-roof v3] podium_estimate_unexpected",
+          "[gemini-roof v3] twilio_estimate_unexpected",
           err instanceof Error ? err.message : String(err),
         );
       });

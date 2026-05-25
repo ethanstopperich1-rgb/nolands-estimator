@@ -27,6 +27,13 @@ export interface SendSmsOptions {
   body: string;
   /** Optional override of the from number (defaults to TWILIO_PHONE_NUMBER). */
   from?: string;
+  /** Optional public HTTPS URL(s) to attach as MMS media. Twilio fetches
+   *  the URL server-side and includes it as MMS picture/audio/video.
+   *  Single URL = one media attachment; array supports up to 10. Must
+   *  be HTTPS, < 5 MB per file (Twilio limit, US carriers usually cap
+   *  lower at ~1.6 MB picture/600 KB video). When set, Twilio bills as
+   *  MMS (~$0.02) instead of SMS ($0.008). */
+  mediaUrl?: string | string[];
   /** When true, skip the Supabase opt-out check. Use ONLY for system
    *  messages that don't fall under TCPA (e.g. internal operator
    *  notifications). Never pass true for messages to a consumer. */
@@ -130,6 +137,15 @@ export async function sendSms(opts: SendSmsOptions): Promise<TwilioSendResult> {
     Body: opts.body,
   });
 
+  // MMS media — Twilio accepts repeated MediaUrl form fields up to 10.
+  // URLSearchParams.append (not .set) preserves the repeat semantic.
+  if (opts.mediaUrl) {
+    const urls = Array.isArray(opts.mediaUrl) ? opts.mediaUrl : [opts.mediaUrl];
+    for (const u of urls.slice(0, 10)) {
+      if (u && u.startsWith("https://")) form.append("MediaUrl", u);
+    }
+  }
+
   const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString("base64");
   const res = await fetch(url, {
     method: "POST",
@@ -189,4 +205,103 @@ export function validateTwilioSignature(opts: {
  *  silently no-op in dev if env vars aren't set yet. */
 export function twilioConfigured(): boolean {
   return Boolean(ACCOUNT_SID && AUTH_TOKEN && FROM_NUMBER);
+}
+
+// ─── Estimate-ready helper ──────────────────────────────────────────
+//
+// Direct equivalent of `sendEstimateReadyViaPodium` in lib/podium.ts.
+// We dropped through to Twilio direct (May 2026) to skip the Podium
+// developer-portal application loop — Twilio is already wired for
+// the TCPA confirmation SMS at /api/leads, so adding the
+// estimate-ready hop here doesn't introduce a new dependency.
+//
+// Customer experience: homeowner submits the lock-in form → gets the
+// Twilio confirmation SMS ("Reply YES and Sarah will call") → ~25s
+// later when V3 completes, gets a second MMS with the painted-roof
+// PNG + tier-pricing teaser + share link. Same 888-786-9134 from
+// number both times so the conversation lives in one thread on the
+// homeowner's phone.
+
+export interface EstimateReadyInput {
+  /** E.164 customer phone. */
+  customerPhone: string;
+  /** Customer's full name — first-name extracted for the greeting. */
+  customerName: string;
+  /** Short address (first comma-separated segment is enough). */
+  address: string;
+  /** Public HTTPS URL to the painted-roof PNG. Twilio fetches it
+   *  server-side. Pass empty/undefined for text-only fallback. */
+  paintedImageUrl?: string;
+  /** Public share URL — homeowner taps this to see the full result
+   *  page with painted overlay + tier cards + storm history. */
+  shareUrl: string;
+  /** Customer-facing cash totals (low + high of the tier ladder).
+   *  Whole dollars. */
+  lowEstimate: number;
+  highEstimate: number;
+  /** Lead public_id — included in logs for correlation. */
+  leadPublicId: string;
+}
+
+export interface EstimateReadySendResult {
+  sent: boolean;
+  reason?: "not_configured" | "opted_out" | "error";
+  /** Twilio message SID on success. */
+  sid?: string;
+  error?: string;
+}
+
+/**
+ * Compose the estimate-ready message body. Kept SMS-segment-aware
+ * (under 480 chars = 3 SMS segments worst case before Twilio splits)
+ * even though MMS doesn't care — defensive in case Twilio falls back
+ * to SMS if the MediaUrl fetch fails.
+ */
+function renderEstimateReadyBody(input: EstimateReadyInput): string {
+  const firstName = input.customerName.split(/\s+/)[0] || "there";
+  return (
+    `Hi ${firstName}, your Noland's Roofing estimate for ${input.address} ` +
+    `is ready. Three options: $${input.lowEstimate.toLocaleString()}–` +
+    `$${input.highEstimate.toLocaleString()} cash range. ` +
+    `Full report: ${input.shareUrl} — Reply STOP to opt out.`
+  ).slice(0, 480);
+}
+
+/**
+ * Send the estimate-ready follow-up via Twilio MMS. Drops the painted
+ * roof PNG as the MMS attachment so the homeowner sees the visual in
+ * the message preview without having to tap the link.
+ *
+ * Soft-fails — never throws. Caller treats `sent: false` as "Twilio
+ * wasn't able to send; the customer page already shows the painted
+ * result anyway." Mirrors the Podium adapter's failure posture so
+ * call-site swap is a one-liner.
+ */
+export async function sendEstimateReadyViaTwilio(
+  input: EstimateReadyInput,
+): Promise<EstimateReadySendResult> {
+  if (!twilioConfigured()) {
+    return { sent: false, reason: "not_configured" };
+  }
+  try {
+    const body = renderEstimateReadyBody(input);
+    const result = await sendSms({
+      to: input.customerPhone,
+      body,
+      // Painted PNG as MMS attachment. Twilio fetches the URL server-
+      // side, so it must be HTTPS + publicly reachable for the lifetime
+      // of the send (a few seconds). Our painted PNG URL meets both.
+      mediaUrl: input.paintedImageUrl || undefined,
+    });
+    return { sent: true, sid: result.sid };
+  } catch (err) {
+    if (err instanceof SmsOptedOutError) {
+      return { sent: false, reason: "opted_out" };
+    }
+    return {
+      sent: false,
+      reason: "error",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
