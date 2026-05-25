@@ -1596,7 +1596,16 @@ async function persistEstimateToLead(
     // on the homeowner's phone. Bypasses the Podium dev-portal apply
     // loop entirely. Podium adapter (lib/podium.ts) is retained for
     // future use but no longer called from the V3 success path.
-    void import("@/lib/twilio")
+    //
+    // 15-second delay before sending — gives the homeowner time to
+    // scan the painted result page first, THEN their phone buzzes
+    // with the pricing + reply-options MMS. The "ohh that's nice"
+    // moment from a buzzing phone right after seeing the result
+    // outperforms instant-send (which competes with the page render
+    // for the homeowner's attention). 15s is the V3 read window most
+    // homeowners spend on the result page before scrolling.
+    void new Promise<void>((resolve) => setTimeout(resolve, 15_000))
+      .then(() => import("@/lib/twilio"))
       .then(({ sendEstimateReadyViaTwilio }) =>
         sendEstimateReadyViaTwilio({
           customerPhone,

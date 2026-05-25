@@ -140,11 +140,12 @@ export async function POST(req: Request) {
     });
   }
 
-  // ─── YES → trigger Sydney callback ────────────────────────────────
+  // ─── YES / SCHEDULE → trigger Sydney callback ─────────────────────
   // Deterministic intercept BEFORE the AI-reply pipeline. The
-  // confirmation SMS sent from /api/leads ends with:
-  //   "Reply YES and Sydney will call you now..."
-  // When the homeowner replies YES (or close variants), we:
+  // estimate-ready MMS sent from /api/gemini-roof V3 success ends with:
+  //   "Reply YES and Sarah (our AI assistant) calls in 10 seconds,
+  //    or SCHEDULE to pick a time."
+  // When the homeowner replies YES, SCHEDULE, or close variants, we:
   //   1. Look up their most-recent lead row by phone (Supabase service
   //      role; office_id comes from the lead row).
   //   2. POST /api/dispatch-outbound with the lead context. The
@@ -152,11 +153,16 @@ export async function POST(req: Request) {
   //   3. Reply via SMS: "Got it — calling you in a few seconds."
   //   4. Append the turn so the SMS thread shows the YES + reply.
   //
+  // Both YES and SCHEDULE route to the same Sarah dispatch — Sarah's
+  // prompt already handles the scheduling intent within the call
+  // (she asks for preferred date + window and books a JN task at the
+  // homeowner's chosen time). Single intercept = simpler state.
+  //
   // TCPA note: the homeowner's affirmative reply to a clear AI-voice
-  // disclosure ("Sydney, our AI assistant, will call you") is express
+  // disclosure ("Sarah, our AI assistant, will call you") is express
   // written consent under TCPA + the FCC Feb 2024 AI-voice ruling. We
   // log a consent row alongside the dispatch for the audit trail.
-  const yesMatch = body.match(/^(yes|y|yeah|yep|yup|sure|ok|okay|call me|call)\b/i);
+  const yesMatch = body.match(/^(yes|y|yeah|yep|yup|sure|ok|okay|call me|call|schedule|book)\b/i);
   if (yesMatch) {
     const handled = await handleYesCallback({
       from,

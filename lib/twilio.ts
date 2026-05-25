@@ -252,18 +252,29 @@ export interface EstimateReadySendResult {
 }
 
 /**
- * Compose the estimate-ready message body. Kept SMS-segment-aware
- * (under 480 chars = 3 SMS segments worst case before Twilio splits)
- * even though MMS doesn't care — defensive in case Twilio falls back
- * to SMS if the MediaUrl fetch fails.
+ * Compose the estimate-ready message body. Three clean reply paths:
+ *   YES      → Sarah (AI assistant) calls in 10 sec
+ *   SCHEDULE → pick a time, no immediate call
+ *   call the office line directly
+ *
+ * FCC Feb 2024 AI-voice disclosure satisfied by naming Sarah as
+ * "our AI assistant" in the same sentence as the YES instruction.
+ *
+ * Kept SMS-segment-aware (under 480 chars = 3 segments worst case)
+ * even though MMS doesn't strictly cap — defensive in case Twilio
+ * falls back to SMS if the MediaUrl fetch fails.
  */
 function renderEstimateReadyBody(input: EstimateReadyInput): string {
   const firstName = input.customerName.split(/\s+/)[0] || "there";
+  const low = input.lowEstimate.toLocaleString();
+  const high = input.highEstimate.toLocaleString();
   return (
-    `Hi ${firstName}, your Noland's Roofing estimate for ${input.address} ` +
-    `is ready. Three options: $${input.lowEstimate.toLocaleString()}–` +
-    `$${input.highEstimate.toLocaleString()} cash range. ` +
-    `Full report: ${input.shareUrl} — Reply STOP to opt out.`
+    `Your roof estimate is ready, ${firstName}. ` +
+    `Three options between $${low}–$${high} cash. ` +
+    `Reply YES and Sarah (our AI assistant) calls in 10 seconds, ` +
+    `or SCHEDULE to pick a time. ` +
+    `Prefer to talk? Call (352) 242-4322. ` +
+    `Full report: ${input.shareUrl}. Reply STOP to opt out.`
   ).slice(0, 480);
 }
 

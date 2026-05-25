@@ -153,7 +153,7 @@ const en = {
 
   // SMS bodies
   "sms.confirmation":
-    "Hi {firstName}, it's {agentName} from {officeName}. Got your estimate request for {address}. {estimateLine}Your full report: {shareUrl} — save it for later. Reply YES and {agentName} (our AI voice assistant) will call you now to schedule a free inspection. Reply STOP to opt out.",
+    "Hey {firstName}! Working on your Noland's Roofing estimate now. We'll text it over in about 30 seconds. Reply STOP to opt out.",
   "sms.estimate_range": "Your estimate range: ${low}-${high}. ",
   "sms.yes_ack":
     "Got it — {agentName} will call you in a few seconds from {officeName}.",
@@ -271,7 +271,7 @@ const es: Record<StringKey, string> = {
 
   // SMS bodies
   "sms.confirmation":
-    "Hola {firstName}, soy {agentName} de {officeName}. Recibimos tu solicitud de estimado para {address}. {estimateLine}Tu reporte completo: {shareUrl} — guárdalo para después. Responde SÍ y {agentName} (nuestro asistente de voz AI) te llamará ahora para agendar una inspección gratis. Responde STOP para no recibir más mensajes.",
+    "¡Hola {firstName}! Preparando tu estimado de Noland's Roofing. Te lo enviamos en unos 30 segundos. Responde STOP para no recibir más mensajes.",
   "sms.estimate_range": "Tu rango estimado: ${low}-${high}. ",
   "sms.yes_ack":
     "Listo — {agentName} de {officeName} te llamará en unos segundos.",
