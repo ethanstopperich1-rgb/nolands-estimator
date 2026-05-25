@@ -1455,10 +1455,20 @@ async function persistEstimateToLead(
   // applied + types are regenerated, the cast can be removed. The
   // downstream soft-fail behavior treats missing column identically
   // to "DB unreachable" — neither blocks the customer flow.
+  // FUNNEL-2 + latent-bug fix: the JN createContact call below
+  // references priorLead.zip / .voice_consent / .preferred_language,
+  // but those columns were never in this SELECT — they came back
+  // undefined every time, so JN never got the dedicated columns it
+  // could index by. Widened to include them + the FUNNEL-2 city/state
+  // additions (migration 0024). All extra columns are nullable; the
+  // JN call site already coalesces to undefined when missing.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: priorLead } = await (supabase as any)
     .from("leads")
-    .select("office_id, name, phone, address, email, jobnimbus_contact_id")
+    .select(
+      "office_id, name, phone, address, email, jobnimbus_contact_id, " +
+        "zip, city, state, voice_consent, preferred_language",
+    )
     .eq("public_id", leadPublicId)
     .maybeSingle();
   if (!priorLead) {
@@ -1672,9 +1682,11 @@ async function persistEstimateToLead(
               address: priorLead.address ?? undefined,
               // Pass dedicated address columns when we have them so JN
               // can index by city/zip without parsing the address string.
-              // priorLead.zip is captured at lock-in time from the
-              // Google Places autocomplete result.
+              // All three are populated from Google Places address_components
+              // on the client → /api/leads → leads row.
               zip: priorLead.zip ?? undefined,
+              city: priorLead.city ?? undefined,
+              state: priorLead.state ?? undefined,
               // voiceConsent stamps the contact with a rep-actionable
               // tag — they immediately know whether Sarah's been
               // dispatched (yes) or whether they need to call (no).

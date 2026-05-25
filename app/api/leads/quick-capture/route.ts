@@ -76,6 +76,11 @@ interface QuickCaptureBody {
   // can reference real numbers + the painted image. All optional;
   // SMS soft-fails to a plain share-link send when missing.
   zip?: string;
+  /** FUNNEL-2 — Places-derived city + state. Quick-capture doesn't
+   *  always have a Places-resolved address (the homeowner may have
+   *  typed without picking from the dropdown), so both are nullable. */
+  city?: string | null;
+  state?: string | null;
   lat?: number;
   lng?: number;
   paintedUrl?: string;
@@ -194,6 +199,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     phone: phoneE164,
     address: body.address.trim(),
     zip: body.zip ?? null,
+    city: body.city ?? null,
+    state: body.state ?? null,
     lat: body.lat ?? null,
     lng: body.lng ?? null,
     estimate_low: body.estimateLow ?? null,
@@ -206,7 +213,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     preferred_language: preferredLanguage,
   };
 
-  const { data: inserted, error } = await supabase
+  // FUNNEL-2 — leadRow.city / .state are post-0024 columns the
+  // generated Supabase types haven't picked up yet. Cast to `any` for
+  // the same reason /api/leads + the gemini-roof V3 route do.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: inserted, error } = await (supabase as any)
     .from("leads")
     .insert(leadRow) // office-id-check: ok-leadRow-above-has-office_id
     .select("id, public_id")

@@ -70,6 +70,20 @@ interface AddressResolved {
   formatted: string;
   lat: number;
   lng: number;
+  /** City extracted from Google Places address_components (locality
+   *  field). Null when Places didn't return a locality match (rural
+   *  addresses) or when the user typed an address without picking
+   *  from the dropdown. Flows through /api/leads → leads.city → JN
+   *  contact.city so reps can filter the JN contacts list by city
+   *  without parsing the address string. */
+  city: string | null;
+  /** US state postal abbreviation (FL, GA, etc.) extracted from
+   *  Google Places administrative_area_level_1.short_name. Null on
+   *  the same paths as city. Maps to leads.state → JN contact.state_text. */
+  state: string | null;
+  /** Postal code from Google Places postal_code component. Null on
+   *  the same paths. Maps to leads.zip → JN contact.zip. */
+  zip: string | null;
 }
 
 interface V3Response {
@@ -601,6 +615,12 @@ export interface LeadCapturePayload {
    *  homeowner who hit a BotID false-positive on first submit still
    *  gets the Spanish confirmation SMS on retry. */
   preferredLanguage?: "en" | "es";
+  /** FUNNEL-2 — city + state + zip pulled from Google Places
+   *  address_components. Carried through the retry path so a re-submit
+   *  doesn't lose them. Nullable when Places didn't return them. */
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
 }
 
 function HeroScreen({
@@ -694,16 +714,43 @@ function HeroScreen({
         ac = new g.maps.places.Autocomplete(addrRef.current, {
           types: ["address"],
           componentRestrictions: { country: "us" },
-          fields: ["formatted_address", "geometry"],
+          // FUNNEL-2 — request address_components so we can extract
+          // city + state + zip directly from Places instead of asking
+          // JobNimbus to parse the formatted_address string. Mapped
+          // through to leads.city / leads.state / leads.zip in the
+          // /api/leads insert.
+          fields: ["formatted_address", "geometry", "address_components"],
         });
         ac.addListener("place_changed", () => {
           const place = ac!.getPlace();
           const loc = place.geometry?.location;
           if (!loc) return;
+          // Pull city + state + zip from the address_components array.
+          // Each component has a `types` array — match on:
+          //   - locality            → city long_name
+          //   - administrative_area_level_1 → state short_name (FL, GA, …)
+          //   - postal_code         → zip long_name
+          // Some rural addresses don't return a locality; fall back to
+          // sublocality / postal_town when present. Nullable on all
+          // three — downstream handlers treat null as "unknown."
+          const comps = place.address_components ?? [];
+          const pick = (typeName: string, short = false): string | null => {
+            const c = comps.find((x) => x.types.includes(typeName));
+            if (!c) return null;
+            const v = (short ? c.short_name : c.long_name) ?? "";
+            return v.trim() || null;
+          };
+          const city =
+            pick("locality") ?? pick("sublocality") ?? pick("postal_town");
+          const state = pick("administrative_area_level_1", true);
+          const zip = pick("postal_code");
           setResolvedAddr({
             formatted: place.formatted_address ?? addrRef.current!.value,
             lat: loc.lat(),
             lng: loc.lng(),
+            city,
+            state,
+            zip,
           });
         });
       })
@@ -771,6 +818,14 @@ function HeroScreen({
             address: resolvedAddr.formatted,
             lat: resolvedAddr.lat,
             lng: resolvedAddr.lng,
+            // FUNNEL-2 — Places-derived city/state/zip. Server-side
+            // /api/leads stores these on the leads row, then
+            // /api/gemini-roof V3 reads them and passes through to the
+            // JobNimbus createContact call so reps can filter JN's
+            // contacts list by city directly.
+            city: resolvedAddr.city,
+            state: resolvedAddr.state,
+            zip: resolvedAddr.zip,
             source: "estimate.nolandsroofing.com",
             office: officeSlug,
             marketingConsent: true,
@@ -803,6 +858,12 @@ function HeroScreen({
         lng: resolvedAddr.lng,
         officeSlug,
         preferredLanguage: lang,
+        // FUNNEL-2 retry-path parity — if the first /api/leads POST
+        // failed (BotID false-positive, network blip), the retry on
+        // the result page needs the same city/state/zip values.
+        city: resolvedAddr.city,
+        state: resolvedAddr.state,
+        zip: resolvedAddr.zip,
       });
     } finally {
       setSubmitting(false);
@@ -1845,6 +1906,12 @@ function ResultScreen({
           voiceConsent: false,
           // Preserve the EN/ES choice from the original hero submit.
           preferredLanguage: pendingLeadCapture.preferredLanguage ?? "en",
+          // FUNNEL-2 — re-forward Places-derived city/state/zip on
+          // retry so the JN contact gets the same address columns it
+          // would have on a successful first submit.
+          city: pendingLeadCapture.city,
+          state: pendingLeadCapture.state,
+          zip: pendingLeadCapture.zip,
         }),
       });
       if (!res.ok) {

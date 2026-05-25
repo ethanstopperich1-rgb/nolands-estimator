@@ -54,6 +54,13 @@ interface LeadPayload {
   phone?: string;
   address: string;
   zip?: string;
+  /** FUNNEL-2 — city + state extracted from Google Places
+   *  address_components on the client. Persisted on the leads row
+   *  (migration 0024) and forwarded to JN contact.city / state_text
+   *  in the V3 createContact call so reps can filter the JN contacts
+   *  list by city without parsing the formatted_address string. */
+  city?: string | null;
+  state?: string | null;
   lat?: number;
   lng?: number;
   estimatedSqft?: number;
@@ -448,6 +455,8 @@ export async function POST(req: Request) {
           phone: body.phone?.trim() || null,
           address: body.address.trim(),
           zip: body.zip ?? null,
+          city: body.city ?? null,
+          state: body.state ?? null,
           lat: body.lat ?? null,
           lng: body.lng ?? null,
           estimated_sqft: body.estimatedSqft ?? null,
@@ -476,7 +485,10 @@ export async function POST(req: Request) {
         };
 
         if (isLeadUpdate) {
-          const { error } = await supabase
+          // Same type-lag workaround as the insert below — city/state
+          // on `row` are post-0024 columns.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { error } = await (supabase as any)
             .from("leads")
             .update(row)
             .eq("public_id", leadId)
@@ -485,7 +497,13 @@ export async function POST(req: Request) {
             console.error("[leads] supabase update failed:", error.message);
           }
         } else {
-          const { data, error } = await supabase
+          // city/state on the row literal are post-0024 columns that
+          // the generated Supabase types haven't picked up yet. Cast
+          // the insert builder to `any` — same lag-workaround pattern
+          // the gemini-roof V3 route uses for jobnimbus_contact_id.
+          // office-id-check: ok-tenant-table-explicit-office_id
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data, error } = await (supabase as any)
             .from("leads")
             .insert({
               office_id: officeId,
