@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "test": "npx tsx --test tests/*.test.ts",
     "test:rls": "node scripts/verify-rls-migrations.mjs",
+    "test:office-id": "node scripts/verify-office-id-tagging.mjs",
+    "verify": "npm run test:rls && npm run test:office-id",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

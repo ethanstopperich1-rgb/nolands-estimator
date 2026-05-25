@@ -48,7 +48,7 @@ jobs:
         run: npm run lint
 
   test:
-    name: Unit tests + RLS migration check
+    name: Unit tests + verify checks (RLS + office-id)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +60,11 @@ jobs:
         run: npm ci --no-audit --no-fund --legacy-peer-deps
       - name: RLS migration verification
         run: npm run test:rls
+      - name: Office-id tagging verification
+        # Service-role inserts/upserts bypass RLS — every write to a
+        # tenant table MUST include office_id explicitly. This static
+        # check catches drift before it ships a cross-tenant leak.
+        run: npm run test:office-id
       - name: Unit tests
         run: npm run test
 
