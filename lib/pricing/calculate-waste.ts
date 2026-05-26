@@ -438,13 +438,16 @@ export function calculateGeometricWaste(
 //
 // The customer flow uses a flat waste assumption because we don't expose
 // edge LFs and don't want to over-quote based on a single Solar
-// classifier misfire. 12% is the FL residential midpoint for simple
-// hip-and-gable roofs — a touch lower than the earlier 15% which was
-// causing perceived over-pricing on simple homes.
+// classifier misfire. 10% is the FL residential install-waste floor
+// for simple hip-and-gable roofs — tightened from 12% on 2026-05-25
+// to keep customer-facing tier prices competitive without
+// under-quoting actual install material needs. Reps can still bump
+// to 12-28% in the dashboard workbench when complexity warrants
+// (steep pitch, multi-facet, lots of valleys).
 //
 // The internal rep workbench keeps `calculateSuggestedWaste` for the
 // detailed breakdown when edge data is available.
-export const FLAT_CUSTOMER_WASTE_PERCENT = 12;
+export const FLAT_CUSTOMER_WASTE_PERCENT = 10;
 
 export function flatCustomerWaste(totalSqft: number): WasteResult {
   const baseSquares = totalSqft / 100;
@@ -537,10 +540,10 @@ export interface RoofingTier {
 //   Standard     $7.25  (Retail median + small premium)
 //   Fortified    $9.50  (between Retail p75 $10.11 and Insurance p75 $8.87)
 //
-// Verification math (2,500 sqft typical FL home @ 12% waste = 2,800 effSqft):
-//   Essentials   2,800 × $5.50  = $15,400
-//   Standard     2,800 × $7.25  = $20,300  ← Retail median $6.21 × 2,800 = $17,388 + premium
-//   Fortified    2,800 × $9.50  = $26,600  ← matches Insurance p75 + walkthrough adders
+// Verification math (2,500 sqft typical FL home @ 10% waste = 2,750 effSqft):
+//   Essentials   2,750 × $5.50  = $15,125
+//   Standard     2,750 × $7.25  = $19,938  ← Retail median $6.21 × 2,750 = $17,078 + premium
+//   Fortified    2,750 × $9.50  = $26,125  ← matches Insurance p75 + walkthrough adders
 //
 // Per-office override via env: NOLANDS_STANDARD_RATE_PER_SQFT will be
 // added when the four offices want per-region calibration (Clermont vs

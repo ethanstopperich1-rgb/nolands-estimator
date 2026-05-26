@@ -1704,7 +1704,7 @@ function ResultScreen({
   const pricingSqft = sqft;
   const tiers: TierPrice[] | null = useMemo(() => {
     if (pricingSqft == null) return null;
-    const wastePercent = result.pricing?.recommendedWastePercent ?? 12;
+    const wastePercent = result.pricing?.recommendedWastePercent ?? 10;
     const waste = {
       suggestedPercent: wastePercent,
       complexityScore: 0,
@@ -2157,7 +2157,7 @@ function ResultScreen({
             + material/waste basis + financing assumption. */}
         <DisclosureBand
           materialLabel={pricingMaterial.label}
-          wastePercent={result.pricing?.recommendedWastePercent ?? 12}
+          wastePercent={result.pricing?.recommendedWastePercent ?? 10}
           quotableSqft={result.solar.quotableSqft}
           displaySqft={sqft}
         />
