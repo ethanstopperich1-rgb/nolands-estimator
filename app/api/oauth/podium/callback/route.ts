@@ -123,16 +123,31 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   // ─── Display tokens to operator ────────────────────────────────────
-  // Best-effort console log too — operator can also grab from Vercel
-  // function logs as a backup. ONE-SHOT — never returns tokens on a
-  // subsequent visit (no token persistence in this route).
+  // Browser copy of a 1.7kb JWT often gets mangled (zero-vs-O, l-vs-1
+  // ambiguity in some fonts). Log the FULL tokens to Vercel function
+  // logs as the canonical capture path — `vercel logs` returns them
+  // byte-exact and Claude reads them from CLI. The HTML page is the
+  // backup display.
+  //
+  // Security: Vercel function logs are visible only to the project
+  // team. Anyone with `vercel logs` access for nolands-estimator can
+  // see these. We rotate the refresh token after first use anyway.
   console.log(
-    "[podium oauth] handshake complete — operator should copy tokens from response page",
+    "[podium oauth] FULL_ACCESS_TOKEN_START===" +
+      tokens.access_token +
+      "===FULL_ACCESS_TOKEN_END",
+  );
+  console.log(
+    "[podium oauth] FULL_REFRESH_TOKEN_START===" +
+      tokens.refresh_token +
+      "===FULL_REFRESH_TOKEN_END",
+  );
+  console.log(
+    "[podium oauth] handshake complete",
     {
-      access_token_preview: tokens.access_token.slice(0, 12) + "…",
-      refresh_token_preview: tokens.refresh_token.slice(0, 12) + "…",
       expires_in: tokens.expires_in,
       scope: tokens.scope,
+      token_type: tokens.token_type,
     },
   );
 
