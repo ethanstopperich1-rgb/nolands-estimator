@@ -32,7 +32,12 @@
  * used here.
  */
 
-import { sendSms, toE164, twilioConfigured, SmsOptedOutError } from "@/lib/twilio";
+// 2026-05-26: Twilio direct SMS retired — rep alerts now route via
+// Podium. `toE164` (formatter) + `SmsOptedOutError` (still thrown by
+// the inbound STOP handler) survive; `twilioConfigured` is no longer
+// used here (replaced with `podiumConfigured`).
+import { toE164, SmsOptedOutError } from "@/lib/twilio";
+import { sendPodiumText, podiumConfigured } from "@/lib/podium";
 import type { OfficeBranding } from "@/lib/supabase";
 
 export interface NewLeadNotificationPayload {
@@ -128,8 +133,8 @@ export async function notifyOfficeOfNewLead(opts: {
    *  `process.env.VERCEL_URL`-derived in preview. */
   dashboardOrigin: string;
 }): Promise<{ sid: string; status: string } | null> {
-  if (!twilioConfigured()) {
-    console.log("[lead-notify] twilio_not_configured — skipping rep SMS");
+  if (!podiumConfigured()) {
+    console.log("[lead-notify] podium_not_configured — skipping rep SMS");
     return null;
   }
 
@@ -144,29 +149,32 @@ export async function notifyOfficeOfNewLead(opts: {
   const body = buildNewLeadSmsBody(opts.lead, opts.dashboardOrigin);
 
   try {
-    const result = await sendSms({
-      to: destination,
+    const result = await sendPodiumText({
+      phone: destination,
+      // Rep alerts use a stable contactName so Podium upserts them
+      // into a single ops-style conversation rather than spawning a
+      // new customer thread per alert.
+      contactName: "Noland's rep alert",
       body,
-      // Send FROM the contractor's own Twilio number when one is
-      // configured. Keeps brand consistency on the rep's phone (the
-      // alert appears to come from the same number their customers
-      // reach them at) AND keeps the Voxaris toll-free reserved for
-      // Voxaris→contractor sales / internal testing. Falls back to
-      // TWILIO_PHONE_NUMBER (the global default) when the office row
-      // hasn't configured one yet.
-      from: opts.office?.twilioNumber ?? undefined,
-      // Rep notifications are operator messages, not consumer
-      // marketing. Still gated by opt-out — if a rep texted STOP, the
-      // gate respects it (and we log + move on; the rep will need to
-      // text START to resume notifications).
+      // Don't open the customer-triage inbox for rep ops messages —
+      // the alert lands as a quiet thread the rep can review without
+      // it cluttering the homeowner-conversation queue.
+      openInbox: false,
     });
-    console.log("[lead-notify] sent rep alert", {
+    console.log("[lead-notify] sent rep alert via Podium", {
       leadPublicId: opts.lead.leadPublicId,
       destination,
-      sid: result.sid,
-      status: result.status,
+      sent: result.sent,
+      messageUid: result.messageUid,
+      reason: result.reason,
     });
-    return { sid: result.sid, status: result.status };
+    if (!result.sent) {
+      return null;
+    }
+    // Caller's shape was `{ sid, status }` from the Twilio days.
+    // Preserve the contract: map Podium's `messageUid` → `sid` and
+    // synthesize a `status` so downstream code doesn't break.
+    return { sid: result.messageUid ?? "", status: "queued" };
   } catch (err) {
     if (err instanceof SmsOptedOutError) {
       console.log(

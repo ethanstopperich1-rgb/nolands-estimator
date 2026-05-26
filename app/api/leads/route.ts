@@ -5,7 +5,12 @@ import { rateLimit } from "@/lib/ratelimit";
 import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 import { checkBotId } from "botid/server";
 import { verifyRecaptcha } from "@/lib/recaptcha";
-import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
+// 2026-05-26: Twilio direct SMS retired. All outbound SMS now flows
+// through Podium so the customer thread lives in Noland's Clermont
+// Podium inbox. `toE164` (phone formatter) + `twilioConfigured`
+// (still gates the Twilio voice trunk used by Sarah) survive.
+import { toE164, twilioConfigured } from "@/lib/twilio";
+import { sendPodiumText } from "@/lib/podium";
 import { attachLeadContext } from "@/lib/sms-conversation";
 import { notifyOfficeOfNewLead } from "@/lib/lead-notifications";
 import {
@@ -774,23 +779,26 @@ export async function POST(req: Request) {
     // Run both writes in parallel and don't await — keep the API
     // response fast.
     void Promise.all([
-      // FROM the office's own Twilio number — homeowner sees the
-      // contractor's brand, not Voxaris. The +1 888 786 9134 stays
-      // reserved for Voxaris→contractor sales / internal testing.
-      sendSms({
-        to: phoneE164,
+      // Outbound SMS via Podium (2026-05-26 — Twilio direct retired).
+      // The customer thread lands in Noland's Clermont Podium inbox
+      // so reps see the conversation where they already work. The
+      // `from` is implicit (Podium's location-provisioned number).
+      sendPodiumText({
+        phone: phoneE164,
+        contactName: body.name,
         body: smsBody,
-        from: officeBranding?.twilioNumber ?? undefined,
+        openInbox: true,
       })
         .then((r) =>
-          console.log("[leads] sent confirmation SMS", {
+          console.log("[leads] sent confirmation SMS via Podium", {
             leadId,
-            sid: r.sid,
-            status: r.status,
+            sent: r.sent,
+            messageUid: r.messageUid,
+            reason: r.reason,
           }),
         )
         .catch((err) =>
-          console.error("[leads] SMS send failed:", err),
+          console.error("[leads] Podium SMS send failed:", err),
         ),
       attachLeadContext({
         phone: phoneE164,

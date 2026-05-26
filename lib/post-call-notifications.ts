@@ -29,7 +29,13 @@ import {
   supabaseServiceRoleConfigured,
   type OfficeBranding,
 } from "@/lib/supabase";
-import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
+// 2026-05-26: Twilio direct SMS retired. Post-call notifications
+// (homeowner outcome SMS + rep update SMS) now route through Podium
+// so reps see the entire customer conversation in one Podium inbox.
+// `toE164` (formatter) survives; `twilioConfigured` is no longer
+// used here (replaced with `podiumConfigured`).
+import { toE164 } from "@/lib/twilio";
+import { sendPodiumText, podiumConfigured } from "@/lib/podium";
 import { resolveNotifyPhone } from "@/lib/lead-notifications";
 import { parseLang, t, type Lang } from "@/lib/i18n";
 import {
@@ -260,7 +266,7 @@ async function sendHomeownerSms(opts: {
   fromNumber?: string;
   appointmentAt?: string;
 }): Promise<boolean> {
-  if (!opts.phoneE164 || !twilioConfigured()) return false;
+  if (!opts.phoneE164 || !podiumConfigured()) return false;
   const firstName = opts.name.split(/\s+/)[0] ?? "there";
   let body: string;
   switch (opts.outcome) {
@@ -294,7 +300,12 @@ async function sendHomeownerSms(opts: {
       body = t("sms.postcall.no_appointment", opts.lang, { firstName });
   }
   try {
-    await sendSms({ to: opts.phoneE164, body, from: opts.fromNumber });
+    await sendPodiumText({
+      phone: opts.phoneE164,
+      contactName: opts.name,
+      body,
+      openInbox: true,
+    });
     return true;
   } catch (err) {
     console.error("[post-call-notifications] homeowner SMS failed:", err);
@@ -321,7 +332,7 @@ async function sendRepUpdate(opts: {
   dashboardOrigin: string;
 }): Promise<boolean> {
   const dest = resolveNotifyPhone(opts.office);
-  if (!dest || !twilioConfigured()) return false;
+  if (!dest || !podiumConfigured()) return false;
 
   // GSM-7 safe: no emoji, no em-dash. Each headline stays single-
   // segment with the body lines that follow.
@@ -350,12 +361,15 @@ async function sendRepUpdate(opts: {
   lines.push(`${opts.dashboardOrigin}/dashboard/leads/${opts.lead.public_id}`);
 
   try {
-    await sendSms({
-      to: dest,
+    await sendPodiumText({
+      phone: dest,
+      // Stable label so rep post-call alerts upsert into a single
+      // ops conversation rather than a new thread per call.
+      contactName: "Noland's rep alert",
       body: lines.join("\n"),
-      // Send the rep alert FROM their own number too — keeps it from
-      // looking like an unknown sender on the rep's phone.
-      from: opts.office?.twilioNumber ?? undefined,
+      // Quiet send — don't open the customer-triage inbox on rep
+      // ops messages.
+      openInbox: false,
     });
     return true;
   } catch (err) {

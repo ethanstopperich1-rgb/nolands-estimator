@@ -239,3 +239,96 @@ async function sendTextOnly(
     };
   }
 }
+
+/**
+ * Generic Podium text sender — the canonical outbound-SMS path now
+ * that Twilio direct SMS has been retired (2026-05-26).
+ *
+ * Any outbound SMS that was previously routed through Twilio's
+ * `sendSms` helper goes through this function instead. The customer
+ * receives the message FROM the Podium location's provisioned number
+ * (not from a per-office Twilio number). For Noland's, that means
+ * every outbound SMS appears in the same Podium-managed conversation
+ * thread, which is what reps see in Podium's inbox.
+ *
+ * Soft-fail discipline (same as the rest of this module):
+ *   - When PODIUM_ACCESS_TOKEN / PODIUM_LOCATION_UID are unset,
+ *     return `{ sent: false, reason: "not_configured" }` and never
+ *     throw.
+ *   - When Podium returns 429, return `{ sent: false, reason:
+ *     "rate_limited" }`.
+ *   - Any other error returns `{ sent: false, reason: "error" }`.
+ *
+ * Caller is responsible for E.164 normalization of `phone` (use
+ * `lib/twilio.ts:toE164` — the formatter is generic and survives
+ * the Twilio SMS retirement).
+ */
+export interface PodiumTextInput {
+  /** Recipient phone in E.164 (e.g. "+13525551234"). */
+  phone: string;
+  /** Display name for Podium's contact-upsert. Use the homeowner's
+   *  name on customer-facing sends; use a stable rep label like
+   *  "Rep alert" for rep-targeted operational sends. */
+  contactName: string;
+  /** Message body. Podium handles SMS segmentation; cap at ~480
+   *  chars worst case (3 segments) to keep mobile UX clean. */
+  body: string;
+  /** Open the inbox so reps see the thread for triage. Default true
+   *  for customer-facing sends; pass `false` for low-signal
+   *  operational sends (rep alerts, post-call summaries to reps). */
+  openInbox?: boolean;
+}
+
+export async function sendPodiumText(
+  input: PodiumTextInput,
+): Promise<PodiumSendResult> {
+  if (!podiumConfigured()) {
+    return { sent: false, reason: "not_configured" };
+  }
+
+  const accessToken = process.env.PODIUM_ACCESS_TOKEN!;
+  const locationUid = process.env.PODIUM_LOCATION_UID!;
+  const senderName = process.env.PODIUM_SENDER_NAME ?? "Noland's Roofing";
+
+  try {
+    const res = await fetch("https://api.podium.com/v4/messages", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        body: input.body.slice(0, 480),
+        channel: {
+          // Schema verified working 2026-05-26 via live curl: 200 OK
+          // delivered to Clermont inbox. type="phone" (NOT "sms"),
+          // identifier (NOT phoneNumber).
+          type: "phone",
+          identifier: input.phone,
+          contactName: input.contactName,
+        },
+        locationUid,
+        senderName,
+        setOpenInbox: input.openInbox ?? true,
+      }),
+    });
+
+    if (res.status === 429) return { sent: false, reason: "rate_limited" };
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      return {
+        sent: false,
+        reason: "error",
+        error: `podium_${res.status}: ${errText.slice(0, 200)}`,
+      };
+    }
+    const json = (await res.json()) as { data?: { uid?: string } };
+    return { sent: true, messageUid: json.data?.uid };
+  } catch (err) {
+    return {
+      sent: false,
+      reason: "error",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
