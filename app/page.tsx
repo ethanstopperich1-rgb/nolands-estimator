@@ -2090,6 +2090,44 @@ function ResultScreen({
                   />
                 ))}
               </div>
+
+              {/* Heritage trust strip — CertainTeed (130 yrs) backed by
+                  Saint-Gobain (360 yrs, one of the world's largest building-
+                  materials manufacturers). Anchors the warranty claims
+                  above. Verbatim trust language from Noland's printed
+                  estimate form ("CertainTeed has been manufacturing
+                  building products for well over 130 years and is backed
+                  by Saint-Gobain, a company that has been in business for
+                  over 360 years"). Heritage = depth of commitment. */}
+              <div
+                style={{
+                  marginTop: "14px",
+                  padding: "12px 16px",
+                  border: "1px solid var(--vx-rule)",
+                  borderRadius: "10px",
+                  background: "rgba(199, 107, 63, 0.03)",
+                  textAlign: "center",
+                  fontSize: "12px",
+                  lineHeight: 1.55,
+                  color: "var(--vx-ink-soft)",
+                  letterSpacing: "0.005em",
+                }}
+              >
+                <span style={{ fontWeight: 600, color: "var(--vx-ink)" }}>
+                  CertainTeed — 130+ years.{" "}
+                </span>
+                <span>
+                  Backed by{" "}
+                </span>
+                <span style={{ fontWeight: 600, color: "var(--vx-ink)" }}>
+                  Saint-Gobain
+                </span>
+                <span>
+                  , a 360-year-old company and one of the largest
+                  building-material manufacturers in the world. Every
+                  warranty above carries that depth.
+                </span>
+              </div>
               {/* Honesty footnote — single line below all three tiers
                   instead of repeating "Confirmed at walkthrough" inside
                   each card. Pratfall: surface the financing math
@@ -3977,6 +4015,33 @@ function TierCard({
         height: "100%",
       }}
     >
+      {/* Exclusivity badge for the premium tier — anchors on the
+          CertainTeed Premier Roofing Contractor credential (only
+          2 in Central Florida). Anti-status authority signal: the
+          top tier isn't "the most expensive," it's "the one
+          almost nobody else can offer." */}
+      {tier.tier.exclusiveClaim && (
+        <span
+          style={{
+            position: "absolute",
+            top: "-10px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--vx-terra-dark)",
+            color: "white",
+            fontSize: "9.5px",
+            fontWeight: 700,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            padding: "3px 10px",
+            borderRadius: "999px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Only 2 in C-Florida
+        </span>
+      )}
+
       {/* "Most chosen" badge for the primary tier. Decoy + Mimetic
           desire: takes the cognitive load off the customer by telling
           them which tier most others pick — the most common decision
@@ -4003,6 +4068,25 @@ function TierCard({
         </span>
       )}
 
+      {/* Eyebrow chip — paper's "Basic Protection" / "Popular" /
+          "Premium Protection System" label. Maps the website tier
+          card 1:1 to what Noland's rep hands the homeowner on
+          paper. Reduces friction at sit-down ("oh, this is the
+          Popular package I already saw online"). */}
+      <div
+        style={{
+          fontSize: "9px",
+          fontWeight: 700,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: "var(--vx-muted)",
+          textAlign: "center",
+          marginBottom: "2px",
+        }}
+      >
+        {tier.tier.eyebrow}
+      </div>
+
       {/* Tier name — eyebrow style, colored by accent. */}
       <div
         className="eyebrow"
@@ -4014,6 +4098,30 @@ function TierCard({
         }}
       >
         {tier.tier.name}
+      </div>
+
+      {/* Wind MPH + CertainTeed warranty badge row — concrete,
+          numeric differentiation that maps tier-to-tier on the
+          paper estimate. Anchors the "what do I actually get?"
+          question with a comparable number (130 vs 160 mph) +
+          a credentialed warranty tier. */}
+      <div
+        className="tabular"
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: "8px",
+          marginBottom: "10px",
+          fontSize: "10px",
+          fontWeight: 600,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: tier.tier.windMph === 160 ? accentColor : "var(--vx-muted)",
+        }}
+      >
+        <span>{tier.tier.windMph} mph wind</span>
+        <span aria-hidden="true" style={{ color: "var(--vx-rule)" }}>·</span>
+        <span>CertainTeed {tier.tier.ctWarranty}</span>
       </div>
 
       {/* Price block.

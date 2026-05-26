@@ -485,16 +485,39 @@ export function flatCustomerWaste(totalSqft: number): WasteResult {
 // $18k and have the customer ghost us.
 
 export interface RoofingTier {
-  /** Internal id. */
+  /** Internal id — kept stable across the rename so dashboard,
+   *  share page, JN job descriptions, and /api/gemini-roof don't
+   *  break. The customer-facing `name` is what the homeowner sees. */
   id: "good" | "better" | "best";
-  /** Customer-facing name. */
+  /** Customer-facing name. Aligned May 2026 with Noland's printed
+   *  estimate form: GOOD / BETTER / BEST (paper has 4 tiers
+   *  including ELITE — we fold Best+Elite into one BEST tier since
+   *  the 5-Star Premier "only 2 roofers" claim is the strongest
+   *  anchor and the 4-Star/5-Star price delta on paper is only ~8%). */
   name: string;
+  /** Eyebrow chip text — paper says "Basic Protection" / "Popular" /
+   *  "Premium Protection System" — short authority-coded labels above
+   *  each tier card. */
+  eyebrow: string;
   /** One-line subtitle pitched at homeowner literacy. */
   tagline: string;
   /** Bullet list of material / labor inclusions. */
   features: string[];
   /** Manufacturer warranty headline. */
   warranty: string;
+  /** Wind warranty MPH — concrete differentiator between tiers.
+   *  Paper: GOOD/BETTER = 130 mph, BEST = 160 mph. */
+  windMph: 130 | 160;
+  /** CertainTeed warranty tier badge — escalates up the ladder
+   *  matching Noland's actual installer credentials:
+   *    GOOD:  SureStart 10yr  (any installer can offer)
+   *    BETTER: 3-Star  (only Select Shingle Master can offer)
+   *    BEST:  5-Star Premier  (only Premier Contractor can offer —
+   *           only 2 roofers in all of Central Florida hold this) */
+  ctWarranty: "SureStart 10yr" | "3-Star" | "4-Star" | "5-Star Premier";
+  /** Aspirational exclusivity claim — set only on the top tier
+   *  to anchor the "only 2 in Central Florida" anti-status signal. */
+  exclusiveClaim?: string;
   /** Per-effective-sqft installed rate (sloped sqft × (1 + waste)). */
   ratePerSqft: number;
   /** Internal-only — color theme for chip rendering. */
@@ -553,58 +576,73 @@ export interface RoofingTier {
 // To re-run the calibration: GET /api/internal/pricing-calibration with
 // `?sample=80` (or higher). Free as long as Solar API stays under 10K
 // calls/month for the billing account.
+// Tier feature lists now mirror Noland's printed estimate form
+// (Nolands_Roofing_Estimator.pdf, May 2026). Customer experience
+// stays continuous from website → painted result → rep sit-down.
 export const ROOFING_TIERS: RoofingTier[] = [
   {
     id: "good",
-    name: "Essentials",
+    name: "Good",
+    eyebrow: "Basic Protection",
     tagline:
-      "Code-compliant reroof. CertainTeed Landmark — the industry-standard architectural shingle.",
+      "Economy package — CertainTeed Landmark shingles + the SureStart manufacturer warranty.",
     features: [
-      "CertainTeed Landmark architectural shingle (30-year)",
+      "CertainTeed Landmark architectural shingle",
+      "CertainTeed Shadow Ridge + Swift Start starter",
       "Synthetic underlayment",
       "Aluminum drip edge + pipe boots",
-      "Standard hip & ridge cap",
-      "Permit + tear-off + haul-away",
+      "Permit + tear-off + magnetic site sweep",
       "10-year workmanship warranty",
     ],
-    warranty: "30-year limited manufacturer · 10-year workmanship",
+    warranty:
+      "CertainTeed SureStart — 10-yr manufacturing defects · 130 mph wind",
+    windMph: 130,
+    ctWarranty: "SureStart 10yr",
     ratePerSqft: 5.5,
     accent: "neutral",
   },
   {
     id: "better",
-    name: "Standard",
+    name: "Better",
+    eyebrow: "Popular",
     tagline:
-      "What most Florida homeowners pick. CertainTeed Landmark Pro + ice & water shield.",
+      "Most Florida homeowners pick this — Landmark shingles + the upgraded 3-Star warranty only a CertainTeed Select Shingle Master can offer.",
     features: [
-      "CertainTeed Landmark Pro premium dimensional shingle",
+      "CertainTeed Landmark architectural shingle",
+      "CertainTeed Shadow Ridge + Swift Start starter",
       "Synthetic underlayment + starter strip",
       "Ice & water shield in valleys + at penetrations",
       "Pre-finished aluminum drip edge",
       "Hip & ridge cap shingles",
-      "130 mph wind warranty",
-      "Lifetime limited manufacturer warranty",
+      "CertainTeed 3-Star Warranty (Select Shingle Master only)",
     ],
-    warranty: "Lifetime limited manufacturer · 15-year workmanship",
+    warranty: "CertainTeed 3-Star Warranty · 130 mph wind · 15-yr workmanship",
+    windMph: 130,
+    ctWarranty: "3-Star",
     ratePerSqft: 7.25,
     accent: "primary",
   },
   {
     id: "best",
-    name: "Fortified",
+    name: "Best",
+    eyebrow: "Premium Protection System",
     tagline:
-      "Class 4 impact-rated. CertainTeed NorthGate — qualifies for FL premium discounts.",
+      "CertainTeed Landmark Pro + the Integrity Roof System upgraded to 160 mph wind and the 5-Star Premier Warranty — a credential only 2 roofers in all of Central Florida can offer.",
     features: [
-      "CertainTeed NorthGate Class 4 impact-resistant shingle",
-      "Synthetic underlayment + ice & water across entire roof deck",
+      "CertainTeed Landmark Pro premium dimensional shingle",
+      "CertainTeed Shadow Ridge + Swift Start starter",
+      "CertainTeed Integrity Roof System (engineered as a system, not parts)",
+      "Synthetic underlayment + ice & water across the full roof deck",
       "Pre-finished aluminum drip edge + premium ridge vent",
       "Hurricane-grade ring-shank nailing pattern",
-      "Designer hip & ridge cap (Presidential or equivalent)",
-      "Wind warranty rated 130+ mph",
-      "CertainTeed 5-Star transferable warranty (Triple Crown Champion installer)",
-      "Hail / wind discount eligibility",
+      "Upgraded wind warranty: 160 mph",
+      "CertainTeed 5-Star Premier Warranty (only 2 roofers in Central FL)",
     ],
-    warranty: "Lifetime transferable · 25-year workmanship",
+    warranty:
+      "CertainTeed 5-Star Premier Warranty · 160 mph wind · Lifetime transferable",
+    windMph: 160,
+    ctWarranty: "5-Star Premier",
+    exclusiveClaim: "Only 2 roofers in all of Central Florida can offer this",
     ratePerSqft: 9.5,
     accent: "premium",
   },
