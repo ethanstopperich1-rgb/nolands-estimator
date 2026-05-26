@@ -99,12 +99,20 @@ Lake · Volusia · Manatee · Lee · Orange · Seminole · Osceola ·
 Sarasota · Hillsborough · Marion · Brevard · Pasco · Hernando ·
 Citrus · Sumter
 
-Four offices: Clermont (HQ) · Orange City · Bradenton · Fort Myers.
+Three offices: Clermont (HQ) · Orange City · Bradenton.
+(Fort Myers was previously documented as the 4th office but does NOT
+appear on Noland's printed estimate form or in their Podium location
+list as of May 26, 2026. Treat as retired / never-went-live until
+re-confirmed by Destiny.)
 
 ## Certifications (locked)
 
+- CertainTeed Premier Roofing Contractor (only 2 in Central Florida hold this)
 - CertainTeed Shingle Master Premier
-- CertainTeed Triple Crown Champion (top 1% of US roofers)
+- CertainTeed Triple Crown Champion (also held — top 1% of US roofers;
+  secondary credential, NOT what reps anchor on. The customer-facing
+  estimator emphasizes Premier because that is what Noland's
+  printed estimate form leads with.)
 - BBB Accredited
 - Top 150 Roofing Contractors (Beacon)
 - Licensed General Contractor

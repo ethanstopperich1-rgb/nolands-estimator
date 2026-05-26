@@ -1002,15 +1002,18 @@ function HeroScreen({
           >
             <span>25+ Years in Florida</span>
             <span aria-hidden="true" style={{ color: "var(--vx-terra)" }}>·</span>
-            {/* CertainTeed Triple Crown Champion is roofing-industry
-                jargon. The parenthetical translates the credential
-                into homeowner-readable language (top 1% of US roofers
-                hold this designation). CRO win — Authority signal only
-                works if the audience recognizes the authority. */}
+            {/* CertainTeed Premier Roofing Contractor is the top-tier
+                credential — verified May 2026 against Noland's paper
+                estimate (`Nolands_Roofing_Estimator.pdf`): "only TWO
+                roofing contractors in all of Central Florida have
+                earned this." Previous copy "Triple Crown Champion"
+                was an adjacent credential, not the one Noland's
+                anchors on. CRO win — anti-status authority signal
+                that hits stronger than a "top 1%" generic claim. */}
             <span>
-              CertainTeed Triple Crown Champion
+              CertainTeed Premier Contractor
               <span style={{ color: "var(--vx-muted)", fontWeight: 500 }}>
-                {" "}(top 1% of US roofers)
+                {" "}(only 2 in Central Florida)
               </span>
             </span>
             <span aria-hidden="true" style={{ color: "var(--vx-terra)" }}>·</span>

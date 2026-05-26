@@ -121,7 +121,7 @@ export default async function OpengraphImage() {
                 color: "rgba(232, 233, 237, 0.55)",
               }}
             >
-              Clermont · Orange City · Bradenton · Fort Myers
+              Clermont · Orange City · Bradenton
             </div>
           </div>
         </div>
@@ -190,7 +190,7 @@ export default async function OpengraphImage() {
                 color: "rgba(232, 233, 237, 0.78)",
               }}
             >
-              25+ Years · CertainTeed Triple Crown · Licensed
+              25+ Years · CertainTeed Premier (only 2 in C-FL) · Licensed
             </div>
             <div
               style={{

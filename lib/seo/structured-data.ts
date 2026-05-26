@@ -112,11 +112,11 @@ export function buildOrganizationJsonLd(): Record<string, unknown> {
     image: OG_IMAGE,
     description:
       "Noland's Roofing is a Florida-licensed general contractor with 25+ " +
-      "years serving Central Florida. CertainTeed Triple Crown Champion — " +
-      "one of only 4 roofing companies in North America to hold this " +
-      "designation. Specializing in asphalt shingle, tile, metal, and " +
-      "flat roofing. Four offices: Clermont, Orange City, Bradenton, and " +
-      "Fort Myers. Severe weather specialists serving Lake, Orange, " +
+      "years serving Central Florida. CertainTeed Premier Roofing " +
+      "Contractor — one of only TWO roofing contractors in all of Central " +
+      "Florida to hold this credential. Specializing in asphalt shingle, " +
+      "tile, metal, and flat roofing. Three offices: Clermont, Orange City, " +
+      "and Bradenton. Severe weather specialists serving Lake, Orange, " +
       "Volusia, Osceola, Sumter, Polk, Seminole, Flagler, Manatee, and " +
       "Lee counties. Free estimates — confirmed on site by a licensed " +
       "roofer before any binding quote.",
@@ -140,8 +140,9 @@ export function buildOrganizationJsonLd(): Record<string, unknown> {
       { "@type": "AdministrativeArea", name: "Lee County, FL" },
     ],
     hasCredential: [
-      "CertainTeed Triple Crown Champion",
+      "CertainTeed Premier Roofing Contractor (only 2 in Central Florida)",
       "CertainTeed Shingle Master Premier",
+      "CertainTeed Triple Crown Champion",
       "Florida Licensed General Contractor",
     ],
     knowsAbout: [

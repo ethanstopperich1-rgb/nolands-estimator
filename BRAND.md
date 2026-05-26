@@ -102,9 +102,12 @@ Close:     Sin llamadas hasta que las pidas.
 
 1. **Hero with address input** — single focused conversion path
 2. **The promise + no-callback line** — answers homeowner objection #1
-3. **Credential band** — BBB A+, Triple Crown Champion, Top 150,
-   GAF GoldElite, Select ShingleMaster, "Since 2011" — short text
-   labels, not logos until Noland's sends the logo SVGs
+3. **Credential band** — CertainTeed Premier Contractor (only 2 in
+   Central FL), BBB A+, Top 150, Select ShingleMaster, "Since 2011" —
+   short text labels, not logos until Noland's sends the logo SVGs.
+   (Verified May 2026 against Noland's printed estimate form: lead
+   with Premier credential, not Triple Crown — Premier is the higher-
+   tier authority claim and the one their reps anchor on in person.)
 4. **Services grid** — Roofing / Storm Damage / Renovations /
    **Solar** (new May 2026)
 5. **"Severe Weather Specialists" vertical-text emphasis** — the
@@ -115,8 +118,10 @@ Close:     Sin llamadas hasta que las pidas.
    tile/metal), $200 + Publix gift card referral, 24-hour emergency
 8. **Service area** — Lake / Orange / Volusia / Osceola / Sumter /
    Polk / Seminole / Flagler / Manatee / Lee counties
-9. **Footer credentials** — license #s (CCC1335461, CBC1262165),
+9. **Footer credentials** — license #s (CCC1335461, CBC1268061),
    "Since 2011," social links, BBB seal
+   (CBC1268061 verified May 2026 against Noland's printed estimate
+   form. Previous docs had CBC1262165 — that was a typo / OCR error.)
 
 ## Asset checklist (need from Noland's)
 
@@ -126,7 +131,8 @@ Close:     Sin llamadas hasta que las pidas.
       placeholder we extracted matches)
 - [ ] Font files (or font names) for the cursive script + display sans
 - [ ] BBB A+ official badge image
-- [ ] CertainTeed Triple Crown Champion official badge
+- [ ] CertainTeed Premier Roofing Contractor official badge (primary)
+- [ ] CertainTeed Triple Crown Champion official badge (secondary)
 - [ ] GAF GoldElite Commercial official badge
 - [ ] Roofing Contractor Top 150 2024 official badge
 - [ ] Select ShingleMaster official badge
