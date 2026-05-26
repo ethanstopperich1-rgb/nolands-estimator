@@ -105,6 +105,44 @@ export async function findDuplicateLead(opts: {
   const normalizedEmail = normalizeEmail(opts.email);
   if (!normalizedPhone && !normalizedEmail) return null;
 
+  // ── Test-phone whitelist ───────────────────────────────────────
+  //
+  // Internal test numbers (operator phone, smoke-test SIMs, QA
+  // numbers) need to re-submit the form repeatedly to verify the
+  // SMS / voice / JN pipeline end-to-end. The 30-day dedup window
+  // would otherwise suppress the second submission's SMS +
+  // dispatch — which is correct customer-protection behavior but
+  // dead-ends every test.
+  //
+  // TEST_PHONES env var lists the bypass numbers as a comma-
+  // separated list. Format accepted: E.164 ("+14078195809"), raw
+  // 10-digit ("4078195809"), or formatted ("(407) 819-5809") — we
+  // normalize each entry to the last-10 digits the same way we
+  // normalize the inbound phone.
+  //
+  // Posture: opt-in via env, NOT hardcoded in source. Rotating the
+  // env removes the bypass globally. Never expose to client.
+  //
+  // Security note: the whitelist short-circuits dedup ONLY. It does
+  // NOT bypass TCPA consent (still required), BotID (still gates),
+  // or reCAPTCHA (still scored). Test phones still write real lead
+  // rows, still trigger Sarah dispatch, still get TCPA-audited.
+  // The ONLY thing it skips is the "looks like a dupe" suppression.
+  if (normalizedPhone) {
+    const raw = process.env.TEST_PHONES ?? "";
+    const whitelist = raw
+      .split(",")
+      .map((p) => p.trim().replace(/\D/g, "").slice(-10))
+      .filter((p) => p.length === 10);
+    if (whitelist.includes(normalizedPhone)) {
+      console.log(
+        "[dedup] test-phone whitelist hit — bypassing dedup",
+        { normalizedPhone, officeId: opts.officeId },
+      );
+      return null;
+    }
+  }
+
   try {
     // We do two probes (phone, email) instead of a single OR query
     // because phone is stored as raw user input (not normalized),

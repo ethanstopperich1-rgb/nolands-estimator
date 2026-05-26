@@ -12,6 +12,7 @@ import {
   LEAD_WEBHOOK_SCHEMA_VERSION,
   publishLeadEvent,
 } from "@/lib/lead-webhook";
+import { sendSlackLeadEvent } from "@/lib/slack-notifications";
 import { buildHomeownerShareUrl } from "@/lib/share-url";
 import { resolveLangFromRequest, parseLang, t, type Lang } from "@/lib/i18n";
 import {
@@ -867,33 +868,41 @@ export async function POST(req: Request) {
     // payload schema is versioned (LEAD_WEBHOOK_SCHEMA_VERSION) and
     // HMAC-signed so the receiver can trust it. Soft-fails on every
     // path — webhook outage never blocks lead capture.
-    void publishLeadEvent({
-      office: officeBranding,
-      event: {
-        schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
-        event: "new_lead",
-        occurred_at: new Date().toISOString(),
-        office: {
-          id: officeBranding?.id ?? "",
-          slug: officeBranding?.slug ?? "",
-          display_name: officeBranding?.displayName ?? "Voxaris",
-        },
-        lead: {
-          public_id: leadId,
-          name: body.name,
-          email: body.email ?? null,
-          phone_raw: body.phone ?? null,
-          phone_e164: phoneE164,
-          address: body.address,
-          estimate_low: body.estimateLow ?? null,
-          estimate_high: body.estimateHigh ?? null,
-          material: body.material ?? null,
-          estimated_sqft: body.estimatedSqft ?? null,
-          source: body.source ?? null,
-          report_url: `${dashboardOrigin}/dashboard/leads/${leadId}`,
-        },
+    //
+    // Build the event once, then fan out to (a) the generic
+    // HMAC-signed lead webhook AND (b) the dedicated Slack channel.
+    // Both are soft-fail fire-and-forget — outage of one never
+    // touches the other or the lead capture.
+    const leadEvent = {
+      schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+      event: "new_lead" as const,
+      occurred_at: new Date().toISOString(),
+      office: {
+        id: officeBranding?.id ?? "",
+        slug: officeBranding?.slug ?? "",
+        display_name: officeBranding?.displayName ?? "Voxaris",
       },
-    });
+      lead: {
+        public_id: leadId,
+        name: body.name,
+        email: body.email ?? null,
+        phone_raw: body.phone ?? null,
+        phone_e164: phoneE164,
+        address: body.address,
+        estimate_low: body.estimateLow ?? null,
+        estimate_high: body.estimateHigh ?? null,
+        material: body.material ?? null,
+        estimated_sqft: body.estimatedSqft ?? null,
+        source: body.source ?? null,
+        report_url: `${dashboardOrigin}/dashboard/leads/${leadId}`,
+      },
+    };
+    void publishLeadEvent({ office: officeBranding, event: leadEvent });
+    // Slack pings the ops channel in real time so the team sees
+    // every new lead the moment it lands — independent of any
+    // contractor's downstream webhook. No-op when SLACK_WEBHOOK_URL
+    // is unset (dev / preview deploys / offices that don't use Slack).
+    void sendSlackLeadEvent(leadEvent);
   }
 
   // ─── Sydney outbound dispatch ────────────────────────────────────────

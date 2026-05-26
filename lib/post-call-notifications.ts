@@ -36,6 +36,7 @@ import {
   LEAD_WEBHOOK_SCHEMA_VERSION,
   publishLeadEvent,
 } from "@/lib/lead-webhook";
+import { sendSlackLeadEvent } from "@/lib/slack-notifications";
 
 // ─── Public types ──────────────────────────────────────────────────────
 
@@ -202,39 +203,43 @@ export async function sendPostCallNotifications(
     dashboardOrigin: origin,
   });
 
-  // ─── 5. Publish provider-agnostic lead webhook ───────────────────────
-  void publishLeadEvent({
-    office,
-    event: {
-      schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
-      event: input.outcome === "appt_scheduled" ? "appt_scheduled" : "call_completed",
-      occurred_at: new Date().toISOString(),
-      office: {
-        id: office?.id ?? lead.office_id,
-        slug: office?.slug ?? "",
-        display_name: office?.displayName ?? "Noland's Roofing",
-      },
-      lead: {
-        public_id: lead.public_id,
-        name: lead.name,
-        email: null,
-        phone_raw: lead.phone,
-        phone_e164: homeownerPhoneE164,
-        address: lead.address,
-        estimate_low: lead.estimate_low,
-        estimate_high: lead.estimate_high,
-        material: lead.material,
-        estimated_sqft: lead.estimated_sqft,
-        source: lead.source,
-        report_url: `${origin}/dashboard/leads/${lead.public_id}`,
-      },
-      extras: {
-        outcome: input.outcome,
-        appointment_at: input.appointmentAt ?? null,
-        summary: input.summary ?? null,
-      },
+  // ─── 5. Publish provider-agnostic lead webhook + Slack ping ──────────
+  // Same fan-out pattern as /api/leads — one event payload, two
+  // independent sinks (generic webhook + Slack channel). Slack send
+  // is no-op when SLACK_WEBHOOK_URL is unset.
+  const callEvent = {
+    schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+    event: (input.outcome === "appt_scheduled"
+      ? "appt_scheduled"
+      : "call_completed") as "appt_scheduled" | "call_completed",
+    occurred_at: new Date().toISOString(),
+    office: {
+      id: office?.id ?? lead.office_id,
+      slug: office?.slug ?? "",
+      display_name: office?.displayName ?? "Noland's Roofing",
     },
-  });
+    lead: {
+      public_id: lead.public_id,
+      name: lead.name,
+      email: null,
+      phone_raw: lead.phone,
+      phone_e164: homeownerPhoneE164,
+      address: lead.address,
+      estimate_low: lead.estimate_low,
+      estimate_high: lead.estimate_high,
+      material: lead.material,
+      estimated_sqft: lead.estimated_sqft,
+      source: lead.source,
+      report_url: `${origin}/dashboard/leads/${lead.public_id}`,
+    },
+    extras: {
+      outcome: input.outcome,
+      appointment_at: input.appointmentAt ?? null,
+      summary: input.summary ?? null,
+    },
+  };
+  void publishLeadEvent({ office, event: callEvent });
+  void sendSlackLeadEvent(callEvent);
 
   return {
     ok: true,
