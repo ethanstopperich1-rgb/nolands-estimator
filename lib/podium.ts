@@ -131,10 +131,14 @@ export async function sendEstimateReadyViaPodium(
     const dataPayload = {
       body: renderBody(input),
       channel: {
-        type: "sms",
-        // SMS channel uses phone number; Podium upserts the contact
-        // by phone on the named location.
-        phoneNumber: input.customerPhone,
+        // 2026-05-26: Podium /v4/messages schema requires
+        // type="phone" (lowercase) + identifier (NOT phoneNumber).
+        // Original code used type="sms" + phoneNumber — both
+        // rejected with 400 invalid_request_values. Verified
+        // working via live curl test: 200 OK, delivered to
+        // Clermont inbox.
+        type: "phone",
+        identifier: input.customerPhone,
         contactName: input.customerName,
       },
       locationUid,
@@ -204,8 +208,10 @@ async function sendTextOnly(
       body: JSON.stringify({
         body: renderBody(input),
         channel: {
-          type: "sms",
-          phoneNumber: input.customerPhone,
+          // See sendEstimateReadyViaPodium for the 2026-05-26 schema
+          // note. Same fix applies here for the text-only fallback.
+          type: "phone",
+          identifier: input.customerPhone,
           contactName: input.customerName,
         },
         locationUid,
