@@ -226,6 +226,39 @@ export default function LeadReport({ lead }: { lead: Lead }) {
   }, [lead.lat, lead.lng, stormRadius, stormDays]);
 
   // ── Regenerate-painted CTA ─────────────────────────────────────────
+  // Per-zip social proof for rep pitching. Powered by the same
+  // /api/social-proof/jobs-by-zip endpoint the customer page hits
+  // (live JN won-jobs count, scoped to the lead's zip code, last
+  // 365 days). Renders inline under the address as a compact chip:
+  //
+  //   "Noland's completed 47 roof projects in this zip in the
+  //    last year."
+  //
+  // Designed as a rep-facing pitch asset: dropping the count into a
+  // sales call is the canonical mimetic-desire / social-proof play.
+  // Gated at count >= 3 (mirrors customer-page threshold — avoids
+  // surfacing weak signals).
+  const [zipJobCount, setZipJobCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!derivedZip) return;
+    let cancelled = false;
+    fetch(`/api/social-proof/jobs-by-zip?zip=${encodeURIComponent(derivedZip)}`, {
+      headers: { Accept: "application/json" },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { count?: number } | null) => {
+        if (cancelled || !data || typeof data.count !== "number") return;
+        setZipJobCount(data.count);
+      })
+      .catch(() => {
+        /* Soft-fail. Endpoint missing or JN auth failing — don't
+         * crash the lead view; just hide the chip. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [derivedZip]);
+
   const [genStatus, setGenStatus] = useState<
     "idle" | "running" | "error"
   >("idle");
@@ -295,6 +328,37 @@ export default function LeadReport({ lead }: { lead: Lead }) {
                 </span>
               ) : null}
             </p>
+            {/* Per-zip social proof chip — rep-facing pitch asset.
+                Hides itself when <3 jobs in zip or when the lookup
+                soft-fails. Same gating threshold the customer page
+                uses. */}
+            {zipJobCount !== null && zipJobCount >= 3 && (
+              <div
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-mini"
+                style={{
+                  background: "rgba(232, 74, 31, 0.08)",
+                  border: "1px solid rgba(232, 74, 31, 0.25)",
+                  color: "var(--vx-ink)",
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  letterSpacing: "0.01em",
+                }}
+                title="Live count from JobNimbus won-jobs in this lead's zip code, last 365 days. Drop this into your sales call."
+              >
+                <span
+                  style={{
+                    color: "var(--color-noland-fire, var(--vx-terra))",
+                    fontWeight: 700,
+                  }}
+                  className="tabular"
+                >
+                  {zipJobCount}
+                </span>
+                <span style={{ color: "var(--vx-ink-soft)" }}>
+                  Noland&apos;s {zipJobCount === 1 ? "job" : "jobs"} in this zip · last 12mo
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* Rep assignment lives next to "Open in workbench" so the
