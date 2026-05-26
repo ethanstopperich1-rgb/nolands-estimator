@@ -1463,11 +1463,24 @@ async function persistEstimateToLead(
   // additions (migration 0024). All extra columns are nullable; the
   // JN call site already coalesces to undefined when missing.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // ── Schema correctness ────────────────────────────────────────────────
+  // The leads table does NOT have a `voice_consent` column — that signal
+  // lives in the `consents` table as a row of type `call_recording`.
+  // Previous shape of this SELECT referenced `voice_consent` directly and
+  // crashed the query silently every time (PostgREST 42703), which is why
+  // the JN push branch never ran across 101 production leads (0/101 had a
+  // jobnimbus_contact_id stamped). Pulling voice_consent here would
+  // require a second query against `consents`; for createContact's
+  // optional voiceConsent tag we accept the small fidelity loss and
+  // default to `undefined` (no tag emitted). Sarah's dispatch path
+  // already reads voice_consent from consents at the right moment, so JN
+  // contact tagging is the only loss — and the rep sees consent state in
+  // the dashboard regardless.
   const { data: priorLead } = await (supabase as any)
     .from("leads")
     .select(
       "office_id, name, phone, address, email, jobnimbus_contact_id, " +
-        "zip, city, state, voice_consent, preferred_language",
+        "zip, city, state, preferred_language",
     )
     .eq("public_id", leadPublicId)
     .maybeSingle();
@@ -1687,15 +1700,15 @@ async function persistEstimateToLead(
               zip: priorLead.zip ?? undefined,
               city: priorLead.city ?? undefined,
               state: priorLead.state ?? undefined,
-              // voiceConsent stamps the contact with a rep-actionable
-              // tag — they immediately know whether Sarah's been
-              // dispatched (yes) or whether they need to call (no).
-              voiceConsent:
-                priorLead.voice_consent === true
-                  ? true
-                  : priorLead.voice_consent === false
-                    ? false
-                    : undefined,
+              // voiceConsent: undefined — see SELECT comment above.
+              // `voice_consent` is NOT a leads column; it lives in the
+              // `consents` table as a row of type `call_recording`.
+              // Pulling it would require a 2nd query and a join; for the
+              // JN tagging fidelity loss it's not worth blocking the
+              // primary push path. Rep still sees consent state in the
+              // dashboard, and Sarah's dispatch path reads from consents
+              // directly at dial time.
+              voiceConsent: undefined,
               language:
                 priorLead.preferred_language === "es" ? "es" : "en",
               tags: ["estimator", "nolands"],
