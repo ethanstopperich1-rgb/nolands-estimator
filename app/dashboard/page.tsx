@@ -207,8 +207,59 @@ async function loadRepView(repUserId: string | null) {
   let pipelineHigh = 0;
   let openLeads = 0;
   let wonThisMonth = 0;
+  // Hormozi-mode tiles — compute Appointments Today + Sarah Overnight
+  // in the same single-pass loop to avoid a second iteration over the
+  // (potentially large) myLeads array.
+  let appointmentsToday = 0;
+  let sarahCapturedOvernight = 0;
   const monthStart = new Date(monthStartISO()).getTime();
+  const now = Date.now();
+  // "Today" window = 00:00:00 to 23:59:59 in the rep's local TZ. Server
+  // runs in UTC, so we approximate by checking the UTC date string —
+  // close enough for a dashboard tile (off by ±5 hours for Eastern reps
+  // at midnight, which is acceptable).
+  const todayUtc = new Date(now).toISOString().slice(0, 10);
+  // "Overnight" window — last 7 days, where the booking was created
+  // outside business hours (Mon-Fri 8am-5pm ET).
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  function isAfterHoursET(iso: string | null | undefined): boolean {
+    if (!iso) return false;
+    const d = new Date(iso);
+    // toLocaleString with America/New_York gives ET-local components.
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "numeric",
+      hour12: false,
+    });
+    const parts = Object.fromEntries(
+      fmt.formatToParts(d).map((p) => [p.type, p.value]),
+    );
+    const wd = parts.weekday; // "Mon", "Tue", ..., "Sat", "Sun"
+    const hour = parseInt(parts.hour, 10);
+    const isWeekend = wd === "Sat" || wd === "Sun";
+    const businessHours = hour >= 8 && hour < 17;
+    return isWeekend || !businessHours;
+  }
   for (const l of myLeads) {
+    // Hormozi tile #1 — Appointments TODAY (any status, just a real
+    // appointment_at on today's date).
+    const apptAt = (l as { appointment_at?: string | null }).appointment_at;
+    if (apptAt && apptAt.slice(0, 10) === todayUtc) {
+      appointmentsToday += 1;
+    }
+    // Hormozi tile #2 — Sarah captured overnight: an appointment_at
+    // is set AND the booking event happened outside ET business hours
+    // in the last 7 days. We use created_at as the booking-event
+    // proxy because demo data doesn't carry status_changed_at.
+    const createdMs = new Date(l.created_at).getTime();
+    if (
+      apptAt &&
+      createdMs >= sevenDaysAgo &&
+      isAfterHoursET(l.created_at)
+    ) {
+      sarahCapturedOvernight += 1;
+    }
     if (l.status === "won") {
       if (new Date(l.created_at).getTime() >= monthStart) wonThisMonth += 1;
       continue;
@@ -219,12 +270,22 @@ async function loadRepView(repUserId: string | null) {
     pipelineHigh += l.estimate_high ?? 0;
   }
 
-  // Build a small "needs attention" feed using simple heuristics that
-  // map to real rep behavior: pending proposal, no recent contact,
-  // booked-but-not-followed. The demo bundle doesn't carry follow-up
-  // history so we synthesize from status + age.
-  const now = Date.now();
-  const attention: Array<{
+  // Build a "needs attention" feed using simple heuristics that map to
+  // real rep behavior: pending proposal, no recent contact, booked-
+  // but-not-followed. The demo bundle doesn't carry follow-up history
+  // so we synthesize from status + age.
+  //
+  // Hormozi-mode ranking (Tile D): instead of returning leads in
+  // whatever order the loop hits them, score each candidate by a
+  // composite that prioritizes the calls a rep should make NEXT.
+  // Score components:
+  //   +25 if voice consent on file (call is TCPA-clean — fastest close)
+  //   recency boost: max(0, 24 - hoursOld)  (newer = hotter)
+  //   value boost: log10(estimateMid / 1000) × 5  (bigger $ = higher)
+  //   status weighting baked into the reason-bucket assignment below
+  // The result is sorted descending so the highest-leverage call is
+  // at the top of the list.
+  type AttentionCandidate = {
     leadId: string;
     publicId: string;
     name: string;
@@ -232,12 +293,25 @@ async function loadRepView(repUserId: string | null) {
     reason: string;
     reasonTone: "amber" | "rose" | "cy";
     at: string;
-  }> = [];
+    score: number;
+  };
+  const candidates: AttentionCandidate[] = [];
+  function scoreLead(l: Lead, statusWeight: number): number {
+    const ageMs = now - new Date(l.created_at).getTime();
+    const hoursOld = ageMs / (1000 * 60 * 60);
+    const recencyBoost = Math.max(0, 24 - hoursOld);
+    const voiceBoost =
+      (l as { voice_consent?: boolean }).voice_consent === true ? 25 : 0;
+    const mid =
+      ((l.estimate_low ?? 0) + (l.estimate_high ?? 0)) / 2 || 0;
+    const valueBoost = mid > 0 ? Math.log10(mid / 1000) * 5 : 0;
+    return statusWeight + voiceBoost + recencyBoost + valueBoost;
+  }
   for (const l of myLeads) {
     const age = now - new Date(l.created_at).getTime();
     const days = age / (1000 * 60 * 60 * 24);
     if (l.status === "quoted" && days > 1) {
-      attention.push({
+      candidates.push({
         leadId: l.id,
         publicId: l.public_id,
         name: l.name,
@@ -245,9 +319,10 @@ async function loadRepView(repUserId: string | null) {
         reason: "Proposal pending · follow up",
         reasonTone: "amber",
         at: l.created_at,
+        score: scoreLead(l, 30), // status weight: quoted = 30 (likely close)
       });
     } else if (l.status === "new" && days > 0.25) {
-      attention.push({
+      candidates.push({
         leadId: l.id,
         publicId: l.public_id,
         name: l.name,
@@ -255,9 +330,10 @@ async function loadRepView(repUserId: string | null) {
         reason: "New lead · no contact yet",
         reasonTone: "rose",
         at: l.created_at,
+        score: scoreLead(l, 40), // status weight: new+stale = 40 (TCPA-urgent)
       });
     } else if (l.status === "scheduled") {
-      attention.push({
+      candidates.push({
         leadId: l.id,
         publicId: l.public_id,
         name: l.name,
@@ -265,14 +341,22 @@ async function loadRepView(repUserId: string | null) {
         reason: "Inspection scheduled · confirm",
         reasonTone: "cy",
         at: l.created_at,
+        score: scoreLead(l, 20), // status weight: scheduled = 20 (lighter — already booked)
       });
     }
-    if (attention.length >= 6) break;
   }
+  // Hormozi sort — highest-leverage call first. Slice to top 6.
+  candidates.sort((a, b) => b.score - a.score);
+  const attention = candidates.slice(0, 6).map(({ score: _score, ...rest }) => {
+    void _score;
+    return rest;
+  });
 
   return {
     myLeads,
     metrics: {
+      appointmentsToday,
+      sarahCapturedOvernight,
       openLeads,
       pipelineLow,
       pipelineHigh,

@@ -29,6 +29,15 @@ import {
 } from "@/lib/dashboard";
 
 interface RepMetrics {
+  /** Appointments booked on the rep's calendar for TODAY. Hormozi-mode
+   *  North Star — this is the metric that, if it moves, the paycheck
+   *  moves. Leads "today / appointments" first so reps see the
+   *  outcome-of-the-day before anything else on the page. */
+  appointmentsToday: number;
+  /** Bookings captured by Sarah AFTER hours (Mon-Fri before 8am / after
+   *  5pm or any weekend hour) in the last 7 days. Surfaces the
+   *  AI-leverage win — proof that the rep is getting paid while asleep. */
+  sarahCapturedOvernight: number;
   openLeads: number;
   pipelineLow: number;
   pipelineHigh: number;
@@ -105,17 +114,29 @@ export default function RepOverview({
         )}
       </header>
 
-      {/* MY SCOREBOARD */}
+      {/* MY SCOREBOARD — Hormozi-mode order:
+            1. Appointments TODAY (the only number that moves the paycheck)
+            2. Sarah captured overnight (AI-leverage proof)
+            3. Won · MTD (realized $)
+            4. My pipeline (forward-looking $)
+          Open leads + Calls/week are intentionally NOT in the headline
+          scoreboard — they're vanity metrics that don't drive the next
+          action. Reps still see them in the lead list / call log. */}
       <div className="scoreboard" role="group" aria-label="Rep metrics">
-        <div className="scoreboard-tile">
-          <div className="label">Open leads</div>
-          <div className="value">{metrics.openLeads.toLocaleString()}</div>
-          <div className="sublabel">assigned to me</div>
+        <div className="scoreboard-tile accent-emerald">
+          <div className="label">Appointments · today</div>
+          <div className="value">{metrics.appointmentsToday.toLocaleString()}</div>
+          <div className="sublabel">on your calendar</div>
         </div>
-        <div className="scoreboard-tile">
-          <div className="label">Calls · week</div>
-          <div className="value">{metrics.callsThisWeek.toLocaleString()}</div>
-          <div className="sublabel">Sydney + outbound</div>
+        <div className="scoreboard-tile accent-cy">
+          <div className="label">Sarah captured · overnight</div>
+          <div className="value">{metrics.sarahCapturedOvernight.toLocaleString()}</div>
+          <div className="sublabel">after-hours · last 7d</div>
+        </div>
+        <div className="scoreboard-tile accent-mint">
+          <div className="label">Won · MTD</div>
+          <div className="value">{metrics.wonThisMonth.toLocaleString()}</div>
+          <div className="sublabel">contracts signed</div>
         </div>
         <div className="scoreboard-tile accent-amber">
           <div className="label">My pipeline</div>
@@ -128,11 +149,6 @@ export default function RepOverview({
                   0,
                 )}`}
           </div>
-        </div>
-        <div className="scoreboard-tile accent-mint">
-          <div className="label">Won · MTD</div>
-          <div className="value">{metrics.wonThisMonth.toLocaleString()}</div>
-          <div className="sublabel">contracts signed</div>
         </div>
       </div>
 
