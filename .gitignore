@@ -92,3 +92,4 @@ step*-fixed.*
 # Tool-installed agent skills — regenerable via 'npx skills sync'
 # (skill versions pinned in skills-lock.json, which IS committed)
 .agents/
+.env*

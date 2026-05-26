@@ -492,7 +492,7 @@ export default function LeadReport({ lead }: { lead: Lead }) {
           or rows where the V3 run never persisted. */}
       {tiers && tiers.length > 0 ? (
         <Section title="Customer-quoted tiers" badge="V3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {tiers.map((t) => (
               <RepTierCard key={t.tier.id} tier={t} />
             ))}

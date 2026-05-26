@@ -2074,7 +2074,7 @@ function ResultScreen({
                 material waste
               </div>
               <div
-                className="grid grid-cols-1 md:grid-cols-3 items-stretch"
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 items-stretch"
                 style={{ gap: "16px" }}
               >
                 {tiers.map((t) => (

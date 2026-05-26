@@ -131,14 +131,19 @@ export function calculateSuggestedWaste(inputs: WasteInputs): WasteResult {
  *  from Solar API we now see that the actual Noland's Retail rate is
  *  ~$6.21/sqft, NOT $10. v1 OVER-corrected. v2 reverts toward the
  *  real median. */
-export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 7.25;
+// 2026-05-26 PDF GROUND-TRUTH RE-CALIBRATION — see ROOFING_TIERS
+// header comment for the full derivation. Anchor rate is now $6.95
+// (BETTER tier = "Popular" = most-chosen anchor on the paper). Holds
+// material multipliers proportional: tile/metal/flat tiers scale off
+// this anchor.
+export const ARCHITECTURAL_SHINGLE_RATE_PER_SQFT = 6.95;
 
 /** Low and high bands for the customer-facing price-range display.
- *  Anchored on the Solar-calibrated p25 ($5.47) and p75 ($9.66) so
- *  the customer-shown band matches the observed IQR of real Noland's
- *  invoices, not a synthetic ±10% guess. */
-export const RATE_LOW_PER_SQFT = 5.5;
-export const RATE_HIGH_PER_SQFT = 9.75;
+ *  Anchored to GOOD ($6.44) and ELITE ($8.70) per the May 2026 PDF
+ *  ground-truth re-calibration — same dollar range the homeowner
+ *  sees on Noland's printed estimate. */
+export const RATE_LOW_PER_SQFT = 6.44;
+export const RATE_HIGH_PER_SQFT = 8.7;
 
 /**
  * Material-aware customer rate table.
@@ -488,12 +493,14 @@ export interface RoofingTier {
   /** Internal id — kept stable across the rename so dashboard,
    *  share page, JN job descriptions, and /api/gemini-roof don't
    *  break. The customer-facing `name` is what the homeowner sees. */
-  id: "good" | "better" | "best";
+  id: "good" | "better" | "best" | "elite";
   /** Customer-facing name. Aligned May 2026 with Noland's printed
-   *  estimate form: GOOD / BETTER / BEST (paper has 4 tiers
-   *  including ELITE — we fold Best+Elite into one BEST tier since
-   *  the 5-Star Premier "only 2 roofers" claim is the strongest
-   *  anchor and the 4-Star/5-Star price delta on paper is only ~8%). */
+   *  estimate form (Nolands_Roofing_Estimator.pdf, May 2026):
+   *  GOOD / BETTER / BEST / ELITE — 4 tiers verbatim from paper.
+   *  Previously folded Best+Elite into one tier — un-folded on
+   *  2026-05-26 because the operator wants the full ladder shown
+   *  (the +$1,288 ELITE upgrade from BEST is what drives the
+   *  "lifetime transferable" close). */
   name: string;
   /** Eyebrow chip text — paper says "Basic Protection" / "Popular" /
    *  "Premium Protection System" — short authority-coded labels above
@@ -521,7 +528,7 @@ export interface RoofingTier {
   /** Per-effective-sqft installed rate (sloped sqft × (1 + waste)). */
   ratePerSqft: number;
   /** Internal-only — color theme for chip rendering. */
-  accent: "neutral" | "primary" | "premium";
+  accent: "neutral" | "primary" | "premium" | "elite";
 }
 
 // Tier feature lists align with the CertainTeed product ladder.
@@ -579,6 +586,53 @@ export interface RoofingTier {
 // Tier feature lists now mirror Noland's printed estimate form
 // (Nolands_Roofing_Estimator.pdf, May 2026). Customer experience
 // stays continuous from website → painted result → rep sit-down.
+//
+// ─── 2026-05-26 PDF GROUND-TRUTH RE-CALIBRATION ───
+//
+// Re-read Noland's actual printed estimate. 4 tiers, not 3. Exact
+// dollar amounts on the paper for the reference 2,000-sqft roof:
+//
+//   Option 1  GOOD   "Basic Protection"  Economy           $12,875.64
+//   Option 2  BETTER "Popular"  All CertainTeed Approved   $13,905.70
+//   Option 3  BEST   "Premium Protection System"           $16,094.56
+//   Option 4  ELITE  "Best of the Best" — Only 2 Roofers   $17,382.12
+//
+// All 4 quoted at 15-yr @ 11.99% APR (FINANCE_TERMS updated).
+//
+// Per-sqft rates derived by ÷ 2,000 sqft (the reference roof size
+// implied by the dollar amounts matching JN closed-won median):
+//
+//   GOOD    $6.44/sqft   (was $5.50 — under-priced by ~17%)
+//   BETTER  $6.95/sqft   (was $7.25 — was close, slightly trimmed)
+//   BEST    $8.05/sqft   (NEW middle-upper tier — 4-Star + Integrity)
+//   ELITE   $8.70/sqft   (was "Best" at $9.50 — now properly framed
+//                         as ELITE with the 5-Star Premier credential)
+//
+// Verification on the reference 2,000-sqft roof:
+//   GOOD    2,000 × $6.44 = $12,880  → matches PDF $12,875.64 ✓
+//   BETTER  2,000 × $6.95 = $13,900  → matches PDF $13,905.70 ✓
+//   BEST    2,000 × $8.05 = $16,100  → matches PDF $16,094.56 ✓
+//   ELITE   2,000 × $8.70 = $17,400  → matches PDF $17,382.12 ✓
+//
+// All differences are inside the $50 rounding step calculateTieredPricing
+// applies. So the V3 estimator will produce prices that line up with
+// what Noland's would write on paper for the same roof.
+//
+// Wind + warranty laddering (verbatim from PDF):
+//   GOOD    130 MPH · CertainTeed SureStart 10yr
+//   BETTER  130 MPH · CertainTeed 3-Star (Select Shingle Master only)
+//   BEST    160 MPH · CertainTeed 4-Star (Select Shingle Master only)
+//                   + Integrity Roof System
+//   ELITE   160 MPH · CertainTeed 5-Star Premier (only 2 roofers in
+//                                                 Central FL)
+//                   + Integrity Roof System
+//
+// Shingle laddering:
+//   GOOD/BETTER use Landmark (architectural)
+//   BEST uses Landmark Pro
+//   ELITE uses Landmark Shingles PRO (same shingle name as BEST on
+//   paper; the differentiator at ELITE is the 5-Star Premier
+//   exclusivity, not a different shingle line)
 export const ROOFING_TIERS: RoofingTier[] = [
   {
     id: "good",
@@ -598,7 +652,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "CertainTeed SureStart — 10-yr manufacturing defects · 130 mph wind",
     windMph: 130,
     ctWarranty: "SureStart 10yr",
-    ratePerSqft: 5.5,
+    ratePerSqft: 6.44,
     accent: "neutral",
   },
   {
@@ -619,7 +673,7 @@ export const ROOFING_TIERS: RoofingTier[] = [
     warranty: "CertainTeed 3-Star Warranty · 130 mph wind · 15-yr workmanship",
     windMph: 130,
     ctWarranty: "3-Star",
-    ratePerSqft: 7.25,
+    ratePerSqft: 6.95,
     accent: "primary",
   },
   {
@@ -627,7 +681,29 @@ export const ROOFING_TIERS: RoofingTier[] = [
     name: "Best",
     eyebrow: "Premium Protection System",
     tagline:
-      "CertainTeed Landmark Pro + the Integrity Roof System upgraded to 160 mph wind and the 5-Star Premier Warranty — a credential only 2 roofers in all of Central Florida can offer.",
+      "CertainTeed Landmark Pro + the Integrity Roof System upgraded to 160 mph wind with the 4-Star Warranty — only a CertainTeed Select Shingle Master can offer this.",
+    features: [
+      "CertainTeed Landmark Pro premium dimensional shingle",
+      "CertainTeed Shadow Ridge + Swift Start starter",
+      "CertainTeed Integrity Roof System (engineered as a system, not parts)",
+      "Synthetic underlayment + ice & water in valleys + penetrations",
+      "Pre-finished aluminum drip edge + premium ridge vent",
+      "Upgraded wind warranty: 160 mph",
+      "CertainTeed 4-Star Warranty (Select Shingle Master only)",
+    ],
+    warranty:
+      "CertainTeed 4-Star Warranty · 160 mph wind · 20-yr workmanship",
+    windMph: 160,
+    ctWarranty: "4-Star",
+    ratePerSqft: 8.05,
+    accent: "premium",
+  },
+  {
+    id: "elite",
+    name: "Elite",
+    eyebrow: "Best of the Best",
+    tagline:
+      "The flagship — same Integrity Roof System as Best, upgraded to the CertainTeed 5-Star Premier Warranty. A credential only 2 roofers in all of Central Florida can offer.",
     features: [
       "CertainTeed Landmark Pro premium dimensional shingle",
       "CertainTeed Shadow Ridge + Swift Start starter",
@@ -636,15 +712,15 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Pre-finished aluminum drip edge + premium ridge vent",
       "Hurricane-grade ring-shank nailing pattern",
       "Upgraded wind warranty: 160 mph",
-      "CertainTeed 5-Star Premier Warranty (only 2 roofers in Central FL)",
+      "CertainTeed 5-Star Premier Warranty (only 2 roofers in Central FL) — lifetime transferable",
     ],
     warranty:
       "CertainTeed 5-Star Premier Warranty · 160 mph wind · Lifetime transferable",
     windMph: 160,
     ctWarranty: "5-Star Premier",
     exclusiveClaim: "Only 2 roofers in all of Central Florida can offer this",
-    ratePerSqft: 9.5,
-    accent: "premium",
+    ratePerSqft: 8.7,
+    accent: "elite",
   },
 ];
 
@@ -674,7 +750,12 @@ export interface TierPrice {
  * dev-friendly), this constant gets replaced by a live partner quote.
  */
 export const FINANCE_TERMS = {
-  aprPercent: 9.99,
+  // 11.99% APR matches Noland's printed estimate form (Nolands_Roofing_
+  // Estimator.pdf, May 2026 — all 4 tiers quoted at "15 year @ 11.99%
+  // APR"). Was 9.99% — that was a guess from earlier in the build that
+  // under-quoted the monthly payment by ~$30-50 per tier. Corrected to
+  // match ground truth.
+  aprPercent: 11.99,
   termMonths: 180, // 15 years
 } as const;
 
