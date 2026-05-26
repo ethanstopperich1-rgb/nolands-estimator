@@ -156,6 +156,28 @@ function hasSupabaseSession(req: NextRequest): boolean {
 export function middleware(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
 
+  // ─── Demo subdomain noindex gate (demo.voxaris.io) ─────────────────────
+  // The estimator is served on two hostnames:
+  //   1. estimate.nolandsroofing.com / nolands-estimator.vercel.app
+  //      (canonical homeowner-facing URL — should index in Google so
+  //      organic search lands here)
+  //   2. demo.voxaris.io (sales-demo URL — Voxaris sends prospects here
+  //      to "play with a live deployment" without us creating a real
+  //      throwaway for every pitch)
+  //
+  // Both serve byte-identical content. If both get indexed, Google
+  // treats them as duplicates and may rank the wrong one. Solution:
+  // tell crawlers NOT to index the demo subdomain. The canonical
+  // customer URL stays indexable. No code changes elsewhere — just a
+  // header on responses originating from the demo hostname.
+  const hostHeader = req.headers.get("host") ?? "";
+  const isDemoHost = hostHeader.toLowerCase() === "demo.voxaris.io";
+  if (isDemoHost) {
+    const res = NextResponse.next();
+    res.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return res;
+  }
+
   // Customer-proposal share links live at `/p/<random-id>`. The page-
   // level metadata already sets `robots: { index: false }` for Google /
   // Googlebot, but other crawlers (Bing, Yandex, ChatGPT, etc.) respect
