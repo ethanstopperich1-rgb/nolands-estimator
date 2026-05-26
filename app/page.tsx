@@ -2039,6 +2039,37 @@ function ResultScreen({
                   in your zip code in the last year.
                 </div>
               )}
+              {/* Waste-factor transparency line — sits between the
+                  social-proof line and the tier grid. Customer
+                  knows up-front exactly how much material slack is
+                  baked into the prices below, which removes a common
+                  "why does this estimate seem high?" follow-up call.
+                  Reads from the same API value the tier math uses, so
+                  the displayed number always tracks the actual
+                  calculation. Default 10% matches FLAT_CUSTOMER_WASTE_PERCENT. */}
+              <div
+                style={{
+                  textAlign: "center",
+                  marginTop: "4px",
+                  marginBottom: "16px",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "var(--vx-ink-soft)",
+                  letterSpacing: "0.01em",
+                }}
+              >
+                Tier prices include{" "}
+                <span
+                  className="tabular"
+                  style={{
+                    color: "var(--color-noland-fire, var(--vx-terra))",
+                    fontWeight: 700,
+                  }}
+                >
+                  {result.pricing?.recommendedWastePercent ?? 10}%
+                </span>{" "}
+                material waste
+              </div>
               <div
                 className="grid grid-cols-1 md:grid-cols-3 items-stretch"
                 style={{ gap: "16px" }}
