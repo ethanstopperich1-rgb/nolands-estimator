@@ -44,7 +44,9 @@ const SCOPES = [
 ];
 
 // Podium's OAuth endpoint per docs.podium.com/reference/oauth.
-const AUTHORIZE_URL = "https://api.podium.com/v4/oauth/authorize";
+// NOTE: not under /v4 — OAuth lives at the root of api.podium.com.
+// First attempt used /v4/oauth/authorize and got route_not_found.
+const AUTHORIZE_URL = "https://api.podium.com/oauth/authorize";
 
 export async function GET(req: Request): Promise<Response> {
   const clientId = process.env.PODIUM_CLIENT_ID;

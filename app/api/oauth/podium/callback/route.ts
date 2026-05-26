@@ -32,7 +32,8 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TOKEN_URL = "https://api.podium.com/v4/oauth/token";
+// NOTE: not under /v4 — OAuth lives at the root of api.podium.com.
+const TOKEN_URL = "https://api.podium.com/oauth/token";
 
 interface PodiumTokenResponse {
   access_token: string;
