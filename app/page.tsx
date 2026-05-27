@@ -2022,19 +2022,21 @@ function ResultScreen({
                 <div
                   style={{
                     textAlign: "center",
-                    marginTop: "-8px",
-                    marginBottom: "16px",
-                    fontSize: "12px",
-                    fontWeight: 500,
-                    color: "var(--vx-muted)",
-                    letterSpacing: "0.02em",
+                    marginTop: "2px",
+                    marginBottom: "22px",
+                    fontSize: "17px",
+                    fontWeight: 600,
+                    color: "var(--vx-ink)",
+                    letterSpacing: "-0.005em",
+                    lineHeight: 1.35,
                   }}
                 >
                   Noland&apos;s completed{" "}
                   <span
                     style={{
                       color: "var(--vx-terra)",
-                      fontWeight: 700,
+                      fontWeight: 800,
+                      fontSize: "19px",
                     }}
                   >
                     {zipJobCount} roof project{zipJobCount === 1 ? "" : "s"}
@@ -2155,10 +2157,13 @@ function ResultScreen({
           </div>
         ) : null}
 
-        {/* 2×2 grid — map + storms (top), parcel + (empty/CTA hoist) below.
-            Equal-height items keep the visual symmetry the original
-            layout had. Empty quadrant is acceptable — Rep CTA renders
-            full-width below so this row stays decorative/contextual. */}
+        {/* 2×2 grid — map + storms (top), parcel + Rep CTA (bottom).
+            Rep CTA hoisted INTO the previously-empty bottom-right
+            quadrant so the grid reads as a balanced 4-up instead of
+            an empty slot with a wide CTA stranded below. Tradeoff:
+            CTA loses some visual weight vs. its previous full-width
+            position; sticky mobile CTA bar still catches the
+            scroll-past case on small viewports. */}
         <div
           className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-stretch w-full mx-auto"
           style={{ maxWidth: "1000px" }}
@@ -2190,37 +2195,24 @@ function ResultScreen({
             storms={storms}
             visualRoofAssessment={visualRoofAssessment}
           />
-        </div>
 
-        {/* Wide Rep CTA — sits directly under the 2×2 grid as the
-            page's primary action. Conversion-optimized ordering: the
-            customer just finished scanning the measurement + tiers +
-            storms + property record, so the next thing under their
-            eye should be the booking action — not a wall of fine
-            print. Disclosure band moves below the CTA. */}
-        {/* CRO HI-4 — ref-wrapped RepCTACard so the sticky mobile bar
-            can both observe its visibility AND scroll/focus into it on
-            tap. The ref lives on the wrapping div (not the card
-            internals) to avoid threading another prop through
-            RepCTACard's signature. */}
-        <div
-          ref={repCtaRef}
-          className="mt-6 mx-auto"
-          style={{ maxWidth: "1000px" }}
-        >
-          <RepCTACard
-            bookingState={bookingState}
-            bookingError={bookingError}
-            voiceConsent={voiceConsent}
-            setVoiceConsent={setVoiceConsent}
-            leadPublicId={leadPublicId}
-            onBook={bookInPersonEstimate}
-            canRetryLead={canRetryLead}
-            leadRetryState={leadRetryState}
-            leadRetryError={leadRetryError}
-            onRetryLead={retryLeadCapture}
-            recentLeadCount={recentLeadCount}
-          />
+          {/* BOTTOM-RIGHT — Rep CTA. Ref kept on the wrapper for the
+              sticky mobile CTA's IntersectionObserver. */}
+          <div ref={repCtaRef} className="w-full">
+            <RepCTACard
+              bookingState={bookingState}
+              bookingError={bookingError}
+              voiceConsent={voiceConsent}
+              setVoiceConsent={setVoiceConsent}
+              leadPublicId={leadPublicId}
+              onBook={bookInPersonEstimate}
+              canRetryLead={canRetryLead}
+              leadRetryState={leadRetryState}
+              leadRetryError={leadRetryError}
+              onRetryLead={retryLeadCapture}
+              recentLeadCount={recentLeadCount}
+            />
+          </div>
         </div>
 
         {/* Full-width disclosure band — under the CTA so the fine print
@@ -2255,40 +2247,10 @@ function ResultScreen({
           </button>
         </div>
 
-        {/* Measurement chips. FACES E ("predominant compass") removed —
-            not useful to the customer. Pitch chip ALSO removed — the
-            per-facet pitch data from Solar API was unreliable on
-            complex Florida roofs (8450 Oak Park showed a wrong
-            low-slope split), and a single rolled-up pitch number is a
-            measurement artifact the rep will verify on site anyway. */}
-        <div className="mt-10 flex flex-wrap justify-center gap-3">
-          {(() => {
-            // Display the higher of (Solar's resolved-segment count, Gemini's
-            // visual count). Solar under-segments on MEDIUM imagery — Gemini
-            // sees the painted polygons accurately. The math layer keeps
-            // using Solar's per-facet array because that's the only source
-            // with pitch + azimuth + area per plane; we just don't surface
-            // the undercount to the customer.
-            const geminiCount = result.geminiAnalysis.facetCountEstimate?.count ?? 0;
-            const display = Math.max(facets.length, geminiCount);
-            if (display <= 0) return null;
-            return (
-              <span className="chip">
-                Facets <span className="chip-value">{display}</span>
-              </span>
-            );
-          })()}
-          {/* Stories chip removed 2026-05-18 — single-angle satellite
-              can't reliably tell single-story from multi-story (no
-              parallax, no shadow cast off vertical walls in the
-              tile). EagleView gets it from oblique imagery; we don't
-              have that signal. Rather than show a wrong number, we
-              omit it. `derived.stories` is still computed server-
-              side for the rep workbench and rep PDF flow. */}
-          <span className="chip">
-            Complexity <span className="chip-value">{derived.complexity}</span>
-          </span>
-        </div>
+        {/* Facets + Complexity chips removed 2026-05-26 — measurement
+            artifacts that don't help the homeowner decide and crowd
+            the bottom of the page. Counts are still computed server-
+            side for the rep workbench and pricing math. */}
 
         {/* Penetrations / objects */}
         {Object.keys(objectCounts).length > 0 && (
