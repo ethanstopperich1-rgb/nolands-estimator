@@ -230,6 +230,22 @@ export async function POST(req: Request) {
     );
   }
 
+  // Email format validation (added per Oak Park 7 call, May 27 PM —
+  // Roy asked "does AI check the email address?" — answer was "not
+  // yet"). Reject obvious typos / missing TLDs so we don't pollute
+  // JobNimbus + Resend with bounce-bound addresses. RFC-5322 isn't
+  // worth implementing — the simple pattern below catches 99% of
+  // real-world typos (no @, no dot in domain, trailing whitespace,
+  // single-char TLD like ".c").
+  const emailPattern =
+    /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+  if (!emailPattern.test(body.email.trim())) {
+    return NextResponse.json(
+      { error: "invalid_email", message: "Please enter a valid email address" },
+      { status: 400 },
+    );
+  }
+
   // Length caps — defense against storage / log bloat AND amplifies the
   // prompt-injection defense in lib/sanitize-prompt-input.ts (the
   // sanitizer truncates too, but rejecting at the boundary is cheaper

@@ -3994,11 +3994,15 @@ function TierCard({
       : isPrimary
         ? "var(--vx-terra)"
         : "var(--vx-ink-soft)";
-  // Top 4 features show inline. Trust accumulates faster from 4 visible
-  // checkmarks than from a single hidden 7-item list — and the marginal
-  // information from items 5-7 isn't worth the cognitive cost of an
-  // unclicked accordion. Full list available on expand.
-  const topFeatures = tier.tier.features.slice(0, 4);
+  // ALL features show inline. Originally sliced to top 4 to keep cards
+  // uniform height, but Mr. Nolan (Oak Park 7 call, May 27 PM) + Roy
+  // explicitly asked: "I'd rather populate by itself instead of clicking
+  // on it because some homeowners ain't that savvy." Showing the full
+  // feature list inline means the value-anchor for each tier is visible
+  // at first glance — no hidden value behind an accordion. The
+  // "What else is included" accordion still toggles the warranty text
+  // block (which is verbose and benefits from gating).
+  const topFeatures = tier.tier.features;
   return (
     <div
       style={{

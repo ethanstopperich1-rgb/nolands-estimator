@@ -619,6 +619,36 @@ export interface RoofingTier {
 // applies. So the V3 estimator will produce prices that line up with
 // what Noland's would write on paper for the same roof.
 //
+// ─── 2026-05-27 PM LEAD-MAGNET RE-CALIBRATION (Oak Park 7 call) ───
+//
+// Mr. Nolan, RSS C-suite demo May 27 PM:
+//   "I purposely want this to be a little bit cheaper than what our
+//   actual price is to attract more customers. It's my salesman's
+//   job to actually go there and sell it."
+//   "It should have been at 390 square. I knew I tested it this
+//   morning and it was there."
+//
+// → GOOD tier becomes the LEAD MAGNET, intentionally below PDF
+//   pricing. Set to $3.90/sqft = $390/sq. Other tiers stay at
+//   PDF-derived rates (BETTER/BEST/ELITE are the value-anchor
+//   ladder the salesperson upsells to in-person).
+//
+// Verification on Roy's house (4871 Esplanade St, 58.3 squares,
+// 5,830 sqft incl. 10% waste):
+//   GOOD    5,830 × $3.90 = $22,737  ← lead magnet target ✓
+//   BETTER  5,830 × $6.95 = $40,518
+//   BEST    5,830 × $8.05 = $46,932
+//   ELITE   5,830 × $8.70 = $50,721
+//
+// The gap GOOD→BETTER is intentional — it filters price-sensitive
+// shoppers into the lead capture without forcing them into a quote
+// they'll bounce on. The salesperson closes at 50% in-person and
+// upsells off GOOD into BETTER/BEST during the walkthrough.
+//
+// Locked by Mr. Nolan: "I want to double check the algorithm before
+// you make it live." Smoke-test on 4871 Esplanade St must produce
+// $22,737 ±2% on GOOD before going live on estimate.nolandsroofing.com.
+//
 // Wind + warranty laddering (verbatim from PDF):
 //   GOOD    130 MPH · CertainTeed SureStart 10yr
 //   BETTER  130 MPH · CertainTeed 3-Star (Select Shingle Master only)
@@ -653,7 +683,10 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "CertainTeed SureStart — 10-yr manufacturing defects · 160 mph wind",
     windMph: 160,
     ctWarranty: "SureStart 10yr",
-    ratePerSqft: 6.44,
+    // Lead-magnet rate per Oak Park 7 call (May 27 PM). Mr. Nolan:
+    // "It should have been at 390 square" = $3.90/sqft. Intentionally
+    // below PDF $6.44 — salesperson upsells in-person.
+    ratePerSqft: 3.9,
     accent: "neutral",
   },
   {
