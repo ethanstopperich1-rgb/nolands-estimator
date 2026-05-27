@@ -336,6 +336,94 @@ export interface PodiumTextInput {
   jobnimbusContactId?: string | null;
 }
 
+/**
+ * In-memory access token cache. Podium access tokens are short-lived
+ * (~1h TTL). When PODIUM_ACCESS_TOKEN expires, we exchange the
+ * refresh token for a new access token and cache it in this module-
+ * level variable for the lifetime of the Lambda instance. Next cold
+ * start picks up the env var again; warm instances reuse the cached
+ * token.
+ *
+ * Not perfect — different Lambda instances will each refresh
+ * independently. With Podium's per-app refresh-token rotation rules
+ * (refresh tokens stay valid across reuse), this is fine.
+ */
+let cachedAccessToken: string | null = null;
+let cachedAccessTokenExpiresAt: number | null = null;
+
+async function refreshPodiumAccessToken(): Promise<string | null> {
+  const refreshToken = process.env.PODIUM_REFRESH_TOKEN;
+  const clientId = process.env.PODIUM_CLIENT_ID;
+  const clientSecret = process.env.PODIUM_CLIENT_SECRET;
+  if (!refreshToken || !clientId || !clientSecret) {
+    console.error("[podium] refresh missing creds", {
+      hasRefresh: !!refreshToken,
+      hasClientId: !!clientId,
+      hasClientSecret: !!clientSecret,
+    });
+    return null;
+  }
+  try {
+    const res = await fetch("https://api.podium.com/oauth/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }).toString(),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[podium] refresh failed", {
+        status: res.status,
+        body: body.slice(0, 400),
+      });
+      return null;
+    }
+    const json = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+    };
+    if (!json.access_token) {
+      console.error("[podium] refresh returned no access_token", json);
+      return null;
+    }
+    cachedAccessToken = json.access_token;
+    const ttl = typeof json.expires_in === "number" ? json.expires_in : 3600;
+    // Refresh 60s early to dodge edge-case expirations during the
+    // outbound HTTP roundtrip.
+    cachedAccessTokenExpiresAt = Date.now() + (ttl - 60) * 1000;
+    console.log("[podium] refreshed access_token", {
+      ttl,
+      expiresInSec: ttl - 60,
+    });
+    return cachedAccessToken;
+  } catch (err) {
+    console.error(
+      "[podium] refresh threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+function currentAccessToken(): string {
+  // Cached refresh wins if it's still valid.
+  if (
+    cachedAccessToken &&
+    cachedAccessTokenExpiresAt &&
+    cachedAccessTokenExpiresAt > Date.now()
+  ) {
+    return cachedAccessToken;
+  }
+  return process.env.PODIUM_ACCESS_TOKEN!;
+}
+
 export async function sendPodiumText(
   input: PodiumTextInput,
 ): Promise<PodiumSendResult> {
@@ -343,15 +431,15 @@ export async function sendPodiumText(
     return { sent: false, reason: "not_configured" };
   }
 
-  const accessToken = process.env.PODIUM_ACCESS_TOKEN!;
   const locationUid = process.env.PODIUM_LOCATION_UID!;
   const senderName = process.env.PODIUM_SENDER_NAME ?? "Noland's Roofing";
 
-  try {
-    const res = await fetch("https://api.podium.com/v4/messages", {
+  // Inner function so we can retry once on 401 after a refresh.
+  async function attempt(token: string) {
+    return fetch("https://api.podium.com/v4/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -369,6 +457,24 @@ export async function sendPodiumText(
         setOpenInbox: input.openInbox ?? true,
       }),
     });
+  }
+
+  try {
+    let res = await attempt(currentAccessToken());
+
+    // 401 → token likely expired. Refresh via grant_type=refresh_token
+    // and retry ONCE. Podium access tokens are short-lived (~1h) and
+    // we don't currently have a proactive refresh cron — this on-
+    // demand path keeps SMS reliable across the expiry window.
+    if (res.status === 401) {
+      console.warn(
+        "[podium] 401 — attempting refresh_token exchange + retry",
+      );
+      const fresh = await refreshPodiumAccessToken();
+      if (fresh) {
+        res = await attempt(fresh);
+      }
+    }
 
     if (res.status === 429) {
       console.warn("[podium] rate_limited", { status: 429, phone: input.phone });
