@@ -120,33 +120,61 @@ export async function POST(
     return NextResponse.json({ error: "consent_required" }, { status: 400 });
   }
 
-  // reCAPTCHA v3 — gate the voice-dispatch trigger behind a fresh bot
-  // signal. The lead-creation token already on file proves the lead
-  // wasn't a bot at form submit; this proves the consent click isn't a
-  // bot pushing the button. Soft-fails when RECAPTCHA_SECRET_KEY unset
-  // (dev / preview) per the same pattern as /api/leads. In production:
-  // a missing token = 400 reject.
+  // reCAPTCHA v3 SOFT signal (NOT a hard gate).
+  //
+  // Earlier this was a hard 400 — but it broke real mobile flow when
+  // Google's grecaptcha script hadn't finished loading before the
+  // user tapped "Lock in my real number" (cold mobile, slow LTE, or
+  // ResultScreen mount race). The /api/leads endpoint already runs
+  // BotID + reCAPTCHA at lead-submit time, so the homeowner already
+  // proved they're human inside the same session. Plus the brute-
+  // force lockout on the publicId is the actual defense against
+  // someone POSTing {consent:true} to a guessed/scraped lead id.
+  //
+  // Now: if a token is sent, verify it and log the score. If the
+  // score is suspicious (action mismatch, siteverify_failed), reject.
+  // If the token is missing or the verifier times out, allow + log —
+  // don't block legit customers behind a Google API timing race.
   const xffEarly = req.headers.get("x-forwarded-for") ?? "";
   const captchaIp =
     xffEarly.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
-  const captcha = await verifyRecaptcha(
-    body.recaptchaToken,
-    "voice_consent",
-    captchaIp,
-  );
-  if (!captcha.ok) {
-    await recordAuthFailure(req, "voice-consent");
-    console.warn(
-      `[voice-consent] recaptcha_failed reason=${captcha.reason} score=${captcha.score} action=${captcha.action}`,
+  if (body.recaptchaToken) {
+    const captcha = await verifyRecaptcha(
+      body.recaptchaToken,
+      "voice_consent",
+      captchaIp,
     );
-    return NextResponse.json(
-      {
-        error: "captcha_failed",
-        reason: captcha.reason,
-        score: captcha.score,
-      },
-      { status: 400 },
-    );
+    if (!captcha.ok) {
+      // Real-signal failures stay hard rejects:
+      //   - low_score:* → confirmed bot probability
+      //   - action_mismatch:* → token replay (lead-submit token reused)
+      // Token-absent / network failures get logged + allowed through.
+      const reason = captcha.reason || "";
+      const isRealBotSignal =
+        reason.startsWith("low_score:") ||
+        reason.startsWith("action_mismatch:") ||
+        reason.startsWith("siteverify_failed:");
+      if (isRealBotSignal) {
+        await recordAuthFailure(req, "voice-consent");
+        console.warn(
+          `[voice-consent] recaptcha_hard_reject reason=${captcha.reason} score=${captcha.score}`,
+        );
+        return NextResponse.json(
+          {
+            error: "captcha_failed",
+            reason: captcha.reason,
+            score: captcha.score,
+          },
+          { status: 400 },
+        );
+      }
+      // Soft-fail: timing/config issue, not a bot signal.
+      console.warn(
+        `[voice-consent] recaptcha_soft_pass reason=${captcha.reason}`,
+      );
+    }
+  } else {
+    console.info("[voice-consent] no recaptcha token — allowing through");
   }
 
   // Capture the TCPA receipt's IP + UA at the moment of consent (NOT
