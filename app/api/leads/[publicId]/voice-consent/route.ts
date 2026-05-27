@@ -12,6 +12,7 @@ import {
   supabaseServiceRoleConfigured,
 } from "@/lib/supabase";
 import { buildVoiceConsentDisclosureText } from "@/lib/tcpa-consent";
+import { toE164 } from "@/lib/twilio";
 
 export const runtime = "nodejs";
 // Same dispatch window as /api/leads — call dispatch is fire-and-forget
@@ -309,7 +310,12 @@ export async function POST(
       },
       body: JSON.stringify({
         leadId: publicId,
-        phone: lead.phone,
+        // dispatch-outbound demands E.164 (+1XXXXXXXXXX); the lead row
+        // stores the raw user-typed format ("(407) 819-5809"). Convert
+        // here so dispatch passes its phone-format gate. If toE164
+        // returns null (somehow not a US phone), pass the raw string
+        // and let dispatch return the same 400 it would have anyway.
+        phone: toE164(lead.phone) ?? lead.phone,
         name: lead.name,
         address: lead.address,
         estimateLow: lead.estimate_low,

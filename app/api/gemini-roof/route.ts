@@ -110,6 +110,7 @@ import {
   calculatePenetrationAdders,
   calculateTieredPricingWithPenetrations,
   geminiMaterialToRateKey,
+  FLAT_CUSTOMER_WASTE_PERCENT,
 } from "@/lib/pricing/calculate-waste";
 import { lookupParcel, type ParcelLookupResult } from "@/lib/parcel-lookup";
 import {
@@ -1069,7 +1070,7 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // photo evidence to keep Pro Image in edit mode on complex roofs.
 // Previous bumps preserved (parcel-keyed, full-sqft pricing,
 // flash-lite-3-1, alpha-070, etc.).
-const CACHE_SCOPE_V3 = "gemini-roof-v3-parity-unified-prompt";
+const CACHE_SCOPE_V3 = "gemini-roof-v3-flat-customer-waste-10pct";
 
 /** Cheap text-only model used solely for structured-output object
  *  detection alongside the painted-image call. Pro Image is expensive
@@ -2997,7 +2998,11 @@ async function handleV3Pinned(
       },
     },
     pricing: {
-      recommendedWastePercent: geometricWaste.suggestedPercent,
+      // Customer-facing waste is FLAT 10% — rep can adjust on inspection
+      // via the dashboard workbench (which calls calculateSuggestedWaste
+      // directly, ignoring this field). The geometric value is kept in
+      // wasteBreakdown below for rep diagnostics.
+      recommendedWastePercent: FLAT_CUSTOMER_WASTE_PERCENT,
       wasteBreakdown: {
         fromFacets: geometricWaste.breakdown.fromFacets,
         fromAzimuthClusters: geometricWaste.breakdown.fromAzimuthClusters,
