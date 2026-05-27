@@ -1845,6 +1845,12 @@ function ResultScreen({
     return () => ctrl.abort();
   }, [resolved.formatted]);
 
+  // reCAPTCHA executor for the voice-consent POST. Separate token from
+  // the hero submit's "submit_lead" action — server verifies action
+  // matches to block replay of the original token. No-op in dev when
+  // NEXT_PUBLIC_RECAPTCHA_SITE_KEY is unset.
+  const { execute: executeRecaptcha } = useRecaptcha();
+
   // Tier accordion: which tier card is currently expanded. Prior version
   // gave each TierRow its own open state, so clicking a row only added
   // to the expansion without closing others — causing the top-row cards
