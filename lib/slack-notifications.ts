@@ -155,6 +155,48 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
   };
 }
 
+/** Build Slack Block Kit payload for call_started events.
+ *  Shorter than call_ended — just "Sarah is dialing X right now" so
+ *  the team sees the outbound moment as it happens. */
+function buildCallStartedBlocks(ev: LeadWebhookEvent): {
+  text: string;
+  blocks: unknown[];
+} {
+  const { lead, office } = ev;
+  const extras = (ev.extras ?? {}) as { direction?: string };
+  const direction =
+    (extras.direction ?? "outbound").toLowerCase() === "inbound"
+      ? "📞 Inbound call"
+      : "📲 Sarah dialing";
+  const fallbackText = `${direction} — ${lead.name} (${lead.address})`;
+  return {
+    text: fallbackText,
+    blocks: [
+      {
+        type: "header",
+        text: { type: "plain_text", text: direction, emoji: true },
+      },
+      {
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*Lead*\n${lead.name}` },
+          { type: "mrkdwn", text: `*Phone*\n${maskPhone(lead.phone_raw)}` },
+          { type: "mrkdwn", text: `*Address*\n${lead.address}` },
+        ],
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `📍 *${office.display_name}* · ${new Date(ev.occurred_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 /** Build Slack Block Kit payload for appt_scheduled / call_completed events. */
 function buildCallEndedBlocks(ev: LeadWebhookEvent): {
   text: string;
@@ -246,6 +288,9 @@ export async function sendSlackLeadEvent(
   switch (ev.event) {
     case "new_lead":
       payload = buildNewLeadBlocks(ev);
+      break;
+    case "call_started":
+      payload = buildCallStartedBlocks(ev);
       break;
     case "appt_scheduled":
     case "call_completed":

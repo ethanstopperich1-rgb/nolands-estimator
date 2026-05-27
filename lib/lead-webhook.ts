@@ -84,9 +84,8 @@ export const LEAD_WEBHOOK_SCHEMA_VERSION = "1.0.0";
 export interface LeadWebhookEvent {
   /** Stable schema version — receivers can branch on this. */
   schema_version: string;
-  /** Event type. Today only `new_lead`; future: `appt_scheduled`,
-   *  `call_completed`, `consent_updated`, etc. */
-  event: "new_lead" | "appt_scheduled" | "call_completed";
+  /** Event type. */
+  event: "new_lead" | "appt_scheduled" | "call_completed" | "call_started";
   /** ISO 8601 UTC. */
   occurred_at: string;
   /** Tenancy. The receiver should scope writes by this. */

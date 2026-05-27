@@ -38,6 +38,12 @@ import {
   sendPostCallNotifications,
   type PostCallOutcome,
 } from "@/lib/post-call-notifications";
+import { sendSlackLeadEvent } from "@/lib/slack-notifications";
+import {
+  LEAD_WEBHOOK_SCHEMA_VERSION,
+  type LeadWebhookEvent,
+} from "@/lib/lead-webhook";
+import { resolveBaseUrl } from "@/lib/base-url";
 
 export const runtime = "nodejs";
 // Short ceiling — this is purely a database write, not a long-running job.
@@ -91,16 +97,24 @@ async function handleCallStarted(
   if (existing) return;
 
   // Resolve lead_id from room_name if this was an outbound dispatch.
+  // Pull the display fields too so we can fire a Slack ping below.
   let leadId: string | null = null;
+  let leadForSlack: {
+    public_id: string;
+    name: string | null;
+    phone: string | null;
+    address: string | null;
+  } | null = null;
   const leadPublicId = parseleadPublicId(roomName);
   if (leadPublicId) {
     const { data: lead } = await sb
       .from("leads")
-      .select("id")
+      .select("id, public_id, name, phone, address")
       .eq("public_id", leadPublicId)
       .eq("office_id", officeId)
       .maybeSingle();
     leadId = lead?.id ?? null;
+    if (lead?.public_id) leadForSlack = lead;
   }
 
   const { error } = await sb.from("calls").insert({
@@ -117,6 +131,40 @@ async function handleCallStarted(
       room_name: roomName,
       error: error.message,
     });
+  }
+
+  // SLACK-OBS — fire-and-forget Slack ping at the dial moment so the
+  // team sees Sarah picking up the line in real time. Soft-fail; never
+  // blocks the call. Inbound calls (no leadPublicId in room_name) skip
+  // the ping because we don't have lead context to make it useful.
+  if (leadForSlack) {
+    const direction = leadPublicId ? "outbound" : "inbound";
+    const slackEvent: LeadWebhookEvent = {
+      schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+      event: "call_started",
+      occurred_at: new Date().toISOString(),
+      office: {
+        id: officeId,
+        slug: "nolands",
+        display_name: "Noland's Roofing",
+      },
+      lead: {
+        public_id: leadForSlack.public_id,
+        name: leadForSlack.name ?? "Unknown",
+        email: null,
+        phone_raw: leadForSlack.phone,
+        phone_e164: leadForSlack.phone,
+        address: leadForSlack.address ?? "—",
+        estimate_low: null,
+        estimate_high: null,
+        material: null,
+        estimated_sqft: null,
+        source: null,
+        report_url: `${resolveBaseUrl()}/dashboard/leads/${leadForSlack.public_id}`,
+      },
+      extras: { direction },
+    };
+    void sendSlackLeadEvent(slackEvent);
   }
 }
 
