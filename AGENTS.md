@@ -255,6 +255,41 @@ To disable hooks locally, copy the file out: `cp .claude/settings.json
 Real mistakes that broke real things. New entries at the top. Format:
 `<date> — <what was learned> <(impact)>`.
 
+- **2026-05-27 PM** — **SpyFu's per-keyword `monthlyCost` is a market-
+  spend estimate, NOT the domain's actual spend on that keyword.**
+  Summing it gives a nonsense number that can exceed the actual ad
+  budget by 10-20× ($284,850/mo waste against a $23,120 budget). The
+  truth source for "what Noland's spends" is
+  `domainStats.estMonthlyAdBudget`. Quality-Score Tax is calculated as
+  `(1 - peerMedianCpc / yourMedianCpc) × budget` and CAPPED at budget.
+  Commit `4b09801`. Now returns $18,263/mo (79% — matches Intel Brief
+  v2's $18,272 direct-waste figure).
+- **2026-05-27 PM** — **GOOD tier price is a LEAD MAGNET, not the
+  printed-estimate rate.** Mr. Nolan (RSS C-suite call, Oak Park Rd
+  7): "I purposely want this to be a little bit cheaper than what our
+  actual price is to attract more customers. My salesman's job to
+  actually go there and sell it." GOOD ratePerSqft locked at $3.90
+  ($390/sq) — 39% below the PDF $6.44. BETTER/BEST/ELITE stay at PDF-
+  aligned rates as the upsell ladder. Smoke-test: 4871 Esplanade St
+  (58.3 sq) → GOOD = $22,737. Commit `f74ff87`. Mr. Nolan personally
+  verifies before estimate.nolandsroofing.com goes live.
+- **2026-05-27 PM** — **TierCard features show ALL inline now, not
+  the top-4 slice.** Mr. Nolan + Roy: "I'd rather populate by itself
+  instead of clicking on it because some homeowners ain't that savvy."
+  Cards visually slightly taller but consistent across all 4 tiers.
+  Accordion stays for the verbose warranty text only. Commit
+  `f74ff87`.
+- **2026-05-27 PM** — **Email format validation belongs at the lead-
+  capture boundary** (`/api/leads`). Without it, junk like
+  `ethan@dot.c` lands in JN and bounces from Resend later, polluting
+  the lead pipeline. Regex `/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/` catches
+  99% of typos. Commit `f74ff87`.
+- **2026-05-27 PM** — **The Noland's pilot has a 7× multiplier built
+  in.** Mr. Nolan, on the RSS C-suite call: "If it gets us more leads,
+  we could do it with the other six companies or seven companies."
+  Roy (CEO of RSS) and Jason (CFO of RSS) approved the architecture
+  in principle. Roll-out economics: 1 successful pilot → 18 brands
+  under DPC. This is the contract, not just Greg's $35K/mo.
 - **2026-05-27** — **TierCard price block: total goes ABOVE monthly,
   both visible simultaneously.** Original layout buried total as 11px
   muted footnote below 28px monthly anchor. Customers compare totals
