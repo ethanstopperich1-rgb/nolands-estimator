@@ -336,49 +336,77 @@ export interface AdWasteResult {
 }
 
 /**
- * Cross-reference paid keywords against competitor CPCs to flag ad
- * waste. Mirrors the Intel Brief Diagnosis A (Quality-Score Tax) logic.
+ * Estimate Quality-Score Tax (ad waste) using the Intel Brief v2 method.
  *
- * Algorithm:
- *  1. Pull our paid keywords + per-keyword CPC.
- *  2. For each, sample peer CPCs on the same keyword.
- *  3. If our CPC > 2× peer median, flag as `high_cpc_vs_peers`.
- *  4. Sum the delta (our cost - peer-median cost) as estimated waste.
+ * IMPORTANT — SpyFu's per-keyword `monthlyCost` is a MARKET-SPEND estimate
+ * (search volume × CPC × est-share-of-clicks), NOT the domain's actual
+ * dollars on that keyword. Summing it gives a nonsense number that can
+ * exceed the actual ad budget by 10-20×. Truth source for "what Noland's
+ * actually spends" is `domainStats.estMonthlyAdBudget`.
+ *
+ * Algorithm (matches Intel Brief v2 Diagnosis A):
+ *  1. Pull domainStats → actual monthly budget (truth, e.g. $23,120).
+ *  2. Pull paid keywords → compute Noland's median CPC across top 20.
+ *  3. PEER_MEDIAN_CPC: from Intel Brief Kombat analysis (peer roofers
+ *     pay $1.40–$2.50). Hardcoded $2.50 conservative until we wire a
+ *     per-keyword competitor CPC pull (costly).
+ *  4. Quality-Score Tax = max(0, 1 − peerMedianCPC / yourMedianCPC) × budget
+ *  5. Flag the top-N high-CPC keywords for the dashboard drill-down.
+ *  6. Hard cap waste at the actual budget (defensive).
  */
+const PEER_MEDIAN_CPC_USD = 2.5; // Intel Brief v2: median Central-FL roofer
+
 export async function detectAdWaste(
   domain: string = SPYFU_DEFAULT_DOMAIN,
 ): Promise<AdWasteResult | SpyFuError> {
-  const paid = await getTopPaidKeywords(domain, { limit: 100 });
+  const [paid, stats] = await Promise.all([
+    getTopPaidKeywords(domain, { limit: 100 }),
+    getDomainStats(domain),
+  ]);
   if (!paid.ok) return paid;
 
-  // For an MVP, we use a simpler heuristic: any keyword with monthlyCost
-  // > $500 AND CPC > $8 is provisionally flagged. The full peer-CPC
-  // cross-ref is a v2 (needs N competitor pulls per keyword, blows
-  // through SpyFu rate limits without batching).
+  // Budget truth source: domainStats > sum-of-keyword-costs.
+  const actualBudget =
+    stats.ok && stats.estMonthlyAdBudget > 0
+      ? stats.estMonthlyAdBudget
+      : paid.totalMonthlyCost;
+
+  // Noland's median CPC across top-20 keywords (sorted by spend already).
+  const top20 = paid.keywords.slice(0, 20).filter((k) => k.cpc > 0);
+  const sortedCpcs = top20.map((k) => k.cpc).sort((a, b) => a - b);
+  const yourMedianCpc =
+    sortedCpcs.length > 0
+      ? sortedCpcs[Math.floor(sortedCpcs.length / 2)]
+      : 0;
+
+  // Quality-Score Tax ratio. If our median ≤ peer median, no tax.
+  const taxRatio =
+    yourMedianCpc > PEER_MEDIAN_CPC_USD
+      ? 1 - PEER_MEDIAN_CPC_USD / yourMedianCpc
+      : 0;
+
+  const rawWasted = actualBudget * taxRatio;
+  const estWastedMonthly = Math.min(rawWasted, actualBudget); // hard cap
+
+  // Flagged keywords: top-N where CPC > 2× peer median. Display only.
   const flagged: AdWasteRow[] = paid.keywords
-    .filter((k) => k.monthlyCost > 500 && k.cpc > 8)
+    .filter((k) => k.cpc > PEER_MEDIAN_CPC_USD * 2 && k.monthlyCost > 100)
+    .slice(0, 25)
     .map((k) => ({
       keyword: k.keyword,
       yourCost: k.monthlyCost,
-      competitorAvgCost: k.monthlyCost * 0.4, // placeholder; v2 = real peer pull
-      cpcDelta: k.cpc - k.cpc * 0.4,
+      competitorAvgCost: k.monthlyCost * (PEER_MEDIAN_CPC_USD / k.cpc),
+      cpcDelta: k.cpc - PEER_MEDIAN_CPC_USD,
       flagReason: "high_cpc_vs_peers" as const,
     }));
-
-  const estWastedMonthly = flagged.reduce(
-    (a, r) => a + (r.yourCost - r.yourCost * 0.4),
-    0,
-  );
 
   return {
     ok: true,
     domain,
-    totalMonthlyCost: paid.totalMonthlyCost,
+    totalMonthlyCost: actualBudget,
     estWastedMonthly,
     wastedPercent:
-      paid.totalMonthlyCost > 0
-        ? (estWastedMonthly / paid.totalMonthlyCost) * 100
-        : 0,
+      actualBudget > 0 ? (estWastedMonthly / actualBudget) * 100 : 0,
     flaggedKeywords: flagged,
   };
 }
