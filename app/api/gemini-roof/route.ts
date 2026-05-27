@@ -1533,7 +1533,7 @@ async function persistEstimateToLead(
         objects,
         pricingMaterialKey,
       );
-      // Customer sees three tiers; the lead row carries the low/high
+      // Customer sees four tiers; the lead row carries the low/high
       // band across the full tier ladder (Essentials → Fortified).
       const totals = tiers.map((t) => t.total);
       estimateLow = Math.min(...totals);
@@ -1766,7 +1766,7 @@ async function persistEstimateToLead(
                   // job description scans like an intake sheet, not a
                   // bullet list.
                   const name = t.tier.name.padEnd(11);
-                  return `  ${name} ${fmt$(t.total)}  (${fmt$(t.monthly)}/mo, 15-yr @ 9.99%)`;
+                  return `  ${name} ${fmt$(t.total)}  (${fmt$(t.monthly)}/mo, 15-yr @ 11.99%)`;
                 })
                 .join("\n")
             : `  ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}`;

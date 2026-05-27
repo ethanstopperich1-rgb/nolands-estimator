@@ -60,7 +60,7 @@ upstream).
 
 ### `monthlyFromTotal(principal, apr?, months?)` + `FINANCE_TERMS`
 
-Standard amortized payment formula. Defaults to 9.99% APR over 180
+Standard amortized payment formula. Defaults to 11.99% APR over 180
 months. The customer page displays this BIG and the total in fine
 print — the financing math is the leading number, not a footnote.
 

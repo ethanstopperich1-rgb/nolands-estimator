@@ -513,8 +513,9 @@ export interface RoofingTier {
   /** Manufacturer warranty headline. */
   warranty: string;
   /** Wind warranty MPH — concrete differentiator between tiers.
-   *  Paper: GOOD/BETTER = 130 mph, BEST = 160 mph. */
-  windMph: 130 | 160;
+   *  All CertainTeed shingle lines carry 160 mph wind rating
+   *  (Class H rating, confirmed May 2026 — every tier is 160). */
+  windMph: 160;
   /** CertainTeed warranty tier badge — escalates up the ladder
    *  matching Noland's actual installer credentials:
    *    GOOD:  SureStart 10yr  (any installer can offer)
@@ -649,8 +650,8 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "10-year workmanship warranty",
     ],
     warranty:
-      "CertainTeed SureStart — 10-yr manufacturing defects · 130 mph wind",
-    windMph: 130,
+      "CertainTeed SureStart — 10-yr manufacturing defects · 160 mph wind",
+    windMph: 160,
     ctWarranty: "SureStart 10yr",
     ratePerSqft: 6.44,
     accent: "neutral",
@@ -670,8 +671,8 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Hip & ridge cap shingles",
       "CertainTeed 3-Star Warranty (Select Shingle Master only)",
     ],
-    warranty: "CertainTeed 3-Star Warranty · 130 mph wind · 15-yr workmanship",
-    windMph: 130,
+    warranty: "CertainTeed 3-Star Warranty · 160 mph wind · 15-yr workmanship",
+    windMph: 160,
     ctWarranty: "3-Star",
     ratePerSqft: 6.95,
     accent: "primary",
@@ -739,12 +740,12 @@ export interface TierPrice {
  * Default financing terms surfaced to the homeowner.
  *
  * Calibrated against typical roofing finance partners in FL (Service
- * Finance, GreenSky, EnerBank, Hearth, Mosaic). 15-year @ 9.99% APR is
- * the middle of the road — most partners have a 6.99–12.99% range
- * with 10/15/20-year options. We surface 9.99/15 as the default so
- * the monthly number is honest (not a teaser 0% APR that resets to
- * 24.99% after year one) and is something a real finance partner will
- * actually quote.
+ * Finance, GreenSky, EnerBank, Hearth, Mosaic). 15-year @ 11.99% APR
+ * matches Noland's printed estimate form — most partners have a
+ * 6.99–12.99% range with 10/15/20-year options. We surface 11.99/15
+ * as the default so the monthly number is honest (not a teaser 0% APR
+ * that resets to 24.99% after year one) and matches the rate Noland's
+ * already quotes on paper.
  *
  * If/when a real finance partner is wired up (Hearth API is the most
  * dev-friendly), this constant gets replaced by a live partner quote.
@@ -782,7 +783,7 @@ export function monthlyFromTotal(
   return Math.round(monthly);
 }
 
-/** Compute prices for all three tiers from a sqft + waste pair.
+/** Compute prices for all four tiers from a sqft + waste pair.
  *
  *  Rounds to the nearest $50 so the customer doesn't see "$9,847" — the
  *  visual register of a quote is round numbers, not laser-precise math.
@@ -806,7 +807,7 @@ export function calculateTieredPricing(
   });
 }
 
-/** Compute prices for all three tiers AND add per-fixture penetration
+/** Compute prices for all four tiers AND add per-fixture penetration
  *  adders on top of each tier's shingle line. Real total = effectiveSqft
  *  × tier.ratePerSqft × materialMultiplier + Σ(per-fixture adder × count),
  *  rounded to $50.

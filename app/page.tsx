@@ -286,7 +286,7 @@ const LOADING_MESSAGES: Array<{ at: number; text: string }> = [
   { at: 13, text: "Detecting vents, chimneys, and HVAC…" },
   { at: 19, text: "Cross-checking with Florida property records…" },
   { at: 24, text: "Pulling recent severe-weather events…" },
-  { at: 28, text: "Calculating your three options…" },
+  { at: 28, text: "Calculating your four options…" },
   { at: 33, text: "Almost there — just packaging it up…" },
 ];
 
@@ -2010,7 +2010,7 @@ function ResultScreen({
               <span className="marker absolute -bottom-[3px] -left-[3px]" aria-hidden="true" />
               <span className="marker absolute -bottom-[3px] -right-[3px]" aria-hidden="true" />
               <div className="eyebrow mb-5 text-center">
-                Three honest options for your roof
+                Four honest options for your roof
               </div>
               {/* Per-zip social proof from live JobNimbus data. Powered by
                   /api/social-proof/jobs-by-zip with the zip extracted from
@@ -2128,7 +2128,7 @@ function ResultScreen({
                   warranty above carries that depth.
                 </span>
               </div>
-              {/* Honesty footnote — single line below all three tiers
+              {/* Honesty footnote — single line below all four tiers
                   instead of repeating "Confirmed at walkthrough" inside
                   each card. Pratfall: surface the financing math
                   transparently + admit the limitation ("we don't quote
@@ -2147,7 +2147,7 @@ function ResultScreen({
                   marginRight: "auto",
                 }}
               >
-                Monthly estimates based on 15-year financing at 9.99% APR.
+                Monthly estimates based on 15-year financing at 11.99% APR.
                 Final price confirmed at on-site walkthrough — we don&apos;t
                 quote sight-unseen.
               </p>
@@ -3089,7 +3089,7 @@ function RepCTACard({
             color: "var(--vx-terra)",
           }}
         >
-          Booking ~2–3 weeks out in your area.
+          Booking available immediately in your area.
         </div>
 
         {/* CRO QW-2 — real local social proof at the conversion moment.
@@ -3504,7 +3504,7 @@ function DisclosureBand({
         {/* Cell 3 — Financing assumption */}
         <div style={{ fontSize: "12px", lineHeight: 1.55, color: "var(--vx-ink-soft)" }}>
           <span style={{ color: "var(--vx-ink)", fontWeight: 600 }}>
-            Monthly est. assumes 15-year financing at 9.99% APR.
+            Monthly est. assumes 15-year financing at 11.99% APR.
           </span>{" "}
           Actual terms depend on credit + your finance partner.
         </div>
@@ -4102,9 +4102,10 @@ function TierCard({
 
       {/* Wind MPH + CertainTeed warranty badge row — concrete,
           numeric differentiation that maps tier-to-tier on the
-          paper estimate. Anchors the "what do I actually get?"
-          question with a comparable number (130 vs 160 mph) +
-          a credentialed warranty tier. */}
+          paper estimate. All CertainTeed shingles carry 160 mph
+          wind rating (confirmed May 2026 — every CT line meets the
+          Class H rating); tier differentiation comes from the
+          credentialed warranty + shingle line, not the mph number. */}
       <div
         className="tabular"
         style={{
@@ -4116,7 +4117,7 @@ function TierCard({
           fontWeight: 600,
           letterSpacing: "0.06em",
           textTransform: "uppercase",
-          color: tier.tier.windMph === 160 ? accentColor : "var(--vx-muted)",
+          color: accentColor,
         }}
       >
         <span>{tier.tier.windMph} mph wind</span>
@@ -4127,7 +4128,7 @@ function TierCard({
       {/* Price block.
           MONTHLY is ALWAYS shown — it's calibrated math from
           lib/pricing/calculate-waste.ts (Noland's Florida install costs
-          + FINANCE_TERMS at 9.99% APR / 180 months). Anchors the
+          + FINANCE_TERMS at 11.99% APR / 180 months). Anchors the
           affordability decision ("can I budget this?") which is the
           highest-leverage thing on this page.
 

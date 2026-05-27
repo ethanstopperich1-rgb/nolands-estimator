@@ -149,7 +149,7 @@ const en = {
   "disclosure.tier_coverage":
     "Tier prices above cover the full {sqft} sqft, priced as {material} with {waste}% waste assumed. Any flat-roof sections are adjusted on site.",
   "disclosure.financing":
-    "Monthly est. assumes 15-year financing at 9.99% APR. Actual terms depend on credit + your finance partner.",
+    "Monthly est. assumes 15-year financing at 11.99% APR. Actual terms depend on credit + your finance partner.",
 
   // SMS bodies
   "sms.confirmation":
@@ -267,7 +267,7 @@ const es: Record<StringKey, string> = {
   "disclosure.tier_coverage":
     "Los precios incluyen los {sqft} pies cuadrados completos como {material}, con {waste}% de desperdicio. Las secciones de techo plano se ajustan en sitio.",
   "disclosure.financing":
-    "Estimado mensual asume financiamiento a 15 años con 9.99% APR. Términos reales dependen del crédito y tu socio financiero.",
+    "Estimado mensual asume financiamiento a 15 años con 11.99% APR. Términos reales dependen del crédito y tu socio financiero.",
 
   // SMS bodies
   "sms.confirmation":

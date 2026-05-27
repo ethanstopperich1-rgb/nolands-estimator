@@ -327,15 +327,15 @@ export function buildFaqJsonLd(): Record<string, unknown> {
         "shingle (GAF Timberline HDZ or Owens Corning Duration), " +
         "synthetic underlayment, ice and water shield in valleys and at " +
         "penetrations, pre-finished aluminum drip edge, hip and ridge " +
-        "cap shingles, and a 130 mph wind warranty. Fortified is impact-" +
+        "cap shingles, and a 160 mph wind warranty. Fortified is impact-" +
         "rated and qualifies for Florida premium discounts. All tiers " +
         "include tear-off, ridge cap, flashing, labor, and haul-away.",
     },
     {
-      q: "Why three tiers instead of one quote?",
+      q: "Why four tiers instead of one quote?",
       a:
         "Florida providers offer real discounts on impact-rated " +
-        "roofs. The three tiers reflect actual category breaks between " +
+        "roofs. The four tiers reflect actual category breaks between " +
         "code-minimum, premium architectural, and impact-rated — letting " +
         "you weigh up-front cost against policy premium savings instead of " +
         "negotiating a single number. Most Florida homeowners pick " +
@@ -467,7 +467,7 @@ export function buildServiceJsonLd(): Record<string, unknown> {
             name: "Standard reroof",
             description:
               "Premium architectural shingle, synthetic underlayment, ice " +
-              "and water shield, drip edge, hip-and-ridge cap, 130 mph " +
+              "and water shield, drip edge, hip-and-ridge cap, 160 mph " +
               "wind warranty, lifetime manufacturer + 15-year workmanship.",
           },
         },
