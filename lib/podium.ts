@@ -57,6 +57,11 @@ export interface PodiumEstimateReadyInput {
   highEstimate: number;
   /** Lead UUID — idempotency hint to skip retries on the Podium side. */
   leadPublicId: string;
+  /** JobNimbus contact id from the V3 push. When present, EVERY
+   *  successful Podium send fires a `[SMS-OUT]` note on the JN contact
+   *  timeline so reps see the full conversation history inside JN
+   *  (not just in Podium). Omit → JN logging is skipped (with a warn). */
+  jobnimbusContactId?: string | null;
 }
 
 export interface PodiumSendResult {
@@ -183,6 +188,19 @@ export async function sendEstimateReadyViaPodium(
     }
 
     const json = (await res.json()) as { data?: { uid?: string } };
+    // Log the outbound MMS to JN so reps see the full conversation
+    // timeline inside JobNimbus (not just in Podium's separate inbox).
+    if (input.jobnimbusContactId) {
+      const { logJN } = await import("@/lib/jn-log");
+      logJN(
+        input.jobnimbusContactId,
+        "sms-out",
+        `[Podium MMS] to ${input.customerPhone}\n` +
+          `Body: ${renderBody(input)}\n` +
+          `Attachment: painted roof PNG (${input.paintedImageUrl})\n` +
+          `Podium message uid: ${json.data?.uid ?? "n/a"}`,
+      );
+    }
     return {
       sent: true,
       messageUid: json.data?.uid,
@@ -250,6 +268,18 @@ async function sendTextOnly(
       };
     }
     const json = (await res.json()) as { data?: { uid?: string } };
+    // Same JN-log as the MMS path — the homeowner gets a text either
+    // way, so the timeline should record it either way.
+    if (input.jobnimbusContactId) {
+      const { logJN } = await import("@/lib/jn-log");
+      logJN(
+        input.jobnimbusContactId,
+        "sms-out",
+        `[Podium SMS, text-only fallback] to ${input.customerPhone}\n` +
+          `Body: ${renderBody(input)}\n` +
+          `Podium message uid: ${json.data?.uid ?? "n/a"}`,
+      );
+    }
     return { sent: true, messageUid: json.data?.uid };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -299,6 +329,11 @@ export interface PodiumTextInput {
    *  for customer-facing sends; pass `false` for low-signal
    *  operational sends (rep alerts, post-call summaries to reps). */
   openInbox?: boolean;
+  /** JobNimbus contact id (homeowner's). When present, the send fires
+   *  a `[SMS-OUT]` note on the JN contact timeline. Omit for rep-only
+   *  sends (rep alerts go to a phone but not to a JN-contact-linked
+   *  homeowner). */
+  jobnimbusContactId?: string | null;
 }
 
 export async function sendPodiumText(
@@ -355,6 +390,18 @@ export async function sendPodiumText(
       };
     }
     const json = (await res.json()) as { data?: { uid?: string } };
+    // Log to JN if the caller passed a contact id (homeowner sends).
+    // Rep alerts pass no contactId and skip JN — they're operational,
+    // not part of the homeowner timeline.
+    if (input.jobnimbusContactId) {
+      const { logJN } = await import("@/lib/jn-log");
+      logJN(
+        input.jobnimbusContactId,
+        "sms-out",
+        `[Podium SMS] to ${input.phone}\n${input.body.slice(0, 480)}\n` +
+          `Podium message uid: ${json.data?.uid ?? "n/a"}`,
+      );
+    }
     return { sent: true, messageUid: json.data?.uid };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

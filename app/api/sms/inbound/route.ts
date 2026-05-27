@@ -107,6 +107,45 @@ export async function POST(req: Request) {
   const inboundOffice = to ? await resolveOfficeByTwilioNumber(to) : null;
   const replyFrom = inboundOffice?.twilioNumber ?? undefined;
 
+  // ─── Log inbound SMS to JN early ──────────────────────────────────
+  // Fire-and-forget before any other branching. Looks up the lead by
+  // phone (last 10 digits, matching dedup convention) and attaches a
+  // [SMS-IN] note to the JN contact. Soft-fails if no lead match or
+  // no jobnimbus_contact_id on the lead row.
+  if (from && supabaseServiceRoleConfigured()) {
+    void (async () => {
+      try {
+        const sb = createServiceRoleClient();
+        const phoneSuffix = from.replace(/\D/g, "").slice(-10);
+        const { data: leadHit } = await sb
+          .from("leads")
+          .select("public_id, jobnimbus_contact_id")
+          .like("phone", `%${phoneSuffix}`)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const contactId =
+          (leadHit as { jobnimbus_contact_id?: string | null } | null)
+            ?.jobnimbus_contact_id ?? null;
+        if (contactId) {
+          const { logJN } = await import("@/lib/jn-log");
+          logJN(
+            contactId,
+            "sms-in",
+            `[Inbound SMS from ${from}] to ${to ?? "n/a"}\n` +
+              `Body: ${body.slice(0, 480)}`,
+          );
+        } else {
+          console.warn(
+            `[sms-inbound] no JN contact match for ${from} — body=${body.slice(0, 60)}`,
+          );
+        }
+      } catch (err) {
+        console.error("[sms-inbound] JN-log lookup threw:", err);
+      }
+    })();
+  }
+
   // STOP / UNSUBSCRIBE / END / QUIT / CANCEL — Twilio handles the
   // account-level suppression automatically, but we ALSO persist the
   // opt-out in Supabase so future outbound paths (different sender ID,

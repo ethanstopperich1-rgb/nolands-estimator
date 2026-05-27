@@ -148,12 +148,14 @@ export async function POST(
     address: string | null;
     estimate_low: number | null;
     estimate_high: number | null;
+    jobnimbus_contact_id: string | null;
     offices: { slug: string | null } | { slug: string | null }[] | null;
   }
   const { data: leadRaw, error: leadErr } = await supabase
     .from("leads")
     .select(
       "id, office_id, phone, name, address, estimate_low, estimate_high, " +
+        "jobnimbus_contact_id, " +
         "offices:office_id ( slug )",
     )
     .eq("public_id", publicId)
@@ -225,6 +227,23 @@ export async function POST(
     ip_address: consentIp,
     user_agent: consentUserAgent,
   });
+
+  // Log the TCPA consent capture to JobNimbus immediately — this
+  // creates the audit trail in the place Noland's reps actually look
+  // (the JN contact timeline), independent of whether Sarah dials
+  // successfully or not.
+  if (!consentErr) {
+    const { logJN } = await import("@/lib/jn-log");
+    logJN(
+      lead.jobnimbus_contact_id,
+      "voice-consent",
+      `TCPA voice-call consent captured from /r/${publicId}\n` +
+        `Phone: ${lead.phone ?? "n/a"}\n` +
+        `IP: ${consentIp ?? "n/a"}\n` +
+        `Disclosure text contained "AI voice assistant" (FCC compliance).\n` +
+        `Office: ${officeDisplayName}`,
+    );
+  }
   if (consentErr) {
     // Verbose log retained — surfaces PostgrestError fields (code,
     // details, hint) in Vercel runtime logs for future ops. JSON
@@ -346,12 +365,33 @@ export async function POST(
   }
 
   if (dispatchStatus < 200 || dispatchStatus >= 300) {
+    // Log the dispatch failure to JN so the rep sees it in their
+    // timeline ("consent captured but Sarah never dialed — call them
+    // manually"). Fire-and-forget; the response goes back immediately.
+    const { logJN } = await import("@/lib/jn-log");
+    logJN(
+      lead.jobnimbus_contact_id,
+      "voice-consent",
+      `Sarah dispatch FAILED status=${dispatchStatus}. Consent on file, ` +
+        `homeowner expects a call — call manually now.`,
+    );
     return NextResponse.json({
       ok: true,
       dispatched: false,
       reason: "dispatch_non_2xx",
       debug: { status: dispatchStatus, body: dispatchBody },
     });
+  }
+
+  // Dispatch succeeded — log to JN so reps see Sarah is on the line.
+  {
+    const { logJN } = await import("@/lib/jn-log");
+    logJN(
+      lead.jobnimbus_contact_id,
+      "voice-consent",
+      `Sarah outbound dispatched (LK Cloud → Twilio SIP). ` +
+        `Phone: ${lead.phone ?? "n/a"}.`,
+    );
   }
 
   return NextResponse.json({

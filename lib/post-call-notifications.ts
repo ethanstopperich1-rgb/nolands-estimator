@@ -117,10 +117,19 @@ export async function sendPostCallNotifications(
   const sb = createServiceRoleClient();
 
   // ─── 1. Look up lead + office ────────────────────────────────────────
-  const { data: lead, error: leadErr } = await sb
+  // Cast through `any` — `jobnimbus_contact_id` was added by migration
+  // 0019 but generated types haven't been regenerated. Same pattern as
+  // app/api/gemini-roof/route.ts (priorLead SELECT) and
+  // app/api/cron/scheduled-callback/route.ts.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sbAny: any = sb;
+  const { data: lead, error: leadErr } = await sbAny
     .from("leads")
     .select(
-      "public_id, office_id, name, address, phone, estimate_low, estimate_high, estimated_sqft, material, source, notes, preferred_language",
+      // jobnimbus_contact_id pulled here so the homeowner-SMS send
+      // can fire a [SMS-OUT] note on the JN contact timeline — every
+      // post-call homeowner SMS is visible inside JobNimbus.
+      "public_id, office_id, name, address, phone, estimate_low, estimate_high, estimated_sqft, material, source, notes, preferred_language, jobnimbus_contact_id",
     )
     .eq("public_id", input.leadPublicId)
     .maybeSingle();
@@ -187,6 +196,9 @@ export async function sendPostCallNotifications(
     outcome: input.outcome,
     name: lead.name,
     officeDisplayName: office?.displayName ?? "Noland's Roofing",
+    // Pass through so the Podium send fires a JN note on the contact.
+    jobnimbusContactId:
+      (lead as { jobnimbus_contact_id?: string | null }).jobnimbus_contact_id ?? null,
     lang: homeownerLang,
     fromNumber: office?.twilioNumber ?? undefined,
     appointmentAt: input.appointmentAt,
@@ -265,6 +277,7 @@ async function sendHomeownerSms(opts: {
   lang: Lang;
   fromNumber?: string;
   appointmentAt?: string;
+  jobnimbusContactId?: string | null;
 }): Promise<boolean> {
   if (!opts.phoneE164 || !podiumConfigured()) return false;
   const firstName = opts.name.split(/\s+/)[0] ?? "there";
@@ -305,6 +318,7 @@ async function sendHomeownerSms(opts: {
       contactName: opts.name,
       body,
       openInbox: true,
+      jobnimbusContactId: opts.jobnimbusContactId ?? null,
     });
     return true;
   } catch (err) {
