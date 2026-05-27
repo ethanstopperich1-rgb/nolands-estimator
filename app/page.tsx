@@ -4125,59 +4125,157 @@ function TierCard({
         <span>CertainTeed {tier.tier.ctWarranty}</span>
       </div>
 
-      {/* Price block.
-          MONTHLY is ALWAYS shown — it's calibrated math from
-          lib/pricing/calculate-waste.ts (Noland's Florida install costs
-          + FINANCE_TERMS at 11.99% APR / 180 months). Anchors the
-          affordability decision ("can I budget this?") which is the
-          highest-leverage thing on this page.
+      {/* Price block — TOTAL on top (anchor), MONTHLY below (affordability).
+          Hormozi pricing-display rule: show smallest increment AND full
+          anchor simultaneously. Two-number CRO discipline:
+            • TOTAL is the comparison number every roofer in Florida is
+              measured by. Hiding it makes the customer assume the worst.
+            • MONTHLY is the "can I afford this?" decision the financing
+              partners (Service Finance / GreenSky / Hearth) capture.
+          Both are visible at the same time so the customer can switch
+          frames without scrolling or clicking.
 
-          TOTAL is gated on PRICING_CONFIRMED. The big sticker number
-          is what benefits most from a Noland's rep contextualizing on
-          site (decking condition, layers, code work). Until Destiny
-          confirms per-sqft rates, we surface only the monthly anchor
-          and let the total emerge during the walkthrough. */}
-      <div style={{ textAlign: "center", marginBottom: "4px" }}>
-        <span
-          className="font-serif tabular"
-          style={{
-            fontSize: "28px",
-            fontWeight: 500,
-            color: "var(--vx-ink)",
-            letterSpacing: "-0.015em",
-            lineHeight: 1,
-          }}
-        >
-          ${tier.monthly.toLocaleString()}
-          <span
+          Layout order, top-down:
+            1. tiny eyebrow "TOTAL CASH PRICE"
+            2. $XX,XXX  (big, serif, primary)
+            3. inline divider "─ or financed ─"
+            4. $YY/mo  (medium, serif, secondary)
+            5. micro caption "15 yr · 11.99% APR"
+
+          PRICING_CONFIRMED gate: when the env is unset/false (rare,
+          pre-launch only) we fall back to the original
+          "final price at walkthrough" pratfall. Production is now
+          NEXT_PUBLIC_PRICING_CONFIRMED=true so this gate stays open. */}
+      {PRICING_CONFIRMED ? (
+        <div style={{ textAlign: "center", marginBottom: "14px" }}>
+          {/* TOTAL — the anchor. */}
+          <div
             style={{
-              fontFamily: "var(--vx-font-ui)",
-              fontSize: "12px",
-              fontWeight: 600,
-              letterSpacing: "0.04em",
+              fontSize: "9px",
+              fontWeight: 700,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
               color: "var(--vx-muted)",
-              marginLeft: "4px",
+              marginBottom: "3px",
             }}
           >
-            /mo
-          </span>
-        </span>
-      </div>
-      <div
-        className="tabular"
-        style={{
-          fontSize: "11px",
-          letterSpacing: "0.04em",
-          color: "var(--vx-muted)",
-          fontFamily: "var(--vx-font-ui)",
-          textAlign: "center",
-          marginBottom: "12px",
-        }}
-      >
-        {PRICING_CONFIRMED
-          ? `est. $${tier.total.toLocaleString()} total`
-          : "est. financed · final price at walkthrough"}
-      </div>
+            Total cash price
+          </div>
+          <div
+            className="font-serif tabular"
+            style={{
+              fontSize: "30px",
+              fontWeight: 500,
+              color: "var(--vx-ink)",
+              letterSpacing: "-0.015em",
+              lineHeight: 1,
+              marginBottom: "10px",
+            }}
+          >
+            ${tier.total.toLocaleString()}
+          </div>
+
+          {/* Divider — visually separates the two payment frames so the
+              eye doesn't blur them into a single ambiguous number. */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              margin: "0 auto 8px",
+              maxWidth: "140px",
+              fontSize: "9px",
+              fontWeight: 600,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--vx-muted)",
+            }}
+          >
+            <span style={{ flex: 1, height: "1px", background: "var(--vx-rule)" }} />
+            <span>or financed</span>
+            <span style={{ flex: 1, height: "1px", background: "var(--vx-rule)" }} />
+          </div>
+
+          {/* MONTHLY — affordability frame, smaller than the anchor. */}
+          <div
+            className="font-serif tabular"
+            style={{
+              fontSize: "20px",
+              fontWeight: 500,
+              color: "var(--vx-ink-soft)",
+              letterSpacing: "-0.015em",
+              lineHeight: 1,
+            }}
+          >
+            ${tier.monthly.toLocaleString()}
+            <span
+              style={{
+                fontFamily: "var(--vx-font-ui)",
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                color: "var(--vx-muted)",
+                marginLeft: "3px",
+              }}
+            >
+              /mo
+            </span>
+          </div>
+          <div
+            className="tabular"
+            style={{
+              fontSize: "10px",
+              letterSpacing: "0.04em",
+              color: "var(--vx-muted)",
+              fontFamily: "var(--vx-font-ui)",
+              marginTop: "3px",
+            }}
+          >
+            15 yr · 11.99% APR
+          </div>
+        </div>
+      ) : (
+        // Pre-launch fallback. PRICING_CONFIRMED=false hides both numbers
+        // and shows the walkthrough pratfall. Should rarely render in prod.
+        <div style={{ textAlign: "center", marginBottom: "12px" }}>
+          <div
+            className="font-serif tabular"
+            style={{
+              fontSize: "28px",
+              fontWeight: 500,
+              color: "var(--vx-ink)",
+              letterSpacing: "-0.015em",
+              lineHeight: 1,
+            }}
+          >
+            ${tier.monthly.toLocaleString()}
+            <span
+              style={{
+                fontFamily: "var(--vx-font-ui)",
+                fontSize: "12px",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                color: "var(--vx-muted)",
+                marginLeft: "4px",
+              }}
+            >
+              /mo
+            </span>
+          </div>
+          <div
+            className="tabular"
+            style={{
+              fontSize: "11px",
+              letterSpacing: "0.04em",
+              color: "var(--vx-muted)",
+              fontFamily: "var(--vx-font-ui)",
+              marginTop: "4px",
+            }}
+          >
+            est. financed · final price at walkthrough
+          </div>
+        </div>
+      )}
 
       {/* Visible feature list — checkmarks. Always rendered, the
           conversion-critical piece of HI-2. */}
