@@ -163,7 +163,7 @@ export async function sendEstimateReadyViaPodium(
     });
 
     if (res.status === 429) {
-      console.warn("[podium-mms] rate_limited", { status: 429, phone: input.phone });
+      console.warn("[podium-mms] rate_limited", { status: 429, phone: input.customerPhone });
       return { sent: false, reason: "rate_limited" };
     }
     if (!res.ok) {
@@ -172,7 +172,7 @@ export async function sendEstimateReadyViaPodium(
       console.error("[podium-mms] HTTP error", {
         status: res.status,
         body: errText.slice(0, 400),
-        phone: input.phone,
+        phone: input.customerPhone,
         locationUid,
       });
       return {
@@ -189,7 +189,7 @@ export async function sendEstimateReadyViaPodium(
     };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    console.error("[podium-mms] threw", { error: detail, phone: input.phone });
+    console.error("[podium-mms] threw", { error: detail, phone: input.customerPhone });
     return {
       sent: false,
       reason: "error",
