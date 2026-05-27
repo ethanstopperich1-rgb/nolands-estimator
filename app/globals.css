@@ -419,7 +419,17 @@ body {
   .voxaris .slim-cell { border-left: 0; border-top: 1px solid var(--vx-rule-soft); }
   .voxaris .slim-cell:first-child { border-top: 0; }
   .voxaris .foot-row { grid-template-columns: 1fr; gap: 14px; }
-  .voxaris .addr-input { font-size: 18px; }
+  /* Mobile sizing polish (May 27 PM audit):
+     - Input height: 34px → 50px (44px+ Apple HIG, premium feel)
+     - Slim input row height: ~30px → 50px (same)
+     - Primary CTA height: 42px → 54px (matches iOS button feel)
+     - Address-row padding tightens vertically since input padding grew */
+  .voxaris .address-row { padding: 14px 20px; }
+  .voxaris .slim-cell { padding: 14px 20px; }
+  .voxaris .addr-input { font-size: 18px; padding: 14px 0; }
+  .voxaris .slim-input { font-size: 17px; padding: 13px 0; }
+  .voxaris .foot-row { padding: 16px 20px; }
+  .voxaris .btn-terra { padding: 18px 28px; font-size: 13px; min-height: 54px; }
 }
 .voxaris .checkbox {
   width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;

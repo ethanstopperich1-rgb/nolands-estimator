@@ -910,7 +910,11 @@ function HeroScreen({
                   letterSpacing: "0.18em",
                   textTransform: "uppercase",
                   color: "var(--vx-ink-soft)",
-                  padding: "8px 14px",
+                  // Mobile-friendly tap target: 40px height with comfortable
+                  // horizontal padding. Was 29px (8px×2 + 13px font) which
+                  // failed Apple HIG 44pt minimum and felt cramped on phone.
+                  padding: "12px 16px",
+                  minHeight: "40px",
                   border: "1px solid var(--vx-rule)",
                   borderRadius: 0,
                 }}
@@ -4697,15 +4701,31 @@ function VoxarisFooter() {
             <div className="eyebrow mb-5" style={{ color: "rgba(236, 227, 208, 0.55)" }}>
               Contact
             </div>
+            {/* Mobile tap-target polish (May 27 PM audit): footer links
+                were 15px tall. Bumped to inline-block + 12px vertical
+                padding so each link is ~44px tall on phone without
+                touching the visual footprint on desktop. */}
             <ul
-              className="space-y-2.5"
-              style={{ fontSize: "13px", color: "rgba(236, 227, 208, 0.78)", fontWeight: 600 }}
+              className="space-y-1"
+              style={{ fontSize: "14px", color: "rgba(236, 227, 208, 0.78)", fontWeight: 600 }}
             >
               <li>
-                <a href="mailto:info@nolandsroofing.com">info@nolandsroofing.com</a>
+                <a
+                  href="mailto:info@nolandsroofing.com"
+                  className="inline-block py-2"
+                  style={{ minHeight: 44 }}
+                >
+                  info@nolandsroofing.com
+                </a>
               </li>
               <li className="tabular">
-                <a href="tel:+13522424322">(352) 242-4322</a>
+                <a
+                  href="tel:+13522424322"
+                  className="inline-block py-2"
+                  style={{ minHeight: 44 }}
+                >
+                  (352) 242-4322
+                </a>
               </li>
             </ul>
           </div>
@@ -4714,13 +4734,17 @@ function VoxarisFooter() {
               Particulars
             </div>
             <ul
-              className="space-y-2.5"
-              style={{ fontSize: "13px", color: "rgba(236, 227, 208, 0.78)", fontWeight: 600 }}
+              className="space-y-1"
+              style={{ fontSize: "14px", color: "rgba(236, 227, 208, 0.78)", fontWeight: 600 }}
             >
-              <li>
-                <Link href="/privacy">Privacy</Link>
-                <span style={{ margin: "0 6px", color: "rgba(236, 227, 208, 0.32)" }}>·</span>
-                <Link href="/terms">Terms</Link>
+              <li className="flex items-center gap-3">
+                <Link href="/privacy" className="inline-block py-2" style={{ minHeight: 44 }}>
+                  Privacy
+                </Link>
+                <span style={{ color: "rgba(236, 227, 208, 0.32)" }}>·</span>
+                <Link href="/terms" className="inline-block py-2" style={{ minHeight: 44 }}>
+                  Terms
+                </Link>
               </li>
             </ul>
           </div>

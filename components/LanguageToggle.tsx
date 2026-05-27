@@ -86,7 +86,7 @@ export function LanguageToggle({
         type="button"
         aria-pressed={value === "en"}
         onClick={() => handle("en")}
-        className="px-3 py-1.5 transition-colors"
+        className="px-3.5 py-2.5 transition-colors min-h-[40px] min-w-[44px]"
         style={{
           background: value === "en" ? accentColor : "transparent",
           color: value === "en" ? "white" : accentColor,
@@ -99,7 +99,7 @@ export function LanguageToggle({
         type="button"
         aria-pressed={value === "es"}
         onClick={() => handle("es")}
-        className="px-3 py-1.5 transition-colors"
+        className="px-3.5 py-2.5 transition-colors min-h-[40px] min-w-[44px]"
         style={{
           background: value === "es" ? accentColor : "transparent",
           color: value === "es" ? "white" : accentColor,
