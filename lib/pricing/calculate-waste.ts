@@ -512,14 +512,14 @@ export interface RoofingTier {
   features: string[];
   /** Manufacturer warranty headline. */
   warranty: string;
-  /** Wind warranty MPH — concrete differentiator between tiers per
-   *  Noland's printed PDF (May 27, 2026):
-   *    GOOD / BETTER: 130 mph (CertainTeed Landmark base rating)
-   *    BEST  / ELITE: 160 mph (Integrity Roof System upgrade)
-   *  The wind ladder is a real warranty differentiator — don't widen
-   *  to a free `number` type; literal-union locks the values to
-   *  match printed marketing. */
-  windMph: 130 | 160;
+  /** Wind warranty MPH — CertainTeed confirmed (May 27, 2026): ALL
+   *  shingle lines (Landmark, Landmark Pro, Landmark PRO) carry the
+   *  same 160 mph wind rating when installed per CertainTeed spec
+   *  (4-nail / 6-nail to deck + starter strip + ridge cap). The PDF's
+   *  "130 mph" on Options 1+2 is outdated print — actual product
+   *  rating is 160 across all 4 tiers. Locked at 160 literal type
+   *  so wind rating can't silently drift. */
+  windMph: 160;
   /** CertainTeed warranty tier badge — escalates up the ladder
    *  matching Noland's actual installer credentials:
    *    GOOD:  SureStart 10yr  (any installer can offer)
@@ -691,8 +691,8 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "10-year workmanship warranty",
     ],
     warranty:
-      "CertainTeed SureStart — 10-yr manufacturing defects · 130 mph wind",
-    windMph: 130,
+      "CertainTeed SureStart — 10-yr manufacturing defects · 160 mph wind",
+    windMph: 160,
     ctWarranty: "SureStart 10yr",
     // PDF-derived rate (Noland's printed estimate, 33-square reference):
     // $12,875.64 ÷ 3,300 effective sqft = $3.90/sqft = $390/square.
@@ -715,8 +715,8 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Hip & ridge cap shingles",
       "CertainTeed 3-Star Warranty (Select Shingle Master only)",
     ],
-    warranty: "CertainTeed 3-Star Warranty · 130 mph wind · 15-yr workmanship",
-    windMph: 130,
+    warranty: "CertainTeed 3-Star Warranty · 160 mph wind · 15-yr workmanship",
+    windMph: 160,
     ctWarranty: "3-Star",
     // PDF-derived: $13,905.70 ÷ 3,300 effective sqft = $4.21/sqft = $421/square.
     ratePerSqft: 4.21,
