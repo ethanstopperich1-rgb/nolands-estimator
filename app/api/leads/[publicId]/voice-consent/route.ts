@@ -145,15 +145,21 @@ export async function POST(
       captchaIp,
     );
     if (!captcha.ok) {
-      // Real-signal failures stay hard rejects:
-      //   - low_score:* → confirmed bot probability
-      //   - action_mismatch:* → token replay (lead-submit token reused)
-      // Token-absent / network failures get logged + allowed through.
+      // Real bot signals stay hard rejects. Everything else (Google
+      // siteverify "browser-error", "timeout-or-duplicate", network
+      // hiccups, missing-input-response, config drift) get logged
+      // and allowed — they're not actual bot detections:
+      //   - low_score:* → confirmed bot probability (the actual signal)
+      //   - action_mismatch:* → token replay (lead-submit token reused
+      //                         on the voice-consent endpoint)
+      // siteverify_failed:* used to be in this allowlist but Google
+      // returns it for harmless reasons too (token aged out between
+      // mint and POST, network jitter to Google) — saw it block real
+      // mobile users with reason=siteverify_failed:browser-error.
       const reason = captcha.reason || "";
       const isRealBotSignal =
         reason.startsWith("low_score:") ||
-        reason.startsWith("action_mismatch:") ||
-        reason.startsWith("siteverify_failed:");
+        reason.startsWith("action_mismatch:");
       if (isRealBotSignal) {
         await recordAuthFailure(req, "voice-consent");
         console.warn(
