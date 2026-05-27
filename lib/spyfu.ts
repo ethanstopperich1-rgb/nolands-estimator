@@ -79,36 +79,37 @@ export async function getDomainStats(
     return { ok: false, reason: "not_configured" };
   }
   try {
-    // SpyFu's domain-overview endpoint. Returns the same shape the
-    // Research → Domain Overview UI surfaces.
-    const url = new URL(`${SPYFU_API_BASE}/domain_stats_api/getDomainStats`);
+    // SpyFu v2 endpoint. Verified live 2026-05-27 returning HTTP 200 with
+    // {resultCount, domain, results: [{ monthlyBudget, monthlyPaidClicks,
+    // monthlyOrganicClicks, totalOrganicResults, totalAdsPurchased,
+    // monthlyOrganicValue, averageOrganicRank, averageAdRank, strength,
+    // searchMonth, searchYear }]}.
+    const url = new URL(
+      `${SPYFU_API_BASE}/domain_stats_api/v2/getLatestDomainStats`,
+    );
     url.searchParams.set("domain", domain);
+    url.searchParams.set("countryCode", "US");
     url.searchParams.set("api_id", SPYFU_API_ID);
     url.searchParams.set("api_key", SPYFU_API_KEY);
     const res = await spyFuFetch(url.toString());
     if (!res.ok) return res;
-    // Shape varies; defensively extract.
-    const data = res.json as Record<string, unknown>;
+    const data = res.json as { results?: Array<Record<string, unknown>> };
+    const row = (data.results ?? [])[0] ?? {};
+    const monthlyPaid = numeric(row.monthlyPaidClicks);
+    const monthlyOrg = numeric(row.monthlyOrganicClicks);
+    const totalClicks = monthlyPaid + monthlyOrg;
     return {
       ok: true,
       domain,
-      organicKeywords: numeric(data.organicTotalResults ?? data.organicKeywords),
-      paidKeywords: numeric(data.paidTotalResults ?? data.paidKeywords),
-      estMonthlySeoClicks: numeric(
-        data.monthlyOrganicClicks ?? data.estMonthlySeoClicks,
-      ),
-      estMonthlyPaidClicks: numeric(
-        data.monthlyPaidClicks ?? data.estMonthlyPaidClicks,
-      ),
-      estMonthlyAdBudget: numeric(
-        data.monthlyBudget ?? data.estMonthlyAdBudget,
-      ),
-      organicTrafficPct: numeric(data.organicTrafficPercent),
-      paidTrafficPct: numeric(data.paidTrafficPercent),
-      monthlyOrganicValue: numeric(
-        data.monthlyOrganicValue ?? data.organicValue,
-      ),
-      raw: data,
+      organicKeywords: numeric(row.totalOrganicResults),
+      paidKeywords: numeric(row.totalAdsPurchased),
+      estMonthlySeoClicks: monthlyOrg,
+      estMonthlyPaidClicks: monthlyPaid,
+      estMonthlyAdBudget: numeric(row.monthlyBudget),
+      organicTrafficPct: totalClicks > 0 ? (monthlyOrg / totalClicks) * 100 : 0,
+      paidTrafficPct: totalClicks > 0 ? (monthlyPaid / totalClicks) * 100 : 0,
+      monthlyOrganicValue: numeric(row.monthlyOrganicValue),
+      raw: row,
     };
   } catch (err) {
     return spyFuUnexpected(err);
@@ -146,11 +147,13 @@ export async function getTopOrganicKeywords(
     return { ok: false, reason: "not_configured" };
   }
   try {
-    const url = new URL(`${SPYFU_API_BASE}/seo_api/getTopOrganicKeywords`);
-    url.searchParams.set("domain", domain);
+    // v2: /serp_api/v2/seo/getMostValuableKeywords — $0.50 CPM
+    const url = new URL(
+      `${SPYFU_API_BASE}/serp_api/v2/seo/getMostValuableKeywords`,
+    );
+    url.searchParams.set("query", domain);
     url.searchParams.set("countryCode", "US");
     url.searchParams.set("pageSize", String(opts.limit ?? 100));
-    url.searchParams.set("sortBy", opts.sortBy ?? "clicks");
     url.searchParams.set("api_id", SPYFU_API_ID);
     url.searchParams.set("api_key", SPYFU_API_KEY);
     const res = await spyFuFetch(url.toString());
@@ -158,11 +161,11 @@ export async function getTopOrganicKeywords(
     const data = res.json as { results?: Array<Record<string, unknown>> };
     const keywords: OrganicKeyword[] = (data.results ?? []).map((row) => ({
       keyword: String(row.keyword ?? ""),
-      rank: numeric(row.rank),
-      seoClicks: numeric(row.seoClicks),
-      searchVolume: numeric(row.searchVolume),
-      topRankedUrl: String(row.topRankedUrl ?? ""),
-      rankChange: numeric(row.rankChange),
+      rank: numeric(row.rank ?? row.position),
+      seoClicks: numeric(row.seoClicks ?? row.monthlySeoClicks),
+      searchVolume: numeric(row.searchVolume ?? row.monthlySearchVolume),
+      topRankedUrl: String(row.topRankedUrl ?? row.url ?? ""),
+      rankChange: numeric(row.rankChange ?? row.positionChange),
       exactCpc: row.exactCostPerClick != null ? numeric(row.exactCostPerClick) : null,
     }));
     return { ok: true, domain, keywords };
@@ -203,11 +206,14 @@ export async function getTopPaidKeywords(
     return { ok: false, reason: "not_configured" };
   }
   try {
-    const url = new URL(`${SPYFU_API_BASE}/ppc_api/getTopPaidKeywords`);
-    url.searchParams.set("domain", domain);
+    // v2: /keyword_api/v2/ppc/getMostSuccessful — $2.00 CPM
+    // Returns the keywords Noland's is bidding on, sorted by spend.
+    const url = new URL(
+      `${SPYFU_API_BASE}/keyword_api/v2/ppc/getMostSuccessful`,
+    );
+    url.searchParams.set("query", domain);
     url.searchParams.set("countryCode", "US");
     url.searchParams.set("pageSize", String(opts.limit ?? 100));
-    url.searchParams.set("sortBy", "monthlyCost");
     url.searchParams.set("api_id", SPYFU_API_ID);
     url.searchParams.set("api_key", SPYFU_API_KEY);
     const res = await spyFuFetch(url.toString());
@@ -285,12 +291,11 @@ async function fetchCompetitorList(
   domain: string,
   type: "organic" | "paid",
 ): Promise<{ ok: true; list: CompetitorRow[] } | SpyFuError> {
-  const endpoint =
-    type === "organic"
-      ? "getTopOrganicCompetitors"
-      : "getTopPaidCompetitors";
-  const apiSection = type === "organic" ? "seo_api" : "ppc_api";
-  const url = new URL(`${SPYFU_API_BASE}/${apiSection}/${endpoint}`);
+  // v2: /competitors_api/v2/{seo|ppc}/getTopCompetitors — $0.20 CPM
+  const section = type === "organic" ? "seo" : "ppc";
+  const url = new URL(
+    `${SPYFU_API_BASE}/competitors_api/v2/${section}/getTopCompetitors`,
+  );
   url.searchParams.set("domain", domain);
   url.searchParams.set("countryCode", "US");
   url.searchParams.set("pageSize", "10");
