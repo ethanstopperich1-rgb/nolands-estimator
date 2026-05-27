@@ -4337,110 +4337,30 @@ function TierCard({
         ))}
       </ul>
 
-      {/* Expand-on-click for the full feature list + warranty. The
-          accordion mechanism is the same `grid-template-rows: 0fr/1fr`
-          interpolation TierRow used — keeps animation behavior
-          consistent across the page. */}
-      {(tier.tier.features.length > topFeatures.length || tier.tier.warranty) && (
-        <>
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-expanded={isOpen}
-            style={{
-              marginTop: "12px",
-              background: "none",
-              border: 0,
-              padding: 0,
-              cursor: "pointer",
-              fontSize: "11px",
-              letterSpacing: "0.06em",
-              fontWeight: 600,
-              color: accentColor,
-              textAlign: "center",
-              width: "100%",
-            }}
-          >
-            {isOpen ? "Show less" : "What else is included →"}
-          </button>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateRows: isOpen ? "1fr" : "0fr",
-              transition:
-                "grid-template-rows 280ms cubic-bezier(0.4, 0, 0.2, 1)",
-            }}
-            aria-hidden={!isOpen}
-          >
-            <div
-              style={{
-                overflow: "hidden",
-                opacity: isOpen ? 1 : 0,
-                transition: "opacity 200ms ease",
-                transitionDelay: isOpen ? "60ms" : "0ms",
-              }}
-            >
-              <div
-                style={{
-                  marginTop: "10px",
-                  paddingTop: "10px",
-                  borderTop: "1px dashed var(--vx-rule)",
-                  fontSize: "12px",
-                  color: "var(--vx-ink-soft)",
-                  lineHeight: 1.5,
-                }}
-              >
-                {tier.tier.features.length > topFeatures.length && (
-                  <ul
-                    style={{
-                      listStyle: "none",
-                      padding: 0,
-                      margin: 0,
-                      marginBottom: "8px",
-                    }}
-                  >
-                    {tier.tier.features.slice(topFeatures.length).map((f, i) => (
-                      <li
-                        key={i}
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: "8px",
-                          marginBottom: "5px",
-                        }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            color: "var(--vx-terra)",
-                            fontWeight: 700,
-                            flexShrink: 0,
-                            marginTop: "1px",
-                          }}
-                        >
-                          ✓
-                        </span>
-                        <span>{f}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div
-                  style={{
-                    fontSize: "10.5px",
-                    letterSpacing: "0.10em",
-                    textTransform: "uppercase",
-                    color: accentColor,
-                    fontWeight: 700,
-                    lineHeight: 1.35,
-                  }}
-                >
-                  {tier.tier.warranty}
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
+      {/* Warranty block — inline, no accordion. User (May 27 PM):
+          "don't have the what else is included section, just have it
+          show everything. don't have the button just have it show
+          everything on each one." All features render above; the
+          warranty line renders below them as the single trust anchor
+          (CertainTeed SureStart / 3-Star / 4-Star / 5-Star Premier).
+          Features 5+ are already inline since topFeatures = full list
+          (commit f74ff87). The accordion + toggle button are gone. */}
+      {tier.tier.warranty && (
+        <div
+          style={{
+            marginTop: "12px",
+            paddingTop: "10px",
+            borderTop: "1px dashed var(--vx-rule)",
+            fontSize: "10.5px",
+            letterSpacing: "0.10em",
+            textTransform: "uppercase",
+            color: accentColor,
+            fontWeight: 700,
+            lineHeight: 1.35,
+          }}
+        >
+          {tier.tier.warranty}
+        </div>
       )}
     </div>
   );
