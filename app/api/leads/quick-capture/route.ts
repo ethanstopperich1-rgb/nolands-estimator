@@ -274,7 +274,15 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   // JN createContact — tagged "phone-only-capture" so reps know full PII
   // is missing. Fire-and-forget; failure logged but never blocks.
+  //
+  // GATED (May 27 2026, per Destiny's operational requirement): default
+  // OFF. Destiny saw test contacts polluting JN and explicitly asked us
+  // to stop pushing lead-capture-stage records. Only Sarah's
+  // `book_inspection` (agents/sydney/tools.py) writes to JN now, fired
+  // when an actual appointment is booked. Flip
+  // `JN_PUSH_ON_LEAD_CAPTURE=true` to re-enable per-office.
   void import("@/lib/jobnimbus").then(async ({ createContact, jobNimbusConfigured }) => {
+    if (process.env.JN_PUSH_ON_LEAD_CAPTURE !== "true") return;
     if (!jobNimbusConfigured()) return;
     try {
       const created = await createContact({

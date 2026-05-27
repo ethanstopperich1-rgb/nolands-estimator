@@ -1673,7 +1673,23 @@ async function persistEstimateToLead(
     //
     // Skip when a JobNimbus contact already exists for this lead row
     // (the dispatch-outbound retry path could re-enter the V3 flow).
-    if (!priorLead.jobnimbus_contact_id) {
+    //
+    // GATED (May 27 2026, per Destiny's operational requirement): only
+    // push to JobNimbus when the office explicitly opts in via
+    // `JN_PUSH_ON_LEAD_CAPTURE=true`. Default is OFF.
+    // Destiny: "we do not input leads until they have been verified
+    // and it is a scheduled appointment ... all calls should not be
+    // going into JobNimbus. If we take all calls to Nimbus than we
+    // are going to flood it with bogus calls and contacts."
+    // The authoritative JN write happens in Sarah's `book_inspection`
+    // (agents/sydney/tools.py) at appointment-book time. That path
+    // creates Contact → Job → Task — the JOB is what Noland's works
+    // off, not the contact. This V3 push is left in place behind the
+    // env-gate so we can flip it back on per-office for a contractor
+    // who DOES want every lead pushed.
+    const JN_PUSH_ON_LEAD_CAPTURE =
+      process.env.JN_PUSH_ON_LEAD_CAPTURE === "true";
+    if (!priorLead.jobnimbus_contact_id && JN_PUSH_ON_LEAD_CAPTURE) {
       void (async () => {
         try {
           const jn = await import("@/lib/jobnimbus");
