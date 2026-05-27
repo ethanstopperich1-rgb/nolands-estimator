@@ -255,6 +255,15 @@ To disable hooks locally, copy the file out: `cp .claude/settings.json
 Real mistakes that broke real things. New entries at the top. Format:
 `<date> — <what was learned> <(impact)>`.
 
+- **2026-05-27** — **TierCard price block: total goes ABOVE monthly,
+  both visible simultaneously.** Original layout buried total as 11px
+  muted footnote below 28px monthly anchor. Customers compare totals
+  across roofers; hiding it = "they must be expensive." Hormozi rule:
+  show smallest increment AND full anchor at the same time. Layout
+  order top-down: eyebrow "Total cash price" → $XX,XXX (30px serif) →
+  "─ or financed ─" divider → $YYY/mo (20px serif) → "15 yr · 11.99%
+  APR". `PRICING_CONFIRMED` gate stays as kill-switch; prod env is
+  set to true. Commit `c2c8252`.
 - **2026-05-27** — **Vercel CLI silently no-ops when `vercel env add`
   runs interactive in non-interactive shell.** Pass `--value
   "<actual>"` explicitly. Adding 7 env vars looked successful but
