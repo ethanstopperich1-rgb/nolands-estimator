@@ -226,3 +226,104 @@ Every lead captured here writes to Supabase under
 `office_id="nolands"`. The Voxaris dashboard (separate project, same
 DB) is where Noland's reps view leads / call logs / appointments.
 No separate dashboard in this repo.
+
+## Self-correcting workflow (hooks live in .claude/hooks/)
+
+This repo uses Anthropic Claude Code hooks to catch mistakes the
+moment they happen, not after a 12-error typecheck failure 30 min
+later. The hook scripts live in `.claude/hooks/` and are wired via
+`.claude/settings.json`.
+
+| Hook | Fires | What it does |
+|---|---|---|
+| `prewrite.sh` | `PreToolUse` on Write/Edit/MultiEdit | Hard-blocks writes to `.env*`, `*credentials*`, `*.pem`. Advisories on `app/api/gemini-roof/route.ts` (CACHE_SCOPE_V3 reminder) and `migrations/0*.sql` (use `supabase migration new`). |
+| `postwrite.sh` | `PostToolUse` on Write/Edit/MultiEdit | Prettier-formats + ESLints (.tsx) + runs `npx tsc --noEmit` after every edit. Output truncated to top 25 lines. |
+| `stop.sh` | `Stop` when Claude tries to end its turn | Skips if `stop_hook_active=true` (prevents loops). Skips if no git diff vs HEAD. Otherwise runs `tsc + npm test`. Exit 2 forces Claude to continue working until green. |
+
+**Critical rule for the Stop hook:** the `stop_hook_active` JSON field
+in the stdin payload is `true` when Claude is already on a re-loop
+because a previous Stop hook fired. If we re-fail without this guard,
+Claude loops infinitely and burns tokens. The guard is at the top of
+`stop.sh`. Don't remove it.
+
+To disable hooks locally, copy the file out: `cp .claude/settings.json
+.claude/settings.local.json` and strip the `hooks` block. The
+`.local.json` is gitignored and takes precedence.
+
+## Learned from mistakes
+
+Real mistakes that broke real things. New entries at the top. Format:
+`<date> — <what was learned> <(impact)>`.
+
+- **2026-05-27** — **Vercel CLI silently no-ops when `vercel env add`
+  runs interactive in non-interactive shell.** Pass `--value
+  "<actual>"` explicitly. Adding 7 env vars looked successful but
+  none persisted because the interactive prompt swallowed stdin.
+- **2026-05-26** — **`voice_consent` is NOT a column on `leads`.**
+  It lives in `consents` as a row of `consent_type='call_recording'`.
+  Pulling it in a SELECT against `leads` crashes PostgREST with
+  42703 (undefined_column) and the JN-push branch silently never ran
+  for 101 production leads. Always check the schema before adding
+  a column to a SELECT. The fix landed in commit `a1e36c5`.
+- **2026-05-26** — **`/api/dispatch-outbound` requires E.164 phone
+  (+1...).** Raw `(407) 819-5809` from the consent route returns
+  400 invalid_phone. Always wrap with
+  `toE164(lead.phone) ?? lead.phone` before posting. Fix in commit
+  `ede9e28`.
+- **2026-05-26** — **LK SIP outbound trunks need explicit
+  caller-IDs, not wildcard `["*"]`.** When the trunk's `numbers` is
+  `*`, Twilio reports `from=sip:+*@...` and rejects the call. Fix:
+  `lk sip outbound update --id <ST_ID> --numbers "+18887869134"`.
+- **2026-05-26** — **Podium OAuth tokens expire.** Refresh via
+  `https://api.podium.com/oauth/token` (NOT `/v4/oauth/token`) with
+  `grant_type=refresh_token`. Schema drifted in early 2026.
+- **2026-05-26** — **Podium v4 message channel schema.** Use
+  `type=phone` (NOT `"sms"`), `identifier=<phone>` (NOT
+  `phoneNumber`). Drifted from earlier docs.
+- **2026-05-22** — **`apply_migration` (Supabase MCP) writes a
+  migration history entry on every call.** For iterative dev, use
+  `execute_sql` to test shape, then `supabase db pull --local --yes
+  <name>` to generate the migration file cleanly.
+- **2026-05-22** — **Test phones must bypass BOTH dedup AND CAPTCHA/
+  BotID.** Whitelisting in one gate but not the other = false
+  negatives in live testing. Added `isTestPhone()` helper and shared
+  it across `/api/leads` and `lib/leads/dedup.ts`.
+- **2026-05-15** — **Step-1 captures (phone-only foot-in-the-door)
+  do NOT push to JobNimbus.** Only the full V3 estimate flow
+  through `/api/gemini-roof` triggers the JN createContact path.
+  If `jobnimbus_contact_id` is missing on a lead, check whether
+  V3 ever ran — likely it was only step-1.
+- **2026-05-12** — **Tailwind v4 has no `tailwind.config.ts`.** Theme
+  tokens live in `@theme inline {…}` inside `app/globals.css`. Don't
+  paste old config patterns from Tailwind v3 projects.
+- **2026-05-08** — **Next.js 16 canary App Router has different
+  conventions than Next 15.** API routes, conventions, and file
+  structure may differ from training data. Read the relevant guide
+  in `node_modules/next/dist/docs/` before writing route code.
+
+## Rules (Karpathy-style, applied to this repo)
+
+These rules apply on EVERY edit. The hooks enforce some; the rest are
+on you to honor. Sweet spot is ~12 rules; we're at 11.
+
+- ALWAYS bump `CACHE_SCOPE_V3` when changing the V3 response shape
+  in `app/api/gemini-roof/route.ts`. Stale CDN responses bite.
+- ALWAYS wrap phones with `toE164()` before posting to
+  `/api/dispatch-outbound`.
+- ALWAYS smoke-test `8450 Oak Park Ave, Orlando FL 32827` before
+  shipping any paint-pipeline / `lib/painted-url.ts` / V3 change.
+- NEVER use the word "insurance" customer-facing. Use "provider"
+  or "carrier" instead (FL § 627.7152).
+- NEVER mention Tavus, Retell, VAPI, or any third-party AI vendor
+  externally. Customer-facing voice is always "Sarah".
+- NEVER refactor / rename / clean unrelated code in the same diff.
+  Minimum-viable change discipline. If you see drift, file a task.
+- NEVER use TypeScript `enum` — prefer literal unions
+  (`type X = "a" | "b"`).
+- NEVER force push to `main` (denied in `.claude/settings.json`).
+- DB queries through `services/` or `app/api/` route handlers
+  only; never in components.
+- Prefix commits: `feat:` / `fix:` / `docs:` / `refactor:` /
+  `test:` / `chore:` / `ops:` / `seo:` / `security:`.
+- Run `npx tsc --noEmit` after every change. The PostToolUse hook
+  does this automatically.
