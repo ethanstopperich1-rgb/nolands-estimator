@@ -5,6 +5,7 @@ import { rateLimit } from "@/lib/ratelimit";
 import { checkPayloadSize, PAYLOAD_LIMITS } from "@/lib/payload-guard";
 import { checkBotId } from "botid/server";
 import { verifyRecaptcha } from "@/lib/recaptcha";
+import { isTestPhone } from "@/lib/leads/dedup";
 // 2026-05-26: Twilio direct SMS retired. All outbound SMS now flows
 // through Podium so the customer thread lives in Noland's Clermont
 // Podium inbox. `toE164` (phone formatter) + `twilioConfigured`
@@ -154,20 +155,13 @@ export async function POST(req: Request) {
     null;
   const consentUserAgent = req.headers.get("user-agent") || null;
 
-  // Vercel BotID — paired with <BotIdClient> mounted on /quote + /embed.
-  // The client widget runs a transparent JS challenge before the form
-  // submits; the server side here verifies the signed verdict in the
-  // request headers. Bots that bypass the widget (curl, script, etc.)
-  // are rejected with 403. Human submissions are sub-50ms transparent.
-  // No legit user sees a CAPTCHA.
-  const verdict = await checkBotId();
-  if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
-    return NextResponse.json(
-      { error: "Bot detected" },
-      { status: 403 },
-    );
-  }
-
+  // Parse body FIRST so we can check the TEST_PHONES bypass before
+  // running BotID + reCAPTCHA. The same env-driven whitelist that
+  // skips dedup ALSO short-circuits both bot gates — the operator
+  // can re-submit the form from the same browser session repeatedly
+  // (which Vercel BotID + reCAPTCHA both flag as suspicious after a
+  // few tries) without dead-ending every smoke test. See
+  // `isTestPhone` JSDoc in lib/leads/dedup.ts for the security posture.
   let body: LeadPayload;
   try {
     body = (await req.json()) as LeadPayload;
@@ -175,32 +169,58 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const bypassBotChecks = isTestPhone(body.phone);
+  if (bypassBotChecks) {
+    console.log(
+      "[leads] test-phone whitelist hit — skipping BotID + reCAPTCHA",
+      { phone: body.phone },
+    );
+  }
+
+  // Vercel BotID — paired with <BotIdClient> mounted on /quote + /embed.
+  // The client widget runs a transparent JS challenge before the form
+  // submits; the server side here verifies the signed verdict in the
+  // request headers. Bots that bypass the widget (curl, script, etc.)
+  // are rejected with 403. Human submissions are sub-50ms transparent.
+  // No legit user sees a CAPTCHA.
+  if (!bypassBotChecks) {
+    const verdict = await checkBotId();
+    if ("isBot" in verdict && verdict.isBot && !verdict.isVerifiedBot) {
+      return NextResponse.json(
+        { error: "Bot detected" },
+        { status: 403 },
+      );
+    }
+  }
+
   // reCAPTCHA v3 — second bot signal, layered on top of BotID above.
   // Verifier soft-fails when RECAPTCHA_SECRET_KEY is unset (dev /
   // preview) and enforces the score threshold + action match when
   // configured. Score / action are logged on every call so we can tune
   // the threshold if false-positives start hurting conversion.
-  const captcha = await verifyRecaptcha(
-    body.recaptchaToken,
-    "submit_lead",
-    consentIp,
-  );
-  if (!captcha.ok) {
-    console.warn("[leads] recaptcha_rejected", {
-      reason: captcha.reason,
-      score: captcha.score,
-      action: captcha.action,
-    });
-    return NextResponse.json(
-      { error: "captcha_failed" },
-      { status: 403 },
+  if (!bypassBotChecks) {
+    const captcha = await verifyRecaptcha(
+      body.recaptchaToken,
+      "submit_lead",
+      consentIp,
     );
-  }
-  if (captcha.score !== null) {
-    console.log("[leads] recaptcha_ok", {
-      score: captcha.score,
-      action: captcha.action,
-    });
+    if (!captcha.ok) {
+      console.warn("[leads] recaptcha_rejected", {
+        reason: captcha.reason,
+        score: captcha.score,
+        action: captcha.action,
+      });
+      return NextResponse.json(
+        { error: "captcha_failed" },
+        { status: 403 },
+      );
+    }
+    if (captcha.score !== null) {
+      console.log("[leads] recaptcha_ok", {
+        score: captcha.score,
+        action: captcha.action,
+      });
+    }
   }
 
   if (!body.name?.trim() || !body.email?.trim() || !body.address?.trim()) {

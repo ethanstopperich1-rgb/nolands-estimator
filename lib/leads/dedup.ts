@@ -62,6 +62,40 @@ export interface DuplicateMatch {
 let degradedLogged = false;
 
 /**
+ * Is this phone on the TEST_PHONES bypass whitelist?
+ *
+ * Used by the dedup check (skip the 30-day suppression for QA SIMs)
+ * AND by /api/leads (skip BotID + reCAPTCHA gates so the operator can
+ * smoke-test the full SMS / voice / JN pipeline without being flagged
+ * as a bot for repeated submissions from the same browser session).
+ *
+ * Normalization mirrors `normalizePhone`: digits-only, last 10. The
+ * env var accepts E.164 ("+14078195809"), raw 10-digit ("4078195809"),
+ * or formatted ("(407) 819-5809") — each whitelist entry is normalized
+ * the same way before comparison.
+ *
+ * SECURITY POSTURE:
+ *  - Opt-in via env (TEST_PHONES), never hardcoded in source.
+ *  - Rotating the env removes the bypass globally.
+ *  - Bypass is server-side only — the client form still calls BotID +
+ *    reCAPTCHA so the UX is identical for the tester. The route just
+ *    accepts the submission regardless of the verdict.
+ *  - TCPA consent + form-field validation are NOT bypassed; only the
+ *    bot-detection gates are.
+ */
+export function isTestPhone(rawPhone: string | null | undefined): boolean {
+  const normalized = normalizePhone(rawPhone);
+  if (!normalized) return false;
+  const raw = process.env.TEST_PHONES ?? "";
+  if (!raw) return false;
+  const whitelist = raw
+    .split(",")
+    .map((p) => p.trim().replace(/\D/g, "").slice(-10))
+    .filter((p) => p.length === 10);
+  return whitelist.includes(normalized);
+}
+
+/**
  * Normalize a phone to the last 10 digits for matching. Strips +1,
  * parens, hyphens, spaces. Returns null when input doesn't have
  * enough digits to be a US phone.
@@ -114,33 +148,16 @@ export async function findDuplicateLead(opts: {
   // dispatch — which is correct customer-protection behavior but
   // dead-ends every test.
   //
-  // TEST_PHONES env var lists the bypass numbers as a comma-
-  // separated list. Format accepted: E.164 ("+14078195809"), raw
-  // 10-digit ("4078195809"), or formatted ("(407) 819-5809") — we
-  // normalize each entry to the last-10 digits the same way we
-  // normalize the inbound phone.
-  //
-  // Posture: opt-in via env, NOT hardcoded in source. Rotating the
-  // env removes the bypass globally. Never expose to client.
-  //
-  // Security note: the whitelist short-circuits dedup ONLY. It does
-  // NOT bypass TCPA consent (still required), BotID (still gates),
-  // or reCAPTCHA (still scored). Test phones still write real lead
-  // rows, still trigger Sarah dispatch, still get TCPA-audited.
-  // The ONLY thing it skips is the "looks like a dupe" suppression.
-  if (normalizedPhone) {
-    const raw = process.env.TEST_PHONES ?? "";
-    const whitelist = raw
-      .split(",")
-      .map((p) => p.trim().replace(/\D/g, "").slice(-10))
-      .filter((p) => p.length === 10);
-    if (whitelist.includes(normalizedPhone)) {
-      console.log(
-        "[dedup] test-phone whitelist hit — bypassing dedup",
-        { normalizedPhone, officeId: opts.officeId },
-      );
-      return null;
-    }
+  // See `isTestPhone` above for the full normalization + security
+  // posture. The dedup bypass here is the original use of the
+  // whitelist; the /api/leads route now ALSO consults it to skip
+  // BotID + reCAPTCHA for the same set of numbers.
+  if (isTestPhone(opts.phone)) {
+    console.log(
+      "[dedup] test-phone whitelist hit — bypassing dedup",
+      { normalizedPhone, officeId: opts.officeId },
+    );
+    return null;
   }
 
   try {
