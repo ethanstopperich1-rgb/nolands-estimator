@@ -815,6 +815,7 @@ export async function POST(req: Request) {
             sent: r.sent,
             messageUid: r.messageUid,
             reason: r.reason,
+            error: r.error,
           }),
         )
         .catch((err) =>

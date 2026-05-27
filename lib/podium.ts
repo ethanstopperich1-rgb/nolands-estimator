@@ -163,14 +163,22 @@ export async function sendEstimateReadyViaPodium(
     });
 
     if (res.status === 429) {
+      console.warn("[podium-mms] rate_limited", { status: 429, phone: input.phone });
       return { sent: false, reason: "rate_limited" };
     }
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      const detail = `podium_${res.status}: ${errText.slice(0, 400)}`;
+      console.error("[podium-mms] HTTP error", {
+        status: res.status,
+        body: errText.slice(0, 400),
+        phone: input.phone,
+        locationUid,
+      });
       return {
         sent: false,
         reason: "error",
-        error: `podium_${res.status}: ${errText.slice(0, 200)}`,
+        error: detail,
       };
     }
 
@@ -180,10 +188,12 @@ export async function sendEstimateReadyViaPodium(
       messageUid: json.data?.uid,
     };
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[podium-mms] threw", { error: detail, phone: input.phone });
     return {
       sent: false,
       reason: "error",
-      error: err instanceof Error ? err.message : String(err),
+      error: detail,
     };
   }
 }
@@ -220,22 +230,34 @@ async function sendTextOnly(
       }),
     });
 
-    if (res.status === 429) return { sent: false, reason: "rate_limited" };
+    if (res.status === 429) {
+      console.warn("[podium] rate_limited", { status: 429, phone: input.phone });
+      return { sent: false, reason: "rate_limited" };
+    }
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      const detail = `podium_${res.status}: ${errText.slice(0, 400)}`;
+      console.error("[podium] HTTP error", {
+        status: res.status,
+        body: errText.slice(0, 400),
+        phone: input.phone,
+        locationUid,
+      });
       return {
         sent: false,
         reason: "error",
-        error: `podium_${res.status}: ${errText.slice(0, 200)}`,
+        error: detail,
       };
     }
     const json = (await res.json()) as { data?: { uid?: string } };
     return { sent: true, messageUid: json.data?.uid };
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[podium] threw", { error: detail, phone: input.phone });
     return {
       sent: false,
       reason: "error",
-      error: err instanceof Error ? err.message : String(err),
+      error: detail,
     };
   }
 }
@@ -313,22 +335,34 @@ export async function sendPodiumText(
       }),
     });
 
-    if (res.status === 429) return { sent: false, reason: "rate_limited" };
+    if (res.status === 429) {
+      console.warn("[podium] rate_limited", { status: 429, phone: input.phone });
+      return { sent: false, reason: "rate_limited" };
+    }
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      const detail = `podium_${res.status}: ${errText.slice(0, 400)}`;
+      console.error("[podium] HTTP error", {
+        status: res.status,
+        body: errText.slice(0, 400),
+        phone: input.phone,
+        locationUid,
+      });
       return {
         sent: false,
         reason: "error",
-        error: `podium_${res.status}: ${errText.slice(0, 200)}`,
+        error: detail,
       };
     }
     const json = (await res.json()) as { data?: { uid?: string } };
     return { sent: true, messageUid: json.data?.uid };
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[podium] threw", { error: detail, phone: input.phone });
     return {
       sent: false,
       reason: "error",
-      error: err instanceof Error ? err.message : String(err),
+      error: detail,
     };
   }
 }
