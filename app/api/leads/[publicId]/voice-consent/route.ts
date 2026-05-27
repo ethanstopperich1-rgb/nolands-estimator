@@ -13,6 +13,7 @@ import {
 } from "@/lib/supabase";
 import { buildVoiceConsentDisclosureText } from "@/lib/tcpa-consent";
 import { toE164 } from "@/lib/twilio";
+import { verifyRecaptcha } from "@/lib/recaptcha";
 
 export const runtime = "nodejs";
 // Same dispatch window as /api/leads — call dispatch is fire-and-forget
@@ -61,6 +62,11 @@ export const maxDuration = 30;
 
 interface RequestBody {
   consent?: unknown;
+  /** reCAPTCHA v3 token minted client-side with action="voice_consent".
+   *  Voice consent triggers an automated outbound call to a phone we
+   *  collected earlier — high TCPA risk surface, deserves a fresh bot
+   *  signal in addition to the lead-creation token already on file. */
+  recaptchaToken?: string;
 }
 
 export async function POST(
@@ -112,6 +118,35 @@ export async function POST(
   }
   if (body.consent !== true) {
     return NextResponse.json({ error: "consent_required" }, { status: 400 });
+  }
+
+  // reCAPTCHA v3 — gate the voice-dispatch trigger behind a fresh bot
+  // signal. The lead-creation token already on file proves the lead
+  // wasn't a bot at form submit; this proves the consent click isn't a
+  // bot pushing the button. Soft-fails when RECAPTCHA_SECRET_KEY unset
+  // (dev / preview) per the same pattern as /api/leads. In production:
+  // a missing token = 400 reject.
+  const xffEarly = req.headers.get("x-forwarded-for") ?? "";
+  const captchaIp =
+    xffEarly.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
+  const captcha = await verifyRecaptcha(
+    body.recaptchaToken,
+    "voice_consent",
+    captchaIp,
+  );
+  if (!captcha.ok) {
+    await recordAuthFailure(req, "voice-consent");
+    console.warn(
+      `[voice-consent] recaptcha_failed reason=${captcha.reason} score=${captcha.score} action=${captcha.action}`,
+    );
+    return NextResponse.json(
+      {
+        error: "captcha_failed",
+        reason: captcha.reason,
+        score: captcha.score,
+      },
+      { status: 400 },
+    );
   }
 
   // Capture the TCPA receipt's IP + UA at the moment of consent (NOT

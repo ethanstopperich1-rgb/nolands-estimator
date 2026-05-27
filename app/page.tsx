@@ -1863,6 +1863,13 @@ function ResultScreen({
     setBookingState("sending");
     setBookingError(null);
     try {
+      // Mint a fresh reCAPTCHA v3 token bound to action "voice_consent".
+      // This is a SEPARATE token from the one sent at lead-creation —
+      // the server verifies action matches, so a replay of the lead-
+      // creation token (action: "submit_lead") will be rejected.
+      // No-ops gracefully to null in dev / preview; server fail-opens
+      // in non-prod and hard-fails in prod (lib/recaptcha.ts).
+      const recaptchaToken = await executeRecaptcha("voice_consent");
       const res = await fetch(
         `/api/leads/${encodeURIComponent(leadPublicId)}/voice-consent`,
         {
@@ -1870,7 +1877,7 @@ function ResultScreen({
           headers: { "Content-Type": "application/json" },
           // Server controls the disclosure text — sending it from the
           // client would have been forgeable in the TCPA audit row.
-          body: JSON.stringify({ consent: true }),
+          body: JSON.stringify({ consent: true, recaptchaToken }),
         },
       );
       if (!res.ok) {
