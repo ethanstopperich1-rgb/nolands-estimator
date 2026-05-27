@@ -231,16 +231,16 @@ async function sendTextOnly(
     });
 
     if (res.status === 429) {
-      console.warn("[podium] rate_limited", { status: 429, phone: input.phone });
+      console.warn("[podium-text] rate_limited", { status: 429, phone: input.customerPhone });
       return { sent: false, reason: "rate_limited" };
     }
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       const detail = `podium_${res.status}: ${errText.slice(0, 400)}`;
-      console.error("[podium] HTTP error", {
+      console.error("[podium-text] HTTP error", {
         status: res.status,
         body: errText.slice(0, 400),
-        phone: input.phone,
+        phone: input.customerPhone,
         locationUid,
       });
       return {
@@ -253,7 +253,7 @@ async function sendTextOnly(
     return { sent: true, messageUid: json.data?.uid };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    console.error("[podium] threw", { error: detail, phone: input.phone });
+    console.error("[podium-text] threw", { error: detail, phone: input.customerPhone });
     return {
       sent: false,
       reason: "error",
