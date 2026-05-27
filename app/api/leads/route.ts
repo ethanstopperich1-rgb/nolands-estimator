@@ -11,7 +11,7 @@ import { isTestPhone } from "@/lib/leads/dedup";
 // Podium inbox. `toE164` (phone formatter) + `twilioConfigured`
 // (still gates the Twilio voice trunk used by Sarah) survive.
 import { toE164, twilioConfigured } from "@/lib/twilio";
-import { sendPodiumText } from "@/lib/podium";
+import { sendPodiumText, podiumConfigured } from "@/lib/podium";
 import { attachLeadContext } from "@/lib/sms-conversation";
 import { notifyOfficeOfNewLead } from "@/lib/lead-notifications";
 import {
@@ -772,7 +772,12 @@ export async function POST(req: Request) {
   // number directly we have context.
   const customerSmsDisabled =
     (process.env.CUSTOMER_SMS_DISABLED ?? "").toLowerCase() === "true";
-  if (phoneE164 && twilioConfigured() && !isLeadUpdate && !customerSmsDisabled && !dedupMatch) {
+  // Outbound SMS gate. Was `twilioConfigured()` but actual send is via
+  // Podium since the TWILIO-EXIT-SMS refactor (May 2026). The Twilio
+  // env gate was a stale conditional — if TWILIO_ACCOUNT_SID was
+  // missing, the Podium send got skipped silently. Now keyed off the
+  // platform actually doing the sending.
+  if (phoneE164 && podiumConfigured() && !isLeadUpdate && !customerSmsDisabled && !dedupMatch) {
     const firstName = body.name.split(/\s+/)[0];
     // Office-aware SMS intro. Falls back to "Noland's Roofing" if the
     // office row didn't resolve (dev / preview without Supabase). This
@@ -855,7 +860,7 @@ export async function POST(req: Request) {
         console.error("[leads] attachLeadContext failed:", err),
       ),
     ]);
-  } else if (phoneE164 && twilioConfigured() && isLeadUpdate) {
+  } else if (phoneE164 && podiumConfigured() && isLeadUpdate) {
     void attachLeadContext({
       phone: phoneE164,
       lead: {
