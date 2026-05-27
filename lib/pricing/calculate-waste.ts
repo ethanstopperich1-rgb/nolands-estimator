@@ -512,10 +512,14 @@ export interface RoofingTier {
   features: string[];
   /** Manufacturer warranty headline. */
   warranty: string;
-  /** Wind warranty MPH — concrete differentiator between tiers.
-   *  All CertainTeed shingle lines carry 160 mph wind rating
-   *  (Class H rating, confirmed May 2026 — every tier is 160). */
-  windMph: 160;
+  /** Wind warranty MPH — concrete differentiator between tiers per
+   *  Noland's printed PDF (May 27, 2026):
+   *    GOOD / BETTER: 130 mph (CertainTeed Landmark base rating)
+   *    BEST  / ELITE: 160 mph (Integrity Roof System upgrade)
+   *  The wind ladder is a real warranty differentiator — don't widen
+   *  to a free `number` type; literal-union locks the values to
+   *  match printed marketing. */
+  windMph: 130 | 160;
   /** CertainTeed warranty tier badge — escalates up the ladder
    *  matching Noland's actual installer credentials:
    *    GOOD:  SureStart 10yr  (any installer can offer)
@@ -609,41 +613,48 @@ export interface RoofingTier {
 //   ELITE   $8.70/sqft   (was "Best" at $9.50 — now properly framed
 //                         as ELITE with the 5-Star Premier credential)
 //
-// Verification on the reference 2,000-sqft roof:
-//   GOOD    2,000 × $6.44 = $12,880  → matches PDF $12,875.64 ✓
-//   BETTER  2,000 × $6.95 = $13,900  → matches PDF $13,905.70 ✓
-//   BEST    2,000 × $8.05 = $16,100  → matches PDF $16,094.56 ✓
-//   ELITE   2,000 × $8.70 = $17,400  → matches PDF $17,382.12 ✓
+// ─── 2026-05-27 PM CORRECTED CALIBRATION ───
 //
-// All differences are inside the $50 rounding step calculateTieredPricing
-// applies. So the V3 estimator will produce prices that line up with
-// what Noland's would write on paper for the same roof.
+// The original "÷ 2,000 sqft" derivation was wrong. The PDF reference
+// roof is actually **33 roofing squares = 3,300 effective sqft**
+// (post-waste). Reverse-engineering from Mr. Nolan's verbal on the
+// Oak Park 7 call:
+//   "Hey, the numbers I gave you yesterday or day before, that was
+//   based on 33 squares."
+//   "It should have been at 390 square."
 //
-// ─── 2026-05-27 PM LEAD-MAGNET RE-CALIBRATION (Oak Park 7 call) ───
+// Confirmed by the PDF math:
+//   $12,875.64 ÷ 33 squares = $390.17/square = $3.90/sqft
 //
-// Mr. Nolan, RSS C-suite demo May 27 PM:
-//   "I purposely want this to be a little bit cheaper than what our
-//   actual price is to attract more customers. It's my salesman's
-//   job to actually go there and sell it."
-//   "It should have been at 390 square. I knew I tested it this
-//   morning and it was there."
+// All 4 tiers derive against the same 33-square reference:
 //
-// → GOOD tier becomes the LEAD MAGNET, intentionally below PDF
-//   pricing. Set to $3.90/sqft = $390/sq. Other tiers stay at
-//   PDF-derived rates (BETTER/BEST/ELITE are the value-anchor
-//   ladder the salesperson upsells to in-person).
+//   GOOD    3,300 × $3.90 = $12,870  → matches PDF $12,875.64 ✓ ($390/sq)
+//   BETTER  3,300 × $4.21 = $13,893  → matches PDF $13,905.70 ✓ ($421/sq)
+//   BEST    3,300 × $4.88 = $16,104  → matches PDF $16,094.56 ✓ ($488/sq)
+//   ELITE   3,300 × $5.27 = $17,391  → matches PDF $17,382.12 ✓ ($527/sq)
 //
-// Verification on Roy's house (4871 Esplanade St, 58.3 squares,
-// 5,830 sqft incl. 10% waste):
-//   GOOD    5,830 × $3.90 = $22,737  ← lead magnet target ✓
-//   BETTER  5,830 × $6.95 = $40,518
-//   BEST    5,830 × $8.05 = $46,932
-//   ELITE   5,830 × $8.70 = $50,721
+// All deltas inside the $50 rounding step calculateTieredPricing
+// applies. The estimator produces prices that match what Noland's
+// would hand-write on the printed estimate form for the same roof.
 //
-// The gap GOOD→BETTER is intentional — it filters price-sensitive
-// shoppers into the lead capture without forcing them into a quote
-// they'll bounce on. The salesperson closes at 50% in-person and
-// upsells off GOOD into BETTER/BEST during the walkthrough.
+// IMPORTANT — these are per-EFFECTIVE-sqft rates. The calc does
+// `effectiveSqft = totalSqft × (1 + waste%)` and then
+// `total = effectiveSqft × ratePerSqft`. Satellite measurement
+// returns NET roof area; waste is the multiplier that converts net
+// to install-area. Default 10% waste; complex roofs scale up.
+//
+// Verification on Roy's house (4871 Esplanade St, 5,830 sqft post-
+// waste = 58.3 squares):
+//   GOOD    5,830 × $3.90 = $22,737  ← Mr. Nolan's "$390/sq" target ✓
+//   BETTER  5,830 × $4.21 = $24,544
+//   BEST    5,830 × $4.88 = $28,450
+//   ELITE   5,830 × $5.27 = $30,724
+//
+// These are intentionally lower than typical Florida market rates.
+// Mr. Nolan: "I purposely want this to be a little bit cheaper than
+// what our actual price is to attract more customers. My salesman's
+// job to actually go there and sell it." Salesperson closes at 50%
+// in-person and upsells if the inspection reveals more scope.
 //
 // Locked by Mr. Nolan: "I want to double check the algorithm before
 // you make it live." Smoke-test on 4871 Esplanade St must produce
@@ -680,12 +691,12 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "10-year workmanship warranty",
     ],
     warranty:
-      "CertainTeed SureStart — 10-yr manufacturing defects · 160 mph wind",
-    windMph: 160,
+      "CertainTeed SureStart — 10-yr manufacturing defects · 130 mph wind",
+    windMph: 130,
     ctWarranty: "SureStart 10yr",
-    // Lead-magnet rate per Oak Park 7 call (May 27 PM). Mr. Nolan:
-    // "It should have been at 390 square" = $3.90/sqft. Intentionally
-    // below PDF $6.44 — salesperson upsells in-person.
+    // PDF-derived rate (Noland's printed estimate, 33-square reference):
+    // $12,875.64 ÷ 3,300 effective sqft = $3.90/sqft = $390/square.
+    // Locked by Mr. Nolan on Oak Park 7 call.
     ratePerSqft: 3.9,
     accent: "neutral",
   },
@@ -704,10 +715,11 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "Hip & ridge cap shingles",
       "CertainTeed 3-Star Warranty (Select Shingle Master only)",
     ],
-    warranty: "CertainTeed 3-Star Warranty · 160 mph wind · 15-yr workmanship",
-    windMph: 160,
+    warranty: "CertainTeed 3-Star Warranty · 130 mph wind · 15-yr workmanship",
+    windMph: 130,
     ctWarranty: "3-Star",
-    ratePerSqft: 6.95,
+    // PDF-derived: $13,905.70 ÷ 3,300 effective sqft = $4.21/sqft = $421/square.
+    ratePerSqft: 4.21,
     accent: "primary",
   },
   {
@@ -729,7 +741,8 @@ export const ROOFING_TIERS: RoofingTier[] = [
       "CertainTeed 4-Star Warranty · 160 mph wind · 20-yr workmanship",
     windMph: 160,
     ctWarranty: "4-Star",
-    ratePerSqft: 8.05,
+    // PDF-derived: $16,094.56 ÷ 3,300 effective sqft = $4.88/sqft = $488/square.
+    ratePerSqft: 4.88,
     accent: "premium",
   },
   {
@@ -753,7 +766,8 @@ export const ROOFING_TIERS: RoofingTier[] = [
     windMph: 160,
     ctWarranty: "5-Star Premier",
     exclusiveClaim: "Only 2 roofers in all of Central Florida can offer this",
-    ratePerSqft: 8.7,
+    // PDF-derived: $17,382.12 ÷ 3,300 effective sqft = $5.27/sqft = $527/square.
+    ratePerSqft: 5.27,
     accent: "elite",
   },
 ];
