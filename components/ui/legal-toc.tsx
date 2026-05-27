@@ -65,12 +65,16 @@ export default function LegalTOC() {
         aria-label="Section navigation"
         className="px-5 pb-4 border-t border-white/[0.04]"
       >
-        <ol className="text-mini text-slate-300 space-y-1.5 mt-3 list-decimal list-inside marker:text-slate-600">
+        {/* Mobile tap polish: each TOC link is now block + py-2.5 so
+            the vertical hit area is ~44pt. Was 15px tall — failed
+            Apple HIG and unusable on phone. Desktop unchanged because
+            block links still render at the same horizontal width. */}
+        <ol className="text-base text-slate-300 space-y-0.5 mt-3 list-decimal list-inside marker:text-slate-600">
           {headings.map((h) => (
             <li key={h.id}>
               <a
                 href={`#${h.id}`}
-                className="hover:text-cy-300 transition-colors"
+                className="inline-block py-2.5 min-h-[44px] hover:text-cy-300 transition-colors"
               >
                 {h.text}
               </a>

@@ -30,7 +30,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
           </Link>
           <Link
             href="/"
-            className="font-body"
+            className="font-body inline-flex items-center"
             style={{
               fontSize: "11px",
               letterSpacing: "0.18em",
@@ -38,6 +38,10 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
               color: "var(--vx-ink-soft)",
               fontWeight: 600,
               textDecoration: "none",
+              // Mobile tap polish: was 34px tall, now 44pt+
+              padding: "12px 16px",
+              minHeight: 44,
+              border: "1px solid var(--vx-rule)",
             }}
           >
             ← Return to estimator
