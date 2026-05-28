@@ -1699,8 +1699,13 @@ async function persistEstimateToLead(
           // JobNimbus from prior calls. Match by phone.
           const found = await jn.findContactByPhone(customerPhone);
           let contactId: string;
+          // Tracks whether this homeowner was ALREADY in JobNimbus. Drives
+          // the job-level de-dupe below (Destiny's hard requirement: never
+          // create a second job for an existing contact).
+          let contactExisted = false;
           if (found.ok) {
             contactId = found.jnid;
+            contactExisted = true;
             console.log(
               `[gemini-roof v3] jobnimbus_contact_found jnid=${contactId} lead=${leadPublicId}`,
             );
@@ -1839,29 +1844,44 @@ async function persistEstimateToLead(
               : `Cash range ${estimateLow != null ? fmt$(estimateLow) : "n/a"}–${estimateHigh != null ? fmt$(estimateHigh) : "n/a"}. ${consentLine}`,
           ].join("\n");
 
-          // Create the Retail job + attach the painted-roof note.
-          // Both fire-and-forget; failure is logged but doesn't
-          // unwind the contact row that just landed.
-          await Promise.all([
-            jn.createInspectionJob({
-              contactId,
-              displayName: `Roof estimate — ${shortAddress}`,
-              description,
-              // Noland's JN record_type vocabulary: "Retail" (81%) is the
-              // residential walk-in default. "Estimate" is NOT a valid
-              // record_type in their org.
-              recordType: "Retail",
-              status: "Lead",
-            }),
-            jn.attachNote({
-              contactId,
-              body: noteBody,
-            }),
-          ]);
-
-          console.log(
-            `[gemini-roof v3] jobnimbus_push_complete jnid=${contactId} lead=${leadPublicId}`,
-          );
+          // JOB-LEVEL DE-DUPE (Destiny's hard requirement from the May-28
+          // fix-it call). If this homeowner was ALREADY in JobNimbus they
+          // almost always have an active job; creating a second one is the
+          // duplicate-job problem she called out (her "$770K in duplicate
+          // commissions at Roofing Pros" story — JN won't flag near-matches).
+          // So for an EXISTING contact we attach a note only — the new
+          // estimate activity is still captured + visible on the record, and
+          // the rep promotes it to a job if it's genuinely a new project.
+          // A BRAND-NEW contact gets the Retail/Lead job created so it lands
+          // in the lead-funnel board Destiny works off of.
+          if (contactExisted) {
+            await jn.attachNote({ contactId, body: noteBody });
+            console.log(
+              `[gemini-roof v3] jobnimbus_dedupe_note_only jnid=${contactId} lead=${leadPublicId}`,
+            );
+          } else {
+            // Both fire-and-forget; failure is logged but doesn't unwind
+            // the contact row that just landed.
+            await Promise.all([
+              jn.createInspectionJob({
+                contactId,
+                displayName: `Roof estimate — ${shortAddress}`,
+                description,
+                // Noland's JN record_type vocabulary: "Retail" (81%) is the
+                // residential walk-in default. "Estimate" is NOT a valid
+                // record_type in their org.
+                recordType: "Retail",
+                status: "Lead",
+              }),
+              jn.attachNote({
+                contactId,
+                body: noteBody,
+              }),
+            ]);
+            console.log(
+              `[gemini-roof v3] jobnimbus_push_complete jnid=${contactId} lead=${leadPublicId}`,
+            );
+          }
         } catch (err) {
           console.warn(
             "[gemini-roof v3] jobnimbus_unexpected",

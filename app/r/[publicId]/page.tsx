@@ -577,14 +577,12 @@ export default async function HomeownerSharePage({
                 label={t("share.storms.events_within_25mi", lang)}
                 value={report.storms.totalEvents?.toLocaleString() ?? "—"}
               />
+              {/* Hail SIZE intentionally not shown — see the hail comment in
+                  app/page.tsx storms block (Steve / Noland's). Count only. */}
               {report.storms.hailCount != null && report.storms.hailCount > 0 && (
                 <Row
                   label={t("share.storms.hail_reports", lang)}
-                  value={
-                    report.storms.maxHailInches != null
-                      ? `${report.storms.hailCount} (up to ${report.storms.maxHailInches.toFixed(2)}″)`
-                      : `${report.storms.hailCount}`
-                  }
+                  value={`${report.storms.hailCount}`}
                 />
               )}
               {report.storms.windCount != null &&

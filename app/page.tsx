@@ -3639,20 +3639,17 @@ function StormsBlock({
               value={<span className="tabular">{storms!.summary.total}</span>}
             />
             {storms!.summary.hailCount > 0 && (
+              // Hail SIZE is deliberately NOT shown to the homeowner. Per
+              // Steve (VP, Noland's): stating an inch figure makes anyone
+              // whose storm was "small" hail assume their roof is fine —
+              // but hail that displaces granules damages a roof regardless
+              // of size ("half our income is ½-inch hail"). We show the
+              // event COUNT (real, motivating) and frame size qualitatively
+              // in the narrative closer. Rep still sees magnitude in JN.
               <WhyRow
                 label="Hail reports"
                 value={
-                  <>
-                    <span className="tabular">{storms!.summary.hailCount}</span>
-                    {storms!.summary.maxHailInches != null && (
-                      <span
-                        className="font-serif italic ml-2"
-                        style={{ color: "var(--vx-ink-soft)" }}
-                      >
-                        up to {storms!.summary.maxHailInches.toFixed(2)}″
-                      </span>
-                    )}
-                  </>
+                  <span className="tabular">{storms!.summary.hailCount}</span>
                 }
               />
             )}
@@ -3683,11 +3680,10 @@ function StormsBlock({
                 <li key={i} className="flex justify-between gap-3">
                   <span style={{ textTransform: "capitalize" }}>
                     {e.type}
-                    {e.magnitude != null && e.type === "hail" && (
-                      <span className="ml-1 tabular">
-                        {e.magnitude.toFixed(2)}″
-                      </span>
-                    )}
+                    {/* Hail magnitude (inches) intentionally hidden per
+                        Steve — see the Hail-reports WhyRow comment above.
+                        Wind speed stays: mph reads as severity, not a
+                        "too small to matter" threshold. */}
                     {e.magnitude != null && e.type !== "hail" && (
                       <span className="ml-1 tabular">
                         {Math.round(e.magnitude)} mph
@@ -3930,12 +3926,14 @@ function buildStormNarrative(
   storms: RecentStormsResponse["summary"] | null,
 ): string | null {
   // 1. Recent hail — the highest-leverage talking point.
-  if (storms && storms.hailCount > 0 && storms.maxHailInches != null) {
-    const hailSize = storms.maxHailInches;
-    if (hailSize >= 1.0) {
-      return `Hail up to ${hailSize.toFixed(2)} inches was reported within 25 miles in the last year. Hail at that size impacts asphalt-shingle granule loss and shortens the roof's remaining life — even when damage isn't visible from the ground.`;
-    }
-    return `${storms.hailCount} hail event${storms.hailCount > 1 ? "s" : ""} reported within 25 miles in the last 12 months. Recurrent hail accelerates granule loss and shortens shingle life, regardless of any single event being a total-loss claim.`;
+  //    SIZE-AGNOSTIC by design (per Steve, VP Noland's): never anchor the
+  //    homeowner to an inch figure. A homeowner whose storm was "small" hail
+  //    assumes their roof is fine — but any hail that displaces granules
+  //    shortens roof life regardless of size ("half our income is ½-inch
+  //    hail"). Lead with the event COUNT (real) + the granule-loss mechanism.
+  if (storms && storms.hailCount > 0) {
+    const n = storms.hailCount;
+    return `${n} hail event${n > 1 ? "s" : ""} reported within 25 miles in the last 12 months. Any hail that displaces shingle granules shortens a roof's remaining life — even when the damage isn't visible from the ground.`;
   }
 
   // 2. Damaging wind at a magnitude that matters (≥ 45 mph gust).
