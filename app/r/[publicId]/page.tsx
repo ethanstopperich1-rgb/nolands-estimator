@@ -47,6 +47,8 @@ interface SharedReport {
   estimateLow: number | null;
   estimateHigh: number | null;
   estimatedSqft: number | null;
+  /** Recommended waste % the tier prices were built on (defaults to 10). */
+  wastePercent: number;
   materialLabel: string | null;
   paintedUrl: string | null;
   tiers: Array<{ name: string; price: number; monthly: number | null }> | null;
@@ -153,6 +155,16 @@ async function loadSharedReport(publicId: string): Promise<SharedReport | null> 
         .filter((t) => t.name && t.price > 0)
     : null;
 
+  // Recommended waste % the persisted tier prices were built against.
+  // Surfaced so the share report can show the billable (waste-adjusted)
+  // area beside the measured sqft — the two reconcile, so the price never
+  // reads as inflated vs the displayed roof size. Defaults to 10%.
+  const recommendedWastePercent =
+    typeof (v3.pricing as Record<string, unknown> | undefined)
+      ?.recommendedWastePercent === "number"
+      ? ((v3.pricing as Record<string, unknown>).recommendedWastePercent as number)
+      : 10;
+
   // Storm summary — V3 persists this if the storms fetch succeeded.
   const stormsRaw = v3.storms as Record<string, unknown> | undefined;
   const stormsSummary = stormsRaw?.summary as Record<string, unknown> | undefined;
@@ -213,6 +225,7 @@ async function loadSharedReport(publicId: string): Promise<SharedReport | null> 
     estimateLow: lead.estimate_low,
     estimateHigh: lead.estimate_high,
     estimatedSqft: lead.estimated_sqft,
+    wastePercent: recommendedWastePercent,
     materialLabel: lead.material,
     paintedUrl,
     tiers,
@@ -467,6 +480,18 @@ export default async function HomeownerSharePage({
               <Row
                 label={t("share.measurements.sqft_measured", lang)}
                 value={`${report.estimatedSqft.toLocaleString()} sqft`}
+              />
+            )}
+            {/* Billable (waste-adjusted) area — the material the price covers.
+                Same formula as the live estimator + the pricing engine
+                (round(sqft × (1 + waste%))), so measured + billable reconcile
+                against the tier prices below. */}
+            {report.estimatedSqft != null && (
+              <Row
+                label={t("share.measurements.sqft_billable", lang)}
+                value={`${Math.round(
+                  report.estimatedSqft * (1 + report.wastePercent / 100),
+                ).toLocaleString()} sqft (+${report.wastePercent}%)`}
               />
             )}
             {report.materialLabel && (

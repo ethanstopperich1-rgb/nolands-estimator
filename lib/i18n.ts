@@ -183,6 +183,7 @@ const en = {
   "share.estimate_disclaimer":
     "Quick estimate range from satellite. Final price depends on what we find on site.",
   "share.measurements.sqft_measured": "Sqft (measured)",
+  "share.measurements.sqft_billable": "Sqft (with waste)",
   "share.measurements.current_material": "Current material",
   "share.tiers.title": "Three replacement options",
   "share.storms.events_within_25mi": "Events within 25 mi",
@@ -301,6 +302,7 @@ const es: Record<StringKey, string> = {
   "share.estimate_disclaimer":
     "Rango estimado rápido desde satélite. El precio final depende de lo que encontremos en sitio.",
   "share.measurements.sqft_measured": "Pies cuadrados (medidos)",
+  "share.measurements.sqft_billable": "Pies cuadrados (con desperdicio)",
   "share.measurements.current_material": "Material actual",
   "share.tiers.title": "Tres opciones de reemplazo",
   "share.storms.events_within_25mi": "Eventos en 25 millas",

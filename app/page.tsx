@@ -1709,6 +1709,15 @@ function ResultScreen({
   // satellite-derived auto-split. `quotableSqft` stays in the V3
   // response for rep-dashboard use, just not surfaced to the customer.
   const pricingSqft = sqft;
+  // Waste-adjusted ("billable") area — the EXACT basis the tier math prices
+  // against: calculateTieredPricingWithPenetrations computes
+  // effectiveSqft = round(sqft × (1 + waste%)). The headline above shows the
+  // measured roof (no waste); this shows the material area the price actually
+  // covers, so the two reconcile instead of the price looking inflated vs the
+  // raw sqft. Same expression + same wastePercent → always tracks the math.
+  const customerWastePercent = result.pricing?.recommendedWastePercent ?? 10;
+  const billableSqft =
+    sqft != null ? Math.round(sqft * (1 + customerWastePercent / 100)) : null;
   const tiers: TierPrice[] | null = useMemo(() => {
     if (pricingSqft == null) return null;
     const wastePercent = result.pricing?.recommendedWastePercent ?? 10;
@@ -1980,6 +1989,25 @@ function ResultScreen({
               </span>
             )}
           </h2>
+          {/* Billable (waste-adjusted) area — the second number. The headline
+              above is the measured roof; this is the material the price
+              actually covers (sqft + waste%). Surfacing both reconciles the
+              tier prices with the displayed sqft so the estimate never reads
+              as inflated. Computed identically to the tier math. */}
+          {billableSqft != null && (
+            <p
+              className="mx-auto mt-2"
+              style={{ fontSize: "14px", color: "var(--vx-ink-soft)", letterSpacing: "0.01em" }}
+            >
+              <span
+                className="tabular"
+                style={{ color: "var(--color-noland-fire, var(--vx-terra))", fontWeight: 700 }}
+              >
+                {billableSqft.toLocaleString()} sq ft
+              </span>{" "}
+              with {customerWastePercent}% material waste — what your price covers
+            </p>
+          )}
           <p
             className="font-serif italic mx-auto mt-3"
             style={{ fontSize: "15px", color: "var(--vx-ink-soft)" }}
@@ -2078,7 +2106,7 @@ function ResultScreen({
                   letterSpacing: "0.01em",
                 }}
               >
-                Tier prices include{" "}
+                Tier prices cover{" "}
                 <span
                   className="tabular"
                   style={{
@@ -2086,9 +2114,17 @@ function ResultScreen({
                     fontWeight: 700,
                   }}
                 >
-                  {result.pricing?.recommendedWastePercent ?? 10}%
-                </span>{" "}
-                material waste
+                  {billableSqft != null ? `${billableSqft.toLocaleString()} sq ft` : `${customerWastePercent}%`}
+                </span>
+                {billableSqft != null && sqft != null ? (
+                  <>
+                    {" "}— your{" "}
+                    <span className="tabular">{sqft.toLocaleString()} sq ft</span> roof plus{" "}
+                    {customerWastePercent}% material waste
+                  </>
+                ) : (
+                  <> material waste</>
+                )}
               </div>
               <div
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 items-stretch"
