@@ -139,24 +139,46 @@ const ambit = localFont({
 // production instead of the build-host's localhost fallback. Falls through
 // to Vercel's auto-injected origins for preview deploys, then to the
 // production domain as a last resort.
-const metadataBase = process.env.NEXT_PUBLIC_SITE_ORIGIN
-  ? new URL(process.env.NEXT_PUBLIC_SITE_ORIGIN)
-  : process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? new URL(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`)
-    : process.env.VERCEL_URL
-      ? new URL(`https://${process.env.VERCEL_URL}`)
-      : new URL("https://estimate.nolandsroofing.com");
+// Single-tenant Noland's fork: the canonical homeowner-facing domain is
+// estimate.nolandsroofing.com, and it MUST win for OG/Twitter image URLs.
+// The prior logic preferred VERCEL_PROJECT_PRODUCTION_URL — which Vercel
+// sets to the *.vercel.app project domain (frequently deployment-protected)
+// — so shared links resolved og:image to a host preview bots can't fetch,
+// and the iMessage/Slack/X thumbnail came up blank. Hardcode the canonical
+// domain; an explicit NEXT_PUBLIC_SITE_ORIGIN still overrides it.
+const metadataBase = new URL(
+  process.env.NEXT_PUBLIC_SITE_ORIGIN || "https://estimate.nolandsroofing.com",
+);
 
 // Root-level metadata is the homeowner-facing copy because `/` is the
 // customer surface and shared links (Slack, iMessage, X previews) pull
 // from here. Dashboard pages can override per-route. Prior copy ("the
 // closing tool for roofing teams") was the rep-side pitch — wrong
 // audience for the link preview a homeowner sees in their text thread.
+const SITE_DESCRIPTION =
+  "Get a real roof price in under 30 seconds. We measure your roof from satellite imagery and price it on the spot — free, no obligation, no pressure. Serving Lake, Orange, Volusia, Osceola, Sumter, Polk, Seminole, Flagler, Manatee, and Lee counties.";
+
 export const metadata: Metadata = {
   metadataBase,
   title: "Noland's Roofing · Get your roof priced in 30 seconds",
-  description:
-    "Get a real roof price in under 30 seconds. We measure your roof from satellite imagery and price it on the spot — free, no obligation, no pressure. Serving Lake, Orange, Volusia, Osceola, Sumter, Polk, Seminole, Flagler, Manatee, and Lee counties.",
+  description: SITE_DESCRIPTION,
+  // Explicit OG/Twitter so shared links (iMessage, Slack, X, WhatsApp) carry
+  // a canonical-domain url + the branded card. og:image / twitter:image are
+  // auto-attached by Next from app/opengraph-image.tsx + app/twitter-image.tsx,
+  // now resolved against the corrected metadataBase (the production domain).
+  openGraph: {
+    type: "website",
+    siteName: "Noland's Roofing",
+    url: "/",
+    title: "Noland's Roofing · Get your roof priced in 30 seconds",
+    description: SITE_DESCRIPTION,
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Noland's Roofing · Get your roof priced in 30 seconds",
+    description: SITE_DESCRIPTION,
+  },
 };
 
 // Explicit viewport for mobile sizing. Next.js auto-injects a default
