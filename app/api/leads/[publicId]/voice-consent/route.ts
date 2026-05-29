@@ -13,6 +13,7 @@ import {
 } from "@/lib/supabase";
 import { buildVoiceConsentDisclosureText } from "@/lib/tcpa-consent";
 import { toE164 } from "@/lib/twilio";
+import { verifyDialable } from "@/lib/phone-verify";
 import { verifyRecaptcha } from "@/lib/recaptcha";
 
 export const runtime = "nodejs";
@@ -376,6 +377,29 @@ export async function POST(
         reason: "missing_dispatch_secret",
       },
     );
+  }
+
+  // DIALABILITY GATE — the box-tick proves CONSENT, not phone
+  // POSSESSION. Before autodialing Sarah, ask Twilio Lookup whether
+  // this is a real, deliverable line. Soft-fails OPEN (creds unset /
+  // timeout / non-404 error → ok:true) so a Lookup hiccup never blocks
+  // a legitimate dial. The consent row is ALREADY persisted + logged to
+  // JN above — that audit trail stands regardless of dialability. We
+  // only skip the autodial here and return success with dispatched:
+  // false, matching this route's existing response shape.
+  const dispatchPhone = toE164(lead.phone) ?? lead.phone;
+  const dialable = await verifyDialable(dispatchPhone ?? "");
+  if (!dialable.ok) {
+    console.warn(
+      "[voice-consent] skipping outbound dispatch — unverifiable number",
+      { publicId, reason: dialable.reason, lineType: dialable.lineType },
+    );
+    return NextResponse.json({
+      ok: true,
+      dispatched: false,
+      reason: "unverifiable_number",
+      debug: { lookup_reason: dialable.reason, line_type: dialable.lineType },
+    });
   }
 
   // AWAIT dispatch (was waitUntil fire-and-forget — silenced failures).

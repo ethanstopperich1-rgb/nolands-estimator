@@ -11,6 +11,7 @@ import { isTestPhone } from "@/lib/leads/dedup";
 // Podium inbox. `toE164` (phone formatter) + `twilioConfigured`
 // (still gates the Twilio voice trunk used by Sarah) survive.
 import { toE164, twilioConfigured } from "@/lib/twilio";
+import { verifyDialable } from "@/lib/phone-verify";
 import { sendPodiumText, podiumConfigured } from "@/lib/podium";
 import { attachLeadContext } from "@/lib/sms-conversation";
 import { notifyOfficeOfNewLead } from "@/lib/lead-notifications";
@@ -1054,8 +1055,25 @@ export async function POST(req: Request) {
       new Promise<void>((resolve) =>
         setTimeout(() => resolve(), DISPATCH_DELAY_MS),
       )
-        .then(() =>
-          fetch(`${origin}/api/dispatch-outbound`, {
+        // DIALABILITY GATE — voiceConsent proves CONSENT, not phone
+        // POSSESSION. Before we autodial, ask Twilio Lookup whether
+        // this is a real, deliverable line. Soft-fails OPEN (creds
+        // unset / timeout / non-404 error → ok:true) so a Lookup
+        // hiccup never blocks a legitimate dial. Runs INSIDE waitUntil
+        // (after the 3s delay) so it adds zero latency to the HTTP
+        // response the homeowner already saw. The lead, report,
+        // new_lead Slack ping, and JN push all already happened above —
+        // only the autodial is gated here.
+        .then(() => verifyDialable(phoneE164))
+        .then((dialable) => {
+          if (!dialable.ok) {
+            console.warn(
+              "[leads] skipping outbound dispatch — unverifiable number",
+              { leadId, reason: dialable.reason, lineType: dialable.lineType },
+            );
+            return null;
+          }
+          return fetch(`${origin}/api/dispatch-outbound`, {
             method: "POST",
             headers: {
               "content-type": "application/json",
@@ -1084,9 +1102,11 @@ export async function POST(req: Request) {
               // the consent capture.
               preferredLanguage,
             }),
-          }),
-        )
+          });
+        })
         .then(async (r) => {
+          // Null when the dialability gate above skipped the dispatch.
+          if (!r) return;
           const text = await r.text().catch(() => "");
           if (!r.ok) {
             console.error(
