@@ -65,6 +65,7 @@ scripts/debug-*
 !.claude/settings.json
 !.claude/skills/
 !.claude/hooks/
+!.claude/agents/
 .claude/settings.local.json
 
 # Playwright MCP debug artifacts — local walk-through traces / screenshots
