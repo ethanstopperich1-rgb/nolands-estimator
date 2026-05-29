@@ -211,7 +211,7 @@ npm run dev               # next dev, port 3000
 npm run build             # next build
 npm run lint              # next lint
 npx tsc --noEmit          # standalone typecheck
-npm test                  # vitest
+npm test                  # node --test via tsx (NOT vitest) — runs tests/*.test.ts
 ```
 
 ## Deploy
@@ -254,6 +254,31 @@ To disable hooks locally, copy the file out: `cp .claude/settings.json
 
 Real mistakes that broke real things. New entries at the top. Format:
 `<date> — <what was learned> <(impact)>`.
+
+- **2026-05-29** — **`npm test` is Node's built-in runner via `tsx`, NOT
+  vitest.** `package.json` test script is `npx tsx --test tests/*.test.ts`.
+  Running `npx vitest` pulls an unrelated cached version that source-map
+  crashes — don't diagnose a "broken vitest harness." The real gate is
+  `npm test` (Node `--test`). `tests/pricing-calibration.test.ts` was
+  re-locked to the 2026-05-27 PM PDF calibration this day.
+- **2026-05-29** — **Tier prices quote ~4.3% ABOVE the bare/PDF rate
+  (OPEN).** `calculateTieredPricing` multiplies EVERY tier by
+  `materialMultiplier = CUSTOMER_MATERIAL_RATES["asphalt-architectural"].mid
+  (7.25) / ARCHITECTURAL_SHINGLE_RATE_PER_SQFT (6.95) = 1.043` — even for
+  the base material. The tier `ratePerSqft` values ARE PDF-correct; the
+  multiplier is the leak. On the 33-sq reference roof: code = $13,450 GOOD
+  vs PDF $12,876. `tests/pricing-calibration.test.ts` locks the CURRENT
+  (inflated) output as a characterization snapshot — a real fix means
+  re-blessing those numbers + bumping CACHE_SCOPE_V3, and needs Mr.
+  Nolan's sign-off (he owns the pricing gate). Don't "fix the test."
+- **2026-05-29** — **JN API `/activities` does NOT free-text-search the
+  `note` body.** `{"match":{"note":"roof"}}` returns 0 even though
+  thousands of notes say "roof." To analyze note content, paginate +
+  grep client-side. The response `count` field IS reliable for
+  `record_type_name` filters + `{"range":{"date_created":{"gte":<epoch>}}}`
+  range filters. (Voicemails aren't in JN — they're in Podium UI; JN call
+  dispositions live in `record_type_name="Phone Call"` activities, ~98%
+  outbound.)
 
 - **2026-05-27 PM** — **SpyFu's per-keyword `monthlyCost` is a market-
   spend estimate, NOT the domain's actual spend on that keyword.**
