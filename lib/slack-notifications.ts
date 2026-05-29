@@ -110,6 +110,19 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
     lead.estimate_low != null && lead.estimate_high != null
       ? `${fmtMoney(lead.estimate_low)}–${fmtMoney(lead.estimate_high)}`
       : "no estimate yet";
+  // Second deep-link: the homeowner-facing report (/r/<id>) so the rep can
+  // see exactly what the customer saw. report_url already points at the
+  // dashboard lead; this complements it.
+  const reportBase = (
+    process.env.REPORT_BASE_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    "estimate.nolandsroofing.com"
+  )
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  const homeownerReportUrl = lead.public_id
+    ? `https://${reportBase}/r/${lead.public_id}`
+    : null;
   const fallbackText = `🚨 New lead — ${lead.name} (${lead.address}) — ${estimateRange}`;
   return {
     text: fallbackText,
@@ -149,6 +162,15 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
             url: lead.report_url,
             style: "primary",
           },
+          ...(homeownerReportUrl
+            ? [
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "Homeowner report", emoji: true },
+                  url: homeownerReportUrl,
+                },
+              ]
+            : []),
         ],
       },
     ],
