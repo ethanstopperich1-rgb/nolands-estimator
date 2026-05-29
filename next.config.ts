@@ -23,6 +23,16 @@ const config: NextConfig = {
       // land on the customer estimator instead of 404.
       { source: "/p/:slug", destination: "/", permanent: true },
       { source: "/p/:slug/:path*", destination: "/", permanent: true },
+      // Personal share links — tag the estimator with per-person UTM so every
+      // lead they send is attributed in Slack + lead.source. `permanent:false`
+      // (307) so it's never browser-cached and we can re-tag freely. Clone
+      // this line for any rep (e.g. source:"/savannah"). Greg = the owner.
+      {
+        source: "/greg",
+        destination:
+          "/?utm_source=greg-noland&utm_medium=owner&utm_campaign=personal",
+        permanent: false,
+      },
     ];
   },
   // Permit /embed and /embed.js to be loaded cross-origin by third-party
