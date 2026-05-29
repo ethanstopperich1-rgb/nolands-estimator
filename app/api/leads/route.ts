@@ -556,6 +556,43 @@ export async function POST(req: Request) {
             .single();
           if (error) {
             console.error("[leads] supabase insert failed:", error.message);
+            // FIX-LEADS-200: a failed insert means there is NO lead row.
+            // The old behavior fell through and returned 200 + leadId —
+            // the homeowner saw a result, the rep never saw a lead, and
+            // the submission was silently lost. Fire a data-loss alarm to
+            // Slack (now the ONLY surviving record of this homeowner) and
+            // return 500 so the client surfaces a real error instead of a
+            // false success. Awaited (not fire-and-forget) so the ping
+            // delivers before the serverless function freezes on return.
+            await sendSlackLeadEvent({
+              schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+              event: "lead_failed",
+              occurred_at: new Date().toISOString(),
+              office: {
+                id: officeId ?? "",
+                slug: officeBranding?.slug ?? "",
+                display_name: officeBranding?.displayName ?? "Noland's Roofing",
+              },
+              lead: {
+                public_id: leadId,
+                name: body.name,
+                email: body.email ?? null,
+                phone_raw: body.phone ?? null,
+                phone_e164: toE164(body.phone),
+                address: body.address,
+                estimate_low: body.estimateLow ?? null,
+                estimate_high: body.estimateHigh ?? null,
+                material: body.material ?? null,
+                estimated_sqft: body.estimatedSqft ?? null,
+                source: body.source ?? null,
+                report_url: "",
+              },
+              extras: { reason: error.message },
+            }).catch(() => {});
+            return NextResponse.json(
+              { error: "lead_persist_failed" },
+              { status: 500 },
+            );
           } else if (data) {
             // Audit-trail row in consents — append-only, regulator-grade
             // receipt of what disclosure the customer agreed to.

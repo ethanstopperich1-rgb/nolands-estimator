@@ -254,6 +254,12 @@ export async function sendPostCallNotifications(
       outcome: input.outcome,
       appointment_at: input.appointmentAt ?? null,
       summary: input.summary ?? null,
+      // JN deep-link source — slack-notifications renders an "Open in
+      // JobNimbus" button when present so the rep jumps straight to the
+      // contact's JN timeline (booked Task/Job). Null when the lead was
+      // never pushed to JN (step-1 quick-capture, JN push disabled).
+      jobnimbus_contact_id:
+        (lead as { jobnimbus_contact_id?: string | null }).jobnimbus_contact_id ?? null,
     },
   };
   void publishLeadEvent({ office, event: callEvent });

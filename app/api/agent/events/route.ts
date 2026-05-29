@@ -182,7 +182,7 @@ async function handleCallEnded(
   // again.
   const { data: callRow } = await sb
     .from("calls")
-    .select("id, lead_id, outcome")
+    .select("id, lead_id, outcome, caller_number")
     .eq("office_id", officeId)
     .eq("room_name", roomName)
     .maybeSingle();
@@ -221,6 +221,49 @@ async function handleCallEnded(
     console.error("[agent-events] call_ended update failed", {
       room_name: roomName,
       error: error.message,
+    });
+  }
+
+  // ─── SLACK-OBS #1: screened-solicitation ping ─────────────────────
+  // When Sarah screens a solicitor via Door-Check Deflection she creates
+  // NO lead and fires NO write tool, so mapSarahOutcome() returns null and
+  // the SMS fan-out (plus its Slack ping) never runs — by design, we must
+  // never text a spammer. But the ops team still wants to SEE that Sarah
+  // caught one. Fire a Slack-ONLY ping here, independent of the SMS path.
+  // Idempotency: skip on retry (outcome already stamped on a prior fire).
+  const sarahOutcome = (payload.outcome as string | null) ?? null;
+  if (sarahOutcome === "screened_solicitation" && !pre_existing_outcome) {
+    const callerNumber =
+      ((callRow as { caller_number?: string | null } | null)?.caller_number ??
+        (payload.caller_number as string | null)) ||
+      null;
+    void sendSlackLeadEvent({
+      schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+      event: "call_completed",
+      occurred_at: new Date().toISOString(),
+      office: {
+        id: officeId,
+        slug: "nolands",
+        display_name: "Noland's Roofing",
+      },
+      lead: {
+        public_id: "",
+        name: "Solicitor (screened)",
+        email: null,
+        phone_raw: callerNumber,
+        phone_e164: callerNumber,
+        address: "—",
+        estimate_low: null,
+        estimate_high: null,
+        material: null,
+        estimated_sqft: null,
+        source: "inbound call",
+        report_url: `${resolveBaseUrl()}/dashboard/calls`,
+      },
+      extras: {
+        outcome: "screened_solicitation",
+        summary: (payload.summary as string | null) ?? null,
+      },
     });
   }
 

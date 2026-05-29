@@ -91,6 +91,8 @@ function outcomeBadge(outcome: string | undefined): {
     case "no_appointment":
     case "logged_lead":
       return { emoji: "📝", label: "Logged — no appt" };
+    case "screened_solicitation":
+      return { emoji: "🛡️", label: "Screened — solicitation" };
     case "voicemail":
       return { emoji: "🎙️", label: "Voicemail" };
     case "failed":
@@ -177,6 +179,61 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
   };
 }
 
+/** Build Slack Block Kit payload for lead_failed events — an internal
+ *  data-loss alarm fired when a homeowner submitted the estimator but
+ *  the lead row could NOT be persisted to the database. The customer
+ *  saw a result; we have NO row and NO dashboard link to recover from.
+ *
+ *  Because the Slack ping is the ONLY surviving record of this lead, it
+ *  intentionally shows the FULL phone + email (not masked like the
+ *  routine pings) so the team can manually re-capture and call the
+ *  homeowner back before the lead is lost for good. This is a trusted
+ *  internal ops channel and the recovery use case requires it. */
+function buildLeadFailedBlocks(ev: LeadWebhookEvent): {
+  text: string;
+  blocks: unknown[];
+} {
+  const { lead, office } = ev;
+  const extras = (ev.extras ?? {}) as { reason?: string | null };
+  const reason = extras.reason?.trim() || "unknown database error";
+  const fallbackText = `🛑 LEAD CAPTURE FAILED — ${lead.name} (${lead.address})`;
+  return {
+    text: fallbackText,
+    blocks: [
+      {
+        type: "header",
+        text: { type: "plain_text", text: "🛑 Lead capture FAILED", emoji: true },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*A homeowner submitted but the lead did NOT save.* They saw a result — we have no row. Call them back manually before this lead is lost.",
+        },
+      },
+      {
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*Name*\n${lead.name}` },
+          { type: "mrkdwn", text: `*Phone*\n${lead.phone_raw ?? "—"}` },
+          { type: "mrkdwn", text: `*Email*\n${lead.email ?? "—"}` },
+          { type: "mrkdwn", text: `*Address*\n${lead.address}` },
+          { type: "mrkdwn", text: `*DB error*\n${reason}` },
+        ],
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `📍 *${office.display_name}* · ${lead.source ?? "estimator"} · ${new Date(ev.occurred_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 /** Build Slack Block Kit payload for call_started events.
  *  Shorter than call_ended — just "Sarah is dialing X right now" so
  *  the team sees the outbound moment as it happens. */
@@ -229,8 +286,16 @@ function buildCallEndedBlocks(ev: LeadWebhookEvent): {
     outcome?: string;
     appointment_at?: string | null;
     summary?: string | null;
+    jobnimbus_contact_id?: string | null;
   };
   const badge = outcomeBadge(extras.outcome);
+  // JN deep-link — when Sarah's call attached to a JobNimbus contact,
+  // give the rep a one-click jump into the contact's JN timeline (where
+  // the booked Task / Job lives). Standard JN web-app contact URL.
+  const jnContactId = extras.jobnimbus_contact_id;
+  const jnUrl = jnContactId
+    ? `https://app.jobnimbus.com/contact/${jnContactId}`
+    : null;
   const apptLine = extras.appointment_at
     ? `*Appt time*\n${new Date(extras.appointment_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET`
     : `*Outcome*\n${badge.label}`;
@@ -282,6 +347,15 @@ function buildCallEndedBlocks(ev: LeadWebhookEvent): {
           url: lead.report_url,
           style: "primary",
         },
+        ...(jnUrl
+          ? [
+              {
+                type: "button",
+                text: { type: "plain_text", text: "Open in JobNimbus", emoji: true },
+                url: jnUrl,
+              },
+            ]
+          : []),
       ],
     },
   );
@@ -317,6 +391,9 @@ export async function sendSlackLeadEvent(
     case "appt_scheduled":
     case "call_completed":
       payload = buildCallEndedBlocks(ev);
+      break;
+    case "lead_failed":
+      payload = buildLeadFailedBlocks(ev);
       break;
     default:
       return { ok: false, reason: "unknown_event_type" };

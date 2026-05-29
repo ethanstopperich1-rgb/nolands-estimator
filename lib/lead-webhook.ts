@@ -84,8 +84,15 @@ export const LEAD_WEBHOOK_SCHEMA_VERSION = "1.0.0";
 export interface LeadWebhookEvent {
   /** Stable schema version — receivers can branch on this. */
   schema_version: string;
-  /** Event type. */
-  event: "new_lead" | "appt_scheduled" | "call_completed" | "call_started";
+  /** Event type. `lead_failed` is an internal ops-observability event
+   *  (Slack only) — it is NEVER published to the provider-agnostic
+   *  webhook (Podium/HighLevel/etc. don't want failed-capture noise). */
+  event:
+    | "new_lead"
+    | "appt_scheduled"
+    | "call_completed"
+    | "call_started"
+    | "lead_failed";
   /** ISO 8601 UTC. */
   occurred_at: string;
   /** Tenancy. The receiver should scope writes by this. */
