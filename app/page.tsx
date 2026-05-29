@@ -86,6 +86,25 @@ interface AddressResolved {
   zip: string | null;
 }
 
+/**
+ * SLIM customer-facing V3 shape. This is the OUTPUT-only projection the
+ * `/api/gemini-roof` route returns to the browser via `toCustomerV3()`
+ * (see lib/gemini-roof/customer-projection.ts). The full
+ * `GeminiRoofResponseV3` lives server-side ONLY — the data-fusion method
+ * (`correction`), vision-pipeline internals (`qualitySignals.filterStats`,
+ * per-facet geometry, `edges` / `geminiEdges`), and pricing-model breakdown
+ * (`pricing.wasteBreakdown`, `pricing.penetrationAdderLines`) never reach a
+ * customer. This interface intentionally OMITS all of those so the type
+ * system enforces the trade-secret boundary: if a future edit tries to read
+ * a stripped field off `result`, tsc fails here.
+ *
+ * PRICING INVARIANT — the in-browser Good/Better/Best/Elite recompute reads
+ * only: solar.sqft · geminiAnalysis.roofMaterial.{type,confidence} ·
+ * pricing.recommendedWastePercent · objects[].type. All four are retained.
+ * roofMaterial.confidence is KEPT (not "type only") because it is the
+ * material-confidence GATE; dropping it would change the price on every
+ * non-asphalt roof. Do not remove it.
+ */
 interface V3Response {
   solar: {
     /** Customer-facing total sloped sqft (includes low-slope wings + lanai
@@ -102,15 +121,6 @@ interface V3Response {
     imageryQuality: string | null;
     imageryDate: string | null;
   };
-  correction: {
-    applied: boolean;
-    reason: string;
-    solarRawSlopedSqft: number;
-    solarRawFootprintSqft: number;
-    gisSource: string | null;
-    gisFootprintSqft: number | null;
-    slopeFactor: number | null;
-  } | null;
   tile: {
     centerLat: number;
     centerLng: number;
@@ -123,9 +133,8 @@ interface V3Response {
    *  customer sees — their actual satellite photo with cyan only on the
    *  measured roof planes. */
   paintedImageBase64: string | null;
-  /** Gemini's raw generative paint, pre-composite. Kept for the rep
-   *  workbench / debug. Not shown to customers. */
-  paintedImageRawBase64?: string | null;
+  /** Which path produced the visible image ("composite" | "raw_aerial"). */
+  customerImageSource?: "composite" | "raw_aerial";
   /** Cyan polygon as a TRANSPARENT-BACKGROUND PNG + lat/lng bounds for
    *  GroundOverlay use on an interactive Google Maps view. Null when
    *  Gemini didn't produce a usable cyan mask; in that case the
@@ -143,72 +152,29 @@ interface V3Response {
     confidence: number;
   }>;
   penetrationTotals: { count: number; perimeterFt: number; areaSqft: number };
-  edges: {
-    ridgesHipsLf: number | null;
-    valleysLf: number | null;
-    rakesLf: number | null;
-    eavesLf: number | null;
-  };
-  geminiEdges: {
-    ridgesHipsLf: number;
-    valleysLf: number;
-    rakesLf: number;
-    eavesLf: number;
-    linesCount: number;
-  } | null;
-  facets: Array<{
-    pitchDegrees: number;
-    pitchOnTwelve: string;
-    azimuthDegrees: number;
-    compassDirection: string;
-    slopedSqft: number;
-    footprintSqft: number;
-  }>;
+  /** Per-facet pitch/azimuth/sqft geometry is a server-only METHOD leak.
+   *  The projection sends empty placeholders so the facet-count chip
+   *  (`facets.length`) stays identical without exposing the geometry. */
+  facets: unknown[];
   derived: {
     stories: number;
     estimatedAtticSqft: number | null;
     predominantCompass: string | null;
     complexity: "simple" | "moderate" | "complex";
   };
-  geminiAnalysis: {
-    facetCountEstimate: { count: number; complexity: string; confidence: number } | null;
-    roofMaterial: { type: string; confidence: number } | null;
-    conditionHints: Array<{ hint: string; confidence: number }>;
-    visibleDamage: Array<{ kind: string; location_hint?: string; confidence: number }>;
-    secondaryStructures: Array<{ kind: string; confidence: number }>;
-    siteObstacles: Array<{ kind: string; confidence: number }>;
-    apparentAgeBand: { band: string; confidence: number } | null;
+  solarPotential?: {
+    maxPanels: number | null;
+    annualSunshineHours: number | null;
   };
-  qualitySignals?: {
-    compactness: number | null;
-    azimuthClusters: number;
-    twoPassAgreementRate: number | null;
-    filterStats: {
-      raw: number;
-      afterConfidence: number;
-      afterBbox: number;
-      afterMask: number;
-      afterTwoPass: number;
-      afterDedup: number;
-      afterCaps: number;
-    };
+  geminiAnalysis: {
+    /** count only — complexity + confidence are server-only method signals. */
+    facetCountEstimate: { count: number } | null;
+    /** type + confidence (the in-browser pricing gate needs confidence). */
+    roofMaterial: { type: string; confidence: number } | null;
   };
   pricing?: {
     recommendedWastePercent: number;
-    wasteBreakdown: {
-      fromFacets: number;
-      fromAzimuthClusters: number;
-      fromCompactness: number;
-      fromSteepPitch: number;
-      fromSecondaryStructures: number;
-    };
     penetrationAddersTotal: number;
-    penetrationAdderLines: Array<{
-      type: string;
-      count: number;
-      unit: number;
-      subtotal: number;
-    }>;
   };
   /** FL statewide cadastral lookup wired in Phase 2/step 2. Drives the
    *  "Why this roof needs attention" customer card. Null when the
@@ -230,16 +196,15 @@ interface V3Response {
   /** Customer-facing roof condition signal — Pro reading the top-down
    *  + a Street View pano of the same building. Null on any failure or
    *  identity-gate trip. Renderer MUST hedge ("appears to be") and
-   *  defer to rep on-site (legal framing — see V3 route comment). */
+   *  defer to rep on-site (legal framing — see V3 route comment). The
+   *  rep-only free-text `observationNotes` is stripped server-side. */
   visualRoofAssessment?: {
     primaryMaterial: string;
     conditionObservations: string[];
     confidence: "high" | "medium" | "low";
-    observationNotes: string | null;
     streetViewVerified: boolean;
     streetViewDate: string | null;
   } | null;
-  modelVersion?: string;
   computedAt?: string;
 }
 

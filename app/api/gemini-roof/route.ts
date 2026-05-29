@@ -61,6 +61,11 @@ import {
   parseGeminiRoofInputs,
   type ParsedGeminiRoofInputs,
 } from "@/lib/gemini-roof/parse-inputs";
+import { isStaffRequest } from "@/lib/staff-auth";
+import {
+  toCustomerV3,
+  type CustomerV3Response,
+} from "@/lib/gemini-roof/customer-projection";
 import { AI_CALL_COST_USD, trackAiSpend } from "@/lib/cost-cap";
 import { validatePaintedPngBase64 } from "@/lib/validate-image";
 import { watermarkPaintedPng } from "@/lib/watermark";
@@ -1070,7 +1075,12 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // photo evidence to keep Pro Image in edit mode on complex roofs.
 // Previous bumps preserved (parcel-keyed, full-sqft pricing,
 // flash-lite-3-1, alpha-070, etc.).
-const CACHE_SCOPE_V3 = "gemini-roof-v3-flat-customer-waste-10pct";
+// Bumped 2026-05-29 — customer responses now go through toCustomerV3()
+// (OUTPUT-only projection; strips correction / qualitySignals internals /
+// per-facet geometry / edge classifiers / pricing-model breakdown). The
+// CACHED object is still the FULL shape, but bumping the scope guarantees no
+// CDN/edge layer keyed on a prior key serves a stale FAT payload to a browser.
+const CACHE_SCOPE_V3 = "gemini-roof-v3-customer-projection";
 
 /** Cheap text-only model used solely for structured-output object
  *  detection alongside the painted-image call. Pro Image is expensive
@@ -1927,13 +1937,25 @@ async function handleV3Pinned(
   skipCache: boolean,
   debug: boolean = false,
   leadPublicId: string | null = null,
+  /** True for staff sessions (cookie / Basic / Supabase). Staff get the
+   *  FULL GeminiRoofResponseV3 (rep workbench / regenerate / debug need it);
+   *  everyone else gets the OUTPUT-only toCustomerV3() projection so the
+   *  data-fusion / vision-pipeline / pricing-model internals never leave
+   *  the server. Trade-secret boundary — see lib/gemini-roof/customer-
+   *  projection.ts. */
+  isStaff: boolean = false,
 ): Promise<NextResponse> {
+  // One projector for every return path below. Full object for staff,
+  // OUTPUT-only slim shape for customers. The argument it's handed is ALWAYS
+  // the complete result — caching + persistence upstream stay unchanged.
+  const project = (full: GeminiRoofResponseV3): GeminiRoofResponseV3 | CustomerV3Response =>
+    isStaff ? full : toCustomerV3(full);
   if (!skipCache) {
     // Tier 1 — exact lat/lng cache. Catches the common case
     // (geocoder is deterministic; same address → same lat/lng →
     // same cache slot).
     const cached = await getCached<GeminiRoofResponseV3>(CACHE_SCOPE_V3, lat, lng);
-    if (cached) return NextResponse.json(cached);
+    if (cached) return NextResponse.json(project(cached));
 
     // Tier 2 — parcel-id cache. If lat/lng missed but the rep
     // dragged the pin 30m within the same FDOR parcel, we already
@@ -1965,7 +1987,7 @@ async function handleV3Pinned(
             cachedByParcel,
             60 * 60 * 24 * 30,
           );
-          return NextResponse.json(cachedByParcel);
+          return NextResponse.json(project(cachedByParcel));
         }
       }
     } catch (err) {
@@ -3105,13 +3127,16 @@ async function handleV3Pinned(
 
   if (debug) {
     // Echo the raw Gemini text + any caught error in the response.
-    // Diagnostic-only — never shown to customers, never cached.
+    // Diagnostic-only — debug is already staff-gated upstream
+    // (sanitizeGeminiRoofDebug returns false for non-staff), so this
+    // path is effectively staff-only and `project()` returns the FULL
+    // object. Routed through project() anyway for one consistent boundary.
     return NextResponse.json({
-      ...result,
+      ...project(result),
       _debug: { geminiRawText, geminiRichErr },
     });
   }
-  return NextResponse.json(result);
+  return NextResponse.json(project(result));
 }
 
 async function handle(
@@ -3303,10 +3328,16 @@ export async function GET(req: Request): Promise<NextResponse> {
   if (blocked) return blocked;
   const parsed = parseGeminiRoofInputs(req, null);
   if (parsed instanceof NextResponse) return parsed;
+  const isStaff = isStaffRequest(req);
   parsed.debug = sanitizeGeminiRoofDebug(req, parsed.debug);
+  // skipCache is a staff-only lever (forces a fresh ~$0.08 Gemini pass +
+  // bypasses cache). Ignore it for the public — same pattern as
+  // sanitizeGeminiRoofDebug. The rep "Regenerate" button is staff-
+  // authenticated, so it's unaffected.
+  parsed.skipCache = parsed.skipCache && isStaff;
   try {
     return await (parsed.pinConfirmed
-      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId)
+      ? handleV3Pinned(parsed.lat, parsed.lng, parsed.skipCache, parsed.debug, parsed.leadPublicId, isStaff)
       : handle(parsed.lat, parsed.lng, parsed.skipCache));
   } catch (err) {
     // Log the full error for operators (Sentry / Vercel logs); return a
@@ -3328,7 +3359,10 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const parsed = parseGeminiRoofInputs(req, body);
   if (parsed instanceof NextResponse) return parsed;
+  const isStaff = isStaffRequest(req);
   parsed.debug = sanitizeGeminiRoofDebug(req, parsed.debug);
+  // skipCache is staff-only (see GET handler). Ignore for the public.
+  parsed.skipCache = parsed.skipCache && isStaff;
 
   // ─── Per-office daily Gemini cost cap ────────────────────────────────
   // Gates against `offices.daily_image_cap` (default 25 calls/day) via
