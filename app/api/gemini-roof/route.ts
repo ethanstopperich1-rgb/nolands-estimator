@@ -1695,6 +1695,20 @@ async function persistEstimateToLead(
           const jn = await import("@/lib/jobnimbus");
           if (!jn.jobNimbusConfigured()) return;
 
+          // Never push TEST submissions into the client's live JobNimbus —
+          // Destiny's "don't flood JN with bogus contacts" guardrail. The
+          // same isTestPhone allowlist that bypasses lead dedup gates the
+          // JN write, so QA/demo numbers can exercise the full flow without
+          // polluting the office's CRM. This is what makes flipping
+          // JN_PUSH_ON_LEAD_CAPTURE=true safe during the pre-launch window.
+          const { isTestPhone } = await import("@/lib/leads/dedup");
+          if (isTestPhone(customerPhone)) {
+            console.log(
+              `[gemini-roof v3] jobnimbus_skip_test_phone lead=${leadPublicId}`,
+            );
+            return;
+          }
+
           // Dedup first — Sydney's existing customers may already be in
           // JobNimbus from prior calls. Match by phone.
           const found = await jn.findContactByPhone(customerPhone);
