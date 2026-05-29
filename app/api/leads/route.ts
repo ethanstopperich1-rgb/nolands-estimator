@@ -20,6 +20,7 @@ import {
   publishLeadEvent,
 } from "@/lib/lead-webhook";
 import { sendSlackLeadEvent } from "@/lib/slack-notifications";
+import { parseAttribution, composeSource } from "@/lib/attribution";
 import { buildHomeownerShareUrl } from "@/lib/share-url";
 import { resolveLangFromRequest, parseLang, t, type Lang } from "@/lib/i18n";
 import {
@@ -77,6 +78,12 @@ interface LeadPayload {
   estimateLow?: number;
   estimateHigh?: number;
   source?: string;
+  /** Landing-URL marketing attribution captured on the client (utm_*,
+   *  gclid, fbclid, referrer, landing_path). Fully client-supplied —
+   *  parseAttribution() allow-lists + caps every field before use, then
+   *  composeSource() collapses it into the `source` text column. No new
+   *  columns / no migration. */
+  attribution?: unknown;
   notes?: string;
   /** Office slug — drives multi-tenant routing in Supabase. Customer
    *  /quote sends this via the embed config / branded subdomain;
@@ -293,6 +300,16 @@ export async function POST(req: Request) {
 
   const submittedAt = new Date().toISOString();
   const emailNorm = body.email.trim().toLowerCase();
+  // Attribution → composed source. parseAttribution sanitizes the
+  // client-supplied object (allow-list + length caps, never throws);
+  // composeSource folds utm_* / gclid / fbclid / referrer into a short
+  // label, falling back to body.source ("estimate.nolandsroofing.com")
+  // or "direct". This becomes the value of the existing `source` text
+  // column — no new columns, no migration — and the Slack ping source.
+  const composedSource = composeSource(
+    parseAttribution(body.attribution),
+    body.source ?? "estimator",
+  );
   // Tenancy — every lead MUST land in a specific business. Allow the
   // caller to omit `office` for back-compat (defaults to "nolands", the
   // only live customer today) but VALIDATE the slug shape + active-
@@ -341,6 +358,15 @@ export async function POST(req: Request) {
   // same roof. See lib/leads/dedup.ts for matching rules.
   let dedupMatch: import("@/lib/leads/dedup").DuplicateMatch | null = null;
   let isLeadUpdate = false;
+  // Single-request new_lead ping guard. A new_lead Slack ping fires at
+  // most TWICE per homeowner journey (once on first capture = "info
+  // captured", once on the full estimate submit = "estimate completed"),
+  // but those are SEPARATE requests. Within ONE request we must never
+  // send two — the early-capture ping below and the estimate-present
+  // ping further down both check/flip this flag. A single-step submit
+  // (initial insert already carries an estimate) therefore fires exactly
+  // one ping.
+  let firedNewLeadPing = false;
 
   if (supabaseServiceRoleConfigured() && isValidLeadPublicId(body.existingLeadPublicId)) {
     const oid = await resolveOfficeIdBySlug(officeSlug);
@@ -507,7 +533,7 @@ export async function POST(req: Request) {
           selected_add_ons: body.selectedAddOns ?? null,
           estimate_low: body.estimateLow ?? null,
           estimate_high: body.estimateHigh ?? null,
-          source: body.source ?? null,
+          source: composedSource,
           notes: body.notes ?? null,
           tcpa_consent: true,
           tcpa_consent_at: submittedAt,
@@ -595,6 +621,50 @@ export async function POST(req: Request) {
               { status: 500 },
             );
           } else if (data) {
+            // ─── Earliest-capture Slack ping ─────────────────────────
+            // Fire "🆕 New lead · info captured" the MOMENT the first
+            // row persists — the step-1 hero submit (name + address +
+            // phone, usually before any estimate). This is the earliest
+            // signal the team can act on. Fires only on the INITIAL
+            // insert (never on isLeadUpdate, never on a dedup match — both
+            // already pinged on the parent). Sets firedNewLeadPing so the
+            // estimate-present ping further down won't double-fire when
+            // the very first insert ALSO carries an estimate (single-step
+            // submit) — in that case this is the only new_lead ping.
+            // Soft-fail (void) — Slack outage never touches lead capture.
+            // Suppressed on dupes: a dedup match means the parent
+            // submission already pinged, same discipline as the rep SMS +
+            // estimate ping below (both !dedupMatch).
+            if (!dedupMatch) {
+              const dashOrigin = new URL(req.url).origin;
+              void sendSlackLeadEvent({
+                schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+                event: "new_lead",
+                occurred_at: new Date().toISOString(),
+                office: {
+                  id: officeId,
+                  slug: officeBranding?.slug ?? "",
+                  display_name: officeBranding?.displayName ?? "Noland's Roofing",
+                },
+                lead: {
+                  public_id: leadId,
+                  name: body.name,
+                  email: body.email ?? null,
+                  phone_raw: body.phone ?? null,
+                  phone_e164: toE164(body.phone),
+                  address: body.address,
+                  estimate_low: body.estimateLow ?? null,
+                  estimate_high: body.estimateHigh ?? null,
+                  material: body.material ?? null,
+                  estimated_sqft: body.estimatedSqft ?? null,
+                  source: composedSource,
+                  report_url: `${dashOrigin}/dashboard/leads/${leadId}`,
+                },
+                extras: { capture_stage: "step-1" },
+              });
+              firedNewLeadPing = true;
+            }
+
             // Audit-trail row in consents — append-only, regulator-grade
             // receipt of what disclosure the customer agreed to.
             await supabase.from("consents").insert({
@@ -981,16 +1051,31 @@ export async function POST(req: Request) {
         estimate_high: body.estimateHigh ?? null,
         material: body.material ?? null,
         estimated_sqft: body.estimatedSqft ?? null,
-        source: body.source ?? null,
+        source: composedSource,
         report_url: `${dashboardOrigin}/dashboard/leads/${leadId}`,
       },
+      // "estimate completed" — the full-submit signal, distinct from the
+      // earlier "info captured" ping above so the team can tell an early
+      // capture from a finished estimate.
+      extras: { capture_stage: "estimate" },
     };
     void publishLeadEvent({ office: officeBranding, event: leadEvent });
-    // Slack pings the ops channel in real time so the team sees
-    // every new lead the moment it lands — independent of any
-    // contractor's downstream webhook. No-op when SLACK_WEBHOOK_URL
-    // is unset (dev / preview deploys / offices that don't use Slack).
-    void sendSlackLeadEvent(leadEvent);
+    // Slack pings the ops channel in real time so the team sees the
+    // estimate-completed signal — independent of any contractor's
+    // downstream webhook. No-op when SLACK_WEBHOOK_URL is unset (dev /
+    // preview / offices that don't use Slack).
+    //
+    // SKIP when firedNewLeadPing is already set: that means THIS SAME
+    // request already sent the early "info captured" ping on the initial
+    // insert (a single-step submit where the first row carried the
+    // estimate). Re-pinging here would double-fire for one homeowner in
+    // one request. The normal two-step wizard never trips this guard —
+    // the early ping fired on a PRIOR request (the step-1 insert), and
+    // this request is the isLeadUpdate final submit, so firedNewLeadPing
+    // is false and the estimate-completed ping fires as intended.
+    if (!firedNewLeadPing) {
+      void sendSlackLeadEvent(leadEvent);
+    }
   }
 
   // ─── Sydney outbound dispatch ────────────────────────────────────────

@@ -42,6 +42,7 @@ import {
   PRICING_CONFIRMED,
 } from "@/lib/agent-config";
 import { buildMarketingConsentText } from "@/lib/tcpa-consent";
+import { getAttribution, initAttribution } from "@/lib/client-attribution";
 import Link from "next/link";
 import { BotIdClient } from "botid/client";
 import { loadGoogle } from "@/lib/google";
@@ -378,6 +379,16 @@ function VoxarisFlow() {
     lng: number;
     officeSlug: string;
   } | null>(null);
+
+  // Capture landing-URL marketing attribution (utm_*, gclid, fbclid,
+  // referrer, landing_path) ONCE on first mount and persist it in
+  // sessionStorage so it survives the multi-step wizard + any later
+  // quick-capture in the same tab. Client-only (initAttribution guards
+  // typeof window). Both /api/leads POST bodies read it back via
+  // getAttribution() so the server can fold it into the lead's `source`.
+  useEffect(() => {
+    initAttribution();
+  }, []);
 
   // Loading ticker
   useEffect(() => {
@@ -799,6 +810,10 @@ function HeroScreen({
             // so the confirmation SMS, share URL, and Sydney callback
             // all speak the homeowner's language.
             preferredLanguage: lang,
+            // Landing-URL marketing attribution captured on first mount.
+            // Server (parseAttribution + composeSource) folds it into the
+            // lead's `source` column + the Slack ping.
+            attribution: getAttribution(),
             recaptchaToken,
           }),
         });
@@ -1906,6 +1921,10 @@ function ResultScreen({
           city: pendingLeadCapture.city,
           state: pendingLeadCapture.state,
           zip: pendingLeadCapture.zip,
+          // Same session-persisted attribution as the original submit
+          // (sessionStorage survives the wizard), so the retried row gets
+          // the same composed `source`.
+          attribution: getAttribution(),
         }),
       });
       if (!res.ok) {

@@ -102,12 +102,35 @@ function outcomeBadge(outcome: string | undefined): {
   }
 }
 
+/** Map an early-capture stage to a human label for the header/context.
+ *  Anything that ISN'T a completed estimate is an "info captured" early
+ *  signal (step-1 hero submit or phone-only quick-capture). */
+function captureStageLabel(stage: unknown): string | null {
+  switch (typeof stage === "string" ? stage : "") {
+    case "quick-capture":
+      return "info captured · phone only";
+    case "step-1":
+      return "info captured";
+    default:
+      return null;
+  }
+}
+
 /** Build Slack Block Kit payload for new_lead events. */
 function buildNewLeadBlocks(ev: LeadWebhookEvent): {
   text: string;
   blocks: unknown[];
 } {
   const { lead, office } = ev;
+  const extras = (ev.extras ?? {}) as { capture_stage?: string };
+  // Early-capture pings ("info captured") use 🆕 + a softer header so the
+  // team can tell an initial capture from a completed estimate (🚨). The
+  // existing full-estimate ping (no/unknown capture_stage, or "estimate")
+  // keeps the louder 🚨 New lead header it always had.
+  const stageLabel = captureStageLabel(extras.capture_stage);
+  const headerText = stageLabel ? `🆕 New lead · ${stageLabel}` : "🚨 New lead";
+  const leadEmoji = stageLabel ? "🆕" : "🚨";
+  const sourceLabel = lead.source ?? "—";
   const estimateRange =
     lead.estimate_low != null && lead.estimate_high != null
       ? `${fmtMoney(lead.estimate_low)}–${fmtMoney(lead.estimate_high)}`
@@ -125,7 +148,7 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
   const homeownerReportUrl = lead.public_id
     ? `https://${reportBase}/r/${lead.public_id}`
     : null;
-  const fallbackText = `🚨 New lead — ${lead.name} (${lead.address}) — ${estimateRange}`;
+  const fallbackText = `${leadEmoji} New lead — ${lead.name} (${lead.address}) — ${sourceLabel} — ${estimateRange}`;
   return {
     text: fallbackText,
     blocks: [
@@ -133,7 +156,7 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
         type: "header",
         text: {
           type: "plain_text",
-          text: "🚨 New lead",
+          text: headerText,
           emoji: true,
         },
       },
@@ -144,6 +167,10 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
           { type: "mrkdwn", text: `*Phone*\n${maskPhone(lead.phone_raw)}` },
           { type: "mrkdwn", text: `*Address*\n${lead.address}` },
           { type: "mrkdwn", text: `*Estimate*\n${estimateRange}` },
+          // Source promoted to a first-class field (was only in the small
+          // context line) — the whole point of the attribution work is to
+          // make "where did this lead come from" scannable at a glance.
+          { type: "mrkdwn", text: `*Source*\n${sourceLabel}` },
         ],
       },
       {
@@ -151,7 +178,7 @@ function buildNewLeadBlocks(ev: LeadWebhookEvent): {
         elements: [
           {
             type: "mrkdwn",
-            text: `📍 *${office.display_name}* · ${lead.source ?? "estimator"} · ${new Date(ev.occurred_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
+            text: `📍 *${office.display_name}* · ${sourceLabel} · ${new Date(ev.occurred_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
           },
         ],
       },

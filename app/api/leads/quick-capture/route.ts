@@ -61,6 +61,9 @@ import {
   resolveOfficeBySlug,
 } from "@/lib/supabase";
 import { buildQuickCaptureConsentText } from "@/lib/tcpa-consent";
+import { parseAttribution, composeSource } from "@/lib/attribution";
+import { LEAD_WEBHOOK_SCHEMA_VERSION } from "@/lib/lead-webhook";
+import { sendSlackLeadEvent } from "@/lib/slack-notifications";
 
 interface QuickCaptureBody {
   /** US phone, any common format — we E.164 it server-side. */
@@ -88,6 +91,11 @@ interface QuickCaptureBody {
   estimateHigh?: number;
   /** ISO 'en' | 'es'. */
   preferredLanguage?: "en" | "es";
+  /** Landing-URL marketing attribution captured on the client (utm_*,
+   *  gclid, fbclid, referrer, landing_path). Client-supplied — sanitized
+   *  via parseAttribution + folded into the `source` column by
+   *  composeSource. No new columns / no migration. */
+  attribution?: unknown;
 }
 
 const OFFICE_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,40}$/i;
@@ -165,6 +173,14 @@ export async function POST(req: Request): Promise<NextResponse> {
   const consentUserAgent = req.headers.get("user-agent") ?? null;
   const leadPublicId = newLeadPublicId();
   const preferredLanguage = body.preferredLanguage === "es" ? "es" : "en";
+  // Attribution → composed source. Falls back to "quick-capture" (the
+  // historical literal) when no utm_* / gclid / fbclid / external
+  // referrer is present, so existing rows keep the same value. Stored in
+  // the existing `source` text column — no new columns, no migration.
+  const composedSource = composeSource(
+    parseAttribution(body.attribution),
+    "quick-capture",
+  );
 
   // Dedup: when a lead row already exists for this phone in this office
   // within the last hour, reuse the existing public_id instead of
@@ -205,7 +221,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     lng: body.lng ?? null,
     estimate_low: body.estimateLow ?? null,
     estimate_high: body.estimateHigh ?? null,
-    source: "quick-capture",
+    source: composedSource,
     status: "quick_captured",
     tcpa_consent: true,
     tcpa_consent_at: submittedAt,
@@ -242,6 +258,42 @@ export async function POST(req: Request): Promise<NextResponse> {
     phone: phoneE164,
     ip_address: consentIp,
     user_agent: consentUserAgent,
+  });
+
+  // ─── Earliest-capture Slack ping ──────────────────────────────────
+  // The phone-only foot-in-the-door capture IS the earliest moment a
+  // homeowner hands over anything actionable on this path, so this is
+  // where the "🆕 New lead · info captured" ping fires. Name is the
+  // literal "Quick Capture" (no real name yet) — the capture_stage
+  // extra labels it so the team can tell it apart from a completed
+  // estimate. Soft-fail (void) + no-op when SLACK_WEBHOOK_URL is unset.
+  // Reused-row early returns above never reach here, so a resubmit
+  // within the dedup window does NOT re-ping.
+  const dashboardOrigin = new URL(req.url).origin;
+  void sendSlackLeadEvent({
+    schema_version: LEAD_WEBHOOK_SCHEMA_VERSION,
+    event: "new_lead",
+    occurred_at: new Date().toISOString(),
+    office: {
+      id: office.id,
+      slug: office.slug ?? officeSlug,
+      display_name: office.displayName ?? "Noland's Roofing",
+    },
+    lead: {
+      public_id: leadPublicId,
+      name: "Quick Capture",
+      email: null,
+      phone_raw: body.phone ?? null,
+      phone_e164: phoneE164,
+      address: body.address.trim(),
+      estimate_low: body.estimateLow ?? null,
+      estimate_high: body.estimateHigh ?? null,
+      material: null,
+      estimated_sqft: null,
+      source: composedSource,
+      report_url: `${dashboardOrigin}/dashboard/leads/${leadPublicId}`,
+    },
+    extras: { capture_stage: "quick-capture" },
   });
 
   // ─── Fire-and-forget side effects ─────────────────────────────────
