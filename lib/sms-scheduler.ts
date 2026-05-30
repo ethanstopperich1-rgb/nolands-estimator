@@ -151,6 +151,16 @@ export function selectAvailableSlots(opts: {
 }
 
 /**
+ * Public: the "<ET-day>:<window>" bucket for a unix-SECOND time, or null
+ * if it's outside our offered windows. Used by the booking handler's
+ * Gap 1.5 re-check — "is the picked slot STILL free at book time?" — to
+ * compare the chosen slot against tasks booked since the offer went out.
+ */
+export function windowBucketOf(unixSeconds: number): string | null {
+  return etDayWindowBucket(unixSeconds);
+}
+
+/**
  * Compose the "pick a time" SMS body. Mentions both offered slots,
  * the A/B keys, and the CALL fallback. Stays under 320 chars (~2 SMS
  * segments) to keep deliverability + cost in line.

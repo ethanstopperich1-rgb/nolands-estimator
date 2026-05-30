@@ -82,6 +82,31 @@ export function cleanFirstName(body: string): string {
   return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
 }
 
+/**
+ * Junk first-name guard. Lead.name is sometimes a placeholder ("Mobile",
+ * "Unknown", a synthetic value) — greeting "Got it, Mobile!" reads badly.
+ * Returns a clean title-cased first name, or "there" when the value isn't
+ * a plausible human name.
+ */
+const JUNK_NAMES = new Set([
+  "mobile",
+  "unknown",
+  "sms",
+  "lead",
+  "customer",
+  "there",
+  "null",
+  "undefined",
+  "test",
+  "noemail",
+]);
+export function safeFirstName(name: string | null | undefined): string {
+  const first = (name ?? "").trim().split(/\s+/)[0] ?? "";
+  const cleaned = first.replace(/[^A-Za-z'\-]/g, "");
+  if (!cleaned || JUNK_NAMES.has(cleaned.toLowerCase())) return "there";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+}
+
 /** First reply after ROOF — greet, ask for the address, offer the
  *  estimator fast lane, and carry business ID + STOP (TCPA first msg). */
 export function coldGreetingBody(): string {

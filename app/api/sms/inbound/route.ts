@@ -21,6 +21,7 @@ import {
   buildSlotConfirmedBody,
   parseSlotPick,
   isOfferStale,
+  windowBucketOf,
 } from "@/lib/sms-scheduler";
 import {
   createServiceRoleClient,
@@ -33,6 +34,7 @@ import {
   isColdStartKeyword,
   looksLikeAddress,
   cleanFirstName,
+  safeFirstName,
   coldGreetingBody,
   coldRetryAddressBody,
   coldAskNameBody,
@@ -706,7 +708,7 @@ async function handleScheduleOffer(opts: {
   conv.offeredAt = new Date().toISOString();
   await saveConversation(conv);
 
-  const firstName = (lead.name ?? "").split(/\s+/)[0] || "there";
+  const firstName = safeFirstName(lead.name);
   const reply = buildSlotOfferBody({ firstName, slots });
   try {
     await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
@@ -1005,34 +1007,164 @@ async function handleSlotPick(opts: {
     console.warn("[sms-inbound:pick] consent insert failed:", err);
   }
 
-  // Book the JN Measure Call task. Soft-fails to "still booked, rep
-  // will call to confirm" if JN isn't configured — the homeowner's
-  // experience stays consistent either way.
+  // ─── Book in JobNimbus (full job + transcript/consent note) ──────
+  // A booked SMS appointment becomes a first-class JN citizen:
+  //   1. ensure a JN Contact (cold-SMS leads have none yet → create it)
+  //   2. Gap 1.5 — re-check the picked window is STILL free (someone may
+  //      have taken it between offer and pick) → re-offer, don't double-book
+  //   3. create the Retail Job (board visibility; Destiny-aligned — a
+  //      BOOKED appointment is exactly what belongs in JN)
+  //   4. book the Measure Call task (the calendar appointment)
+  //   5. attach ONE note: full SMS transcript + the consent disclosure +
+  //      the slot — the rep's context AND the TCPA audit trail, on the job
+  // Test phones skip the JN write (Destiny's "no bogus contacts" guard —
+  // same allowlist as dedup + the V3 push). Every step soft-fails; the
+  // homeowner gets the same confirmation regardless.
   const jn = await import("@/lib/jobnimbus");
+  const { isTestPhone } = await import("@/lib/leads/dedup");
   let bookOk = false;
-  if (jn.jobNimbusConfigured() && lead.jobnimbus_contact_id) {
-    const shortAddr = (lead.address ?? "").split(",")[0].trim();
-    const taskTitle = `Measure Call-${shortAddr.slice(0, 40)}-${(lead.name ?? "").slice(0, 30)}`;
-    const result = await jn.createMeasureCallTask({
-      contactId: lead.jobnimbus_contact_id,
-      title: taskTitle,
-      dateStartIso: opts.picked.iso,
-      durationMinutes: 60,
-      description: `Homeowner picked slot ${opts.picked.key} via SMS (${opts.picked.label}). Lead ${lead.public_id}.`,
-    });
-    if (result.ok) {
-      bookOk = true;
-      console.log(
-        `[sms-inbound:pick] booked JN task=${result.jnid} for lead=${lead.public_id} at ${opts.picked.iso}`,
-      );
-    } else {
-      console.warn(
-        `[sms-inbound:pick] JN booking failed reason=${result.reason} ${result.error ?? ""}`,
-      );
+  let contactId = lead.jobnimbus_contact_id;
+  const shortAddr = (lead.address ?? "").split(",")[0].trim();
+
+  if (jn.jobNimbusConfigured() && !isTestPhone(opts.from)) {
+    // (1) Ensure a JN contact.
+    if (!contactId) {
+      const created = await jn.createContact({
+        displayName: lead.name?.trim() || "SMS Lead",
+        phone: opts.from,
+        email: `sms-${digits}@noemail.nolandsroofing.com`, // synthetic; phone is the real channel
+        address: lead.address ?? undefined,
+        tags: ["estimator", "nolands", "sms-booking"],
+      });
+      if (created.ok) {
+        contactId = created.jnid;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (sb as any)
+            .from("leads")
+            .update({ jobnimbus_contact_id: contactId })
+            .eq("public_id", lead.public_id);
+        } catch (err) {
+          console.warn("[sms-inbound:pick] stamp jobnimbus_contact_id failed:", err);
+        }
+        console.log(
+          `[sms-inbound:pick] created JN contact ${contactId} for lead=${lead.public_id}`,
+        );
+      } else {
+        console.warn(
+          `[sms-inbound:pick] JN contact create failed reason=${created.reason} ${created.error ?? ""}`,
+        );
+      }
+    }
+
+    if (contactId) {
+      // (2) Gap 1.5 — picked window still free? Re-check tasks around the
+      //     picked time. Soft-passes on a read hiccup (never block a real
+      //     booking on an availability outage).
+      let stillFree = true;
+      try {
+        const pickUnix = Math.floor(new Date(opts.picked.iso).getTime() / 1000);
+        const pickBucket = windowBucketOf(pickUnix);
+        const booked = await jn.searchTasksByDateRange(
+          pickUnix - 60 * 60 * 18,
+          pickUnix + 60 * 60 * 18,
+        );
+        if (booked.ok && pickBucket) {
+          stillFree = !booked.tasks.some(
+            (t) => t.dateStart != null && windowBucketOf(t.dateStart) === pickBucket,
+          );
+        }
+      } catch {
+        /* soft-pass */
+      }
+
+      if (!stillFree) {
+        // Window taken since the offer — re-offer fresh slots instead of
+        // double-booking. Keep the offer alive; do NOT confirm.
+        let fresh;
+        try {
+          const sU = Math.floor(Date.now() / 1000);
+          const b2 = await jn.searchTasksByDateRange(sU, sU + 60 * 60 * 24 * 18);
+          const bookedUnix = b2.ok
+            ? b2.tasks.map((t) => t.dateStart).filter((d): d is number => typeof d === "number")
+            : [];
+          fresh = selectAvailableSlots({ bookedUnix, count: 2 });
+          if (fresh.length < 2) fresh = nextBusinessSlots({ count: 2 });
+        } catch {
+          fresh = nextBusinessSlots({ count: 2 });
+        }
+        opts.conv.offeredSlots = fresh;
+        opts.conv.offeredAt = new Date().toISOString();
+        await saveConversation(opts.conv);
+        const reoffer = (
+          `Ah—that window just filled up, ${safeFirstName(lead.name)}. Two more that are open:  ` +
+          fresh.map((s) => `${s.key}) ${s.label}`).join("  ") +
+          `  Reply ${fresh.map((s) => s.key).join(" or ")} to lock it in. Reply STOP to opt out.`
+        ).slice(0, 480);
+        await sendSms({ to: opts.from, body: reoffer, from: opts.replyFrom });
+        await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+        await appendTurn({ phone: opts.from, role: "assistant", body: reoffer });
+        console.log(`[sms-inbound:pick] picked window taken — re-offered ${opts.from.slice(-4)}`);
+        return true; // do NOT clear the offer or send a confirmation
+      }
+
+      // (3) Create the Retail Job (board visibility).
+      const jobName =
+        `${shortAddr.slice(0, 40)}${lead.name ? ` - ${lead.name.slice(0, 30)}` : ""}`.trim() ||
+        "SMS Inspection";
+      const jobRes = await jn.createInspectionJob({
+        contactId,
+        displayName: jobName,
+        description: `SMS-booked roof inspection for ${opts.picked.label}. Source: text ROOF to (888) 786-9134. Lead ${lead.public_id}.`,
+        dateStart: opts.picked.iso,
+      });
+      if (!jobRes.ok) {
+        console.warn(
+          `[sms-inbound:pick] JN job create failed reason=${jobRes.reason} ${jobRes.error ?? ""}`,
+        );
+      }
+
+      // (4) Book the Measure Call task (the calendar appointment).
+      const result = await jn.createMeasureCallTask({
+        contactId,
+        title: `Measure Call-${shortAddr.slice(0, 40)}-${(lead.name ?? "").slice(0, 30)}`,
+        dateStartIso: opts.picked.iso,
+        durationMinutes: 60,
+        description: `Homeowner picked slot ${opts.picked.key} via SMS (${opts.picked.label}). Lead ${lead.public_id}.`,
+      });
+      if (result.ok) {
+        bookOk = true;
+        console.log(
+          `[sms-inbound:pick] booked JN task=${result.jnid} for lead=${lead.public_id} at ${opts.picked.iso}`,
+        );
+      } else {
+        console.warn(
+          `[sms-inbound:pick] JN booking failed reason=${result.reason} ${result.error ?? ""}`,
+        );
+      }
+
+      // (5) Attach the transcript + consent NOTE — rep context + TCPA proof.
+      try {
+        const transcript = (opts.conv.turns ?? [])
+          .map((t) => `${t.role === "assistant" ? "Noland's" : "Homeowner"}: ${t.body}`)
+          .join("\n")
+          .slice(0, 4000);
+        const noteBody =
+          `[SMS BOOKING] ${opts.picked.label}\n` +
+          `Name: ${lead.name ?? "(not given)"}\n` +
+          `Phone: ${opts.from}\n` +
+          `Address: ${lead.address ?? "(not given)"}\n` +
+          `Source: text ROOF to (888) 786-9134\n\n` +
+          `CONSENT (TCPA): consumer-initiated SMS; homeowner replied "${(opts.picked.key ?? "A/B").toUpperCase()}" to book; "Reply STOP to opt out" disclosed in-thread. Logged ${new Date().toISOString()}.\n\n` +
+          `--- Conversation transcript ---\n${transcript}`;
+        await jn.attachNote({ contactId, body: noteBody });
+      } catch (err) {
+        console.warn("[sms-inbound:pick] attachNote failed:", err);
+      }
     }
   } else {
     console.log(
-      "[sms-inbound:pick] JN not configured or contact_id missing — soft-fail to confirm-only",
+      "[sms-inbound:pick] JN not configured or test phone — soft-fail to confirm-only",
     );
   }
 
@@ -1062,7 +1194,7 @@ async function handleSlotPick(opts: {
   await saveConversation(opts.conv);
 
   // Send confirmation SMS.
-  const firstName = (lead.name ?? "").split(/\s+/)[0] || "there";
+  const firstName = safeFirstName(lead.name);
   const reply = buildSlotConfirmedBody({ firstName, slot: opts.picked });
   try {
     await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
