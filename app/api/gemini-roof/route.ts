@@ -1495,7 +1495,7 @@ async function persistEstimateToLead(
     .from("leads")
     .select(
       "office_id, name, phone, address, email, jobnimbus_contact_id, " +
-        "zip, city, state, preferred_language",
+        "zip, city, state, preferred_language, source",
     )
     .eq("public_id", leadPublicId)
     .maybeSingle();
@@ -1724,6 +1724,16 @@ async function persistEstimateToLead(
           const jn = await import("@/lib/jobnimbus");
           if (!jn.jobNimbusConfigured()) return;
 
+          // Rep referral-link attribution: map the lead's captured UTM
+          // source (e.g. "greg-noland / owner / personal" from the /greg
+          // link) to a JobNimbus Source. undefined → default source.
+          // See lib/referral-sources.ts.
+          const { resolveReferralSource } = await import(
+            "@/lib/referral-sources"
+          );
+          const referralSource =
+            resolveReferralSource(priorLead.source) ?? undefined;
+
           // Never push TEST submissions into the client's live JobNimbus —
           // Destiny's "don't flood JN with bogus contacts" guardrail. The
           // same isTestPhone allowlist that bypasses lead dedup gates the
@@ -1777,6 +1787,9 @@ async function persistEstimateToLead(
               language:
                 priorLead.preferred_language === "es" ? "es" : "en",
               tags: ["estimator", "nolands"],
+              // Rep referral-link attribution (e.g. /greg). undefined →
+              // default "Voxaris Estimator" source.
+              sourceName: referralSource,
             });
             if (!created.ok) {
               console.warn(
@@ -1915,6 +1928,8 @@ async function persistEstimateToLead(
                 // record_type in their org.
                 recordType: "Retail",
                 status: "Lead",
+                // Rep referral-link attribution → job "Lead Source".
+                sourceName: referralSource,
               }),
               jn.attachNote({
                 contactId,

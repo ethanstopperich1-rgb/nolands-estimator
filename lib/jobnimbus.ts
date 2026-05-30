@@ -73,6 +73,11 @@ export interface CreateContactInput {
    *  (`lang-en` | `lang-es`) so the rep knows whether to send a
    *  bilingual rep / Spanish-speaker to the inspection. */
   language?: "en" | "es";
+  /** Override the JN Source (defaults to JOBNIMBUS_SOURCE_NAME). Used for
+   *  rep referral-link attribution — see lib/referral-sources.ts. Must be a
+   *  Source that exists in JN Settings or it's rejected (then we fall back
+   *  to the default source so the lead still lands). */
+  sourceName?: string;
 }
 
 export interface JNContact {
@@ -96,6 +101,10 @@ export interface CreateJobInput {
    *  record_type in Noland's taxonomy and lands the job in a dead bucket. */
   recordType?: "Retail" | "Insurance" | "New Construction";
   status?: string;
+  /** Override the JN Source for the job's "Lead Source" field (defaults to
+   *  JOBNIMBUS_SOURCE_NAME). Used for rep referral-link attribution — see
+   *  lib/referral-sources.ts. Falls back to the default source on rejection. */
+  sourceName?: string;
 }
 
 export interface JNJob {
@@ -283,10 +292,13 @@ export async function createContact(
       // Default source: "Voxaris Estimator" — gives Destiny + team a
       // clean attribution bucket in JN reporting so they can ROI-track
       // estimator leads vs AIM / Angie / Google Ads side-by-side.
-      // Free-form string; JN accepts any source_name and groups records
-      // by exact match in their dashboards. Override via env if the
-      // contractor wants to map us into their existing taxonomy.
-      source_name: process.env.JOBNIMBUS_SOURCE_NAME ?? "Voxaris Estimator",
+      // JN groups records by exact source_name match. Precedence:
+      // per-lead override (rep referral attribution, lib/referral-sources.ts)
+      // → JOBNIMBUS_SOURCE_NAME env → "Voxaris Estimator".
+      source_name:
+        input.sourceName ??
+        process.env.JOBNIMBUS_SOURCE_NAME ??
+        "Voxaris Estimator",
     };
     if (process.env.JOBNIMBUS_SALES_REP_NAME) {
       body.sales_rep_name = process.env.JOBNIMBUS_SALES_REP_NAME;
@@ -306,11 +318,24 @@ export async function createContact(
     if (ownerIds.length > 0) {
       body.owners = ownerIds.map((id) => ({ id }));
     }
-    const res = await jnFetch(`${BASE_URL}/contacts`, {
+    let res = await jnFetch(`${BASE_URL}/contacts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    // A referral source not yet added in JN Settings → Settings is rejected
+    // by JN. Retry ONCE with the default source so attribution never blocks
+    // lead capture (the lead still lands; it just loses the rep tag).
+    const defaultSource =
+      process.env.JOBNIMBUS_SOURCE_NAME ?? "Voxaris Estimator";
+    if (!res.ok && body.source_name !== defaultSource) {
+      body.source_name = defaultSource;
+      res = await jnFetch(`${BASE_URL}/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
     if (!res.ok) return res;
     const data = res.json as { jnid?: string; display_name?: string };
     if (!data.jnid) {
@@ -351,10 +376,13 @@ export async function createInspectionJob(
       record_type_name: input.recordType ?? "Retail",
       status_name: input.status ?? "Lead",
       // Job "Lead Source" is the JOB's own source_name — SEPARATE from the
-      // contact's source_name. Without this the job's Lead Source field
-      // renders blank even though the contact is sourced. Same env as the
-      // contact path so attribution stays consistent ("Voxaris Estimator").
-      source_name: process.env.JOBNIMBUS_SOURCE_NAME ?? "Voxaris Estimator",
+      // contact's source_name. Without this the job's Lead Source renders
+      // blank. Same precedence as the contact: per-lead referral override
+      // → env → "Voxaris Estimator", so contact + job stay consistent.
+      source_name:
+        input.sourceName ??
+        process.env.JOBNIMBUS_SOURCE_NAME ??
+        "Voxaris Estimator",
       // Tag the job to an office branch. JN location ids:
       // 1 = "Noland's Roofing: Clermont" (HQ, default), 2 = Orange City,
       // 3 = Bradenton. Without this, the job is unscoped and falls out of
@@ -380,11 +408,23 @@ export async function createInspectionJob(
     if (salesRepId) {
       body.sales_rep = salesRepId;
     }
-    const res = await jnFetch(`${BASE_URL}/jobs`, {
+    let res = await jnFetch(`${BASE_URL}/jobs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    // Referral source not yet in JN Settings → retry once with the default
+    // source so attribution never blocks the job write.
+    const defaultJobSource =
+      process.env.JOBNIMBUS_SOURCE_NAME ?? "Voxaris Estimator";
+    if (!res.ok && body.source_name !== defaultJobSource) {
+      body.source_name = defaultJobSource;
+      res = await jnFetch(`${BASE_URL}/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
     if (!res.ok) return res;
     const data = res.json as { jnid?: string };
     if (!data.jnid) {
