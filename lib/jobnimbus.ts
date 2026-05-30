@@ -350,6 +350,11 @@ export async function createInspectionJob(
         : undefined,
       record_type_name: input.recordType ?? "Retail",
       status_name: input.status ?? "Lead",
+      // Job "Lead Source" is the JOB's own source_name — SEPARATE from the
+      // contact's source_name. Without this the job's Lead Source field
+      // renders blank even though the contact is sourced. Same env as the
+      // contact path so attribution stays consistent ("Voxaris Estimator").
+      source_name: process.env.JOBNIMBUS_SOURCE_NAME ?? "Voxaris Estimator",
       // Tag the job to an office branch. JN location ids:
       // 1 = "Noland's Roofing: Clermont" (HQ, default), 2 = Orange City,
       // 3 = Bradenton. Without this, the job is unscoped and falls out of
