@@ -181,25 +181,33 @@ export async function verifyDialable(
 
       if (json.valid === false) {
         // Twilio's top-level validity check says this isn't a usable
-        // number — treat as undeliverable.
+        // number — block on BOTH gates (truly fake / unallocated).
         result = { ok: false, lineType, reason: "invalid" };
+      } else if (opts?.requireSms) {
+        // SMS / estimate gate: the number IS valid (Twilio confirmed it).
+        // Block ONLY a line type that genuinely can't receive SMS
+        // (landline). A valid mobile / VoIP — OR a valid number whose
+        // line type LTI couldn't classify (error_code) — is textable
+        // enough; NEVER deny a real customer their estimate on an LTI
+        // hiccup. (2026-05-30: an LTI error_code on a valid AT&T mobile
+        // was false-blocking real homeowners at the gate.)
+        if (lineType && SMS_UNDELIVERABLE_LINE_TYPES.has(lineType)) {
+          result = { ok: false, lineType, reason: `sms_undeliverable:${lineType}` };
+        } else {
+          result = {
+            ok: true,
+            lineType,
+            reason: errorCode != null ? `lti_unresolved:${errorCode}` : null,
+          };
+        }
       } else if (errorCode != null) {
-        // LTI couldn't resolve the line — most commonly an invalid /
-        // unallocated number. Block the dial; carry the code for logs.
+        // Voice / dial gate (unchanged): an unresolved line type stays a
+        // conservative don't-dial for Sarah's autodial.
         result = { ok: false, lineType, reason: `lti_error:${errorCode}` };
       } else if (lineType && UNDELIVERABLE_LINE_TYPES.has(lineType)) {
         result = { ok: false, lineType, reason: `undeliverable:${lineType}` };
-      } else if (
-        opts?.requireSms &&
-        lineType &&
-        SMS_UNDELIVERABLE_LINE_TYPES.has(lineType)
-      ) {
-        // Textable-only gate: this line takes calls but can't receive SMS
-        // (landline). Block so the estimate isn't given to an unreachable
-        // number. Voice-mode callers never hit this branch.
-        result = { ok: false, lineType, reason: `sms_undeliverable:${lineType}` };
       } else {
-        // Valid mobile / VoIP (or landline in voice-only mode) — proceed.
+        // Valid mobile / VoIP — proceed.
         result = { ok: true, lineType, reason: null };
       }
     }
