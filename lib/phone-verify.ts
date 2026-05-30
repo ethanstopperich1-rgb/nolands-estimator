@@ -97,6 +97,13 @@ const UNDELIVERABLE_LINE_TYPES = new Set<string>([
   "unknown_disconnected",
 ]);
 
+/** Line types that can take a CALL but NOT a TEXT. Only consulted when
+ *  the caller passes `{ requireSms: true }` — the estimator's "must be
+ *  textable" gate. Conservative: only `landline`. Mobile, fixed and
+ *  non-fixed VoIP can all receive SMS, so we don't over-block real
+ *  homeowners on a VoIP line. */
+const SMS_UNDELIVERABLE_LINE_TYPES = new Set<string>(["landline"]);
+
 /**
  * Ask Twilio Lookup v2 whether an E.164 number is a real, dialable
  * line. Soft-fails OPEN — see module header. Never throws. Caches the
@@ -107,7 +114,10 @@ const UNDELIVERABLE_LINE_TYPES = new Set<string>([
  *              soft-passes (Lookup would 404 → but we don't want to
  *              block on a normalization miss, so we guard up front).
  */
-export async function verifyDialable(e164: string): Promise<DialableResult> {
+export async function verifyDialable(
+  e164: string,
+  opts?: { requireSms?: boolean },
+): Promise<DialableResult> {
   // Guard: nothing to look up / gate disabled → soft-pass. Don't pay
   // for a lookup we can't act on, and don't block a dial we can't vet.
   if (!e164 || !lookupEnabled()) {
@@ -115,8 +125,11 @@ export async function verifyDialable(e164: string): Promise<DialableResult> {
   }
 
   // Cache hit short-circuits the paid API call. The cached value is the
-  // full DialableResult so repeat submits replay the exact verdict.
-  const cacheKey = `${CACHE_KEY_PREFIX}${e164}`;
+  // full DialableResult so repeat submits replay the exact verdict. The
+  // SMS verdict differs from the voice verdict for landlines (callable
+  // but not textable), so the cache key is mode-scoped to keep the two
+  // verdicts from cross-contaminating.
+  const cacheKey = `${CACHE_KEY_PREFIX}${opts?.requireSms ? "sms:" : ""}${e164}`;
   try {
     const cached = await getCachedByKey<DialableResult>(cacheKey);
     if (cached) return cached;
@@ -176,8 +189,17 @@ export async function verifyDialable(e164: string): Promise<DialableResult> {
         result = { ok: false, lineType, reason: `lti_error:${errorCode}` };
       } else if (lineType && UNDELIVERABLE_LINE_TYPES.has(lineType)) {
         result = { ok: false, lineType, reason: `undeliverable:${lineType}` };
+      } else if (
+        opts?.requireSms &&
+        lineType &&
+        SMS_UNDELIVERABLE_LINE_TYPES.has(lineType)
+      ) {
+        // Textable-only gate: this line takes calls but can't receive SMS
+        // (landline). Block so the estimate isn't given to an unreachable
+        // number. Voice-mode callers never hit this branch.
+        result = { ok: false, lineType, reason: `sms_undeliverable:${lineType}` };
       } else {
-        // Valid mobile / landline / voip — dial away.
+        // Valid mobile / VoIP (or landline in voice-only mode) — proceed.
         result = { ok: true, lineType, reason: null };
       }
     }

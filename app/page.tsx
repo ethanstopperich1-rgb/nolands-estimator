@@ -820,6 +820,29 @@ function HeroScreen({
         if (res.ok) {
           const data = (await res.json()) as { leadId?: string };
           if (typeof data.leadId === "string") leadPublicId = data.leadId;
+        } else {
+          // Phone-deliverability gate: a number Twilio CONFIRMS can't
+          // receive SMS (landline / invalid / fake) blocks the estimate
+          // entirely — the anti-bot + reachability filter. Every OTHER
+          // failure (BotID false-positive, network blip) still falls
+          // through below so a real homeowner is never denied their
+          // estimate over an unrelated hiccup.
+          const gate = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            message?: string;
+          };
+          if (
+            res.status === 422 &&
+            (gate.error === "untextable_phone" ||
+              gate.error === "invalid_phone")
+          ) {
+            setFormError(
+              gate.message ||
+                "Please enter a mobile number that can receive text messages — that's how we send your estimate.",
+            );
+            setSubmitting(false);
+            return;
+          }
         }
       } catch {
         /* Lead capture failure must not block the estimate. */

@@ -298,6 +298,45 @@ export async function POST(req: Request) {
     );
   }
 
+  // Phone-deliverability gate (anti-bot + reachability). A real homeowner
+  // submits a mobile that can receive texts; bots, typos, and fake leads
+  // submit landlines, invalid, or unassigned numbers. If Twilio Lookup
+  // CONFIRMS the number can't receive SMS, block HERE — the caller never
+  // advances to the pin/estimate (the whole point: untextable → no
+  // estimate). Frictionless (no OTP). verifyDialable SOFT-FAILS OPEN on a
+  // Lookup outage so a Twilio hiccup never kills the funnel, and caches
+  // the verdict 30d (~$0.008/lookup). Test phones bypass (same allowlist
+  // as BotID/reCAPTCHA). Kill-switch: REQUIRE_TEXTABLE_PHONE=false.
+  if (!bypassBotChecks && process.env.REQUIRE_TEXTABLE_PHONE !== "false") {
+    const phoneForGate = toE164(body.phone);
+    if (!phoneForGate) {
+      return NextResponse.json(
+        {
+          error: "invalid_phone",
+          message:
+            "Please enter a valid US mobile number so we can text your estimate.",
+        },
+        { status: 422 },
+      );
+    }
+    const textable = await verifyDialable(phoneForGate, { requireSms: true });
+    if (!textable.ok) {
+      console.warn("[leads] estimate blocked — untextable number", {
+        reason: textable.reason,
+        lineType: textable.lineType,
+      });
+      return NextResponse.json(
+        {
+          error: "untextable_phone",
+          message:
+            "We couldn't verify that number can receive text messages. " +
+            "Please enter a mobile number so we can send your estimate.",
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const submittedAt = new Date().toISOString();
   const emailNorm = body.email.trim().toLowerCase();
   // Attribution → composed source. parseAttribution sanitizes the
