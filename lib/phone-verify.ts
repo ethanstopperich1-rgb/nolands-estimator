@@ -187,22 +187,32 @@ export async function verifyDialable(
         // number — block on BOTH gates (truly fake / unallocated).
         result = { ok: false, lineType, reason: "invalid" };
       } else if (opts?.requireSms) {
-        // SMS / estimate gate: the number IS valid (Twilio confirmed it).
-        // Block ONLY a line type that genuinely can't receive SMS
-        // (landline). A valid mobile / VoIP — OR a valid number whose
-        // line type LTI couldn't classify (error_code) — is textable
-        // enough; NEVER deny a real customer their estimate on an LTI
-        // hiccup. (2026-05-30: an LTI error_code on a valid AT&T mobile
-        // was false-blocking real homeowners at the gate.)
-        if (lineType && SMS_UNDELIVERABLE_LINE_TYPES.has(lineType)) {
-          result = { ok: false, lineType, reason: `sms_undeliverable:${lineType}` };
-        } else {
-          result = {
-            ok: true,
-            lineType,
-            reason: errorCode != null ? `lti_unresolved:${errorCode}` : null,
-          };
-        }
+        // SMS / estimate gate (LEAD FUNNEL): the number is valid (Twilio
+        // confirmed valid !== false above) — so it is a REAL, assigned
+        // number. We do NOT block on line type here. A lead funnel must
+        // never deny a real homeowner their estimate because their number
+        // is a landline / VoIP / or one LTI couldn't classify — those are
+        // real people. (Many Florida homeowners list a landline.) Worst
+        // case the confirmation SMS doesn't deliver, but the customer
+        // still gets the on-screen estimate and a rep is alerted to call.
+        // The only hard blocks in this mode are Twilio's DEFINITIVE
+        // "not a real number" signals — valid:false and 404 not_found
+        // (handled above / before the JSON parse) — which catch the
+        // genuine bot/typo case. Bot defense proper is BotID + reCAPTCHA,
+        // which run BEFORE this gate in /api/leads.
+        // (2026-05-30: blocking on line_type=landline false-blocked a real
+        // customer's number at go-live. Twilio said valid + landline; the
+        // homeowner is real. Line type is now informational only.)
+        result = {
+          ok: true,
+          lineType,
+          reason:
+            lineType && SMS_UNDELIVERABLE_LINE_TYPES.has(lineType)
+              ? `sms_unlikely:${lineType}`
+              : errorCode != null
+                ? `lti_unresolved:${errorCode}`
+                : null,
+        };
       } else if (errorCode != null) {
         // Voice / dial gate (unchanged): an unresolved line type stays a
         // conservative don't-dial for Sarah's autodial.
