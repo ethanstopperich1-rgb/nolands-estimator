@@ -341,7 +341,9 @@ export async function createInspectionJob(
     // matches their pipeline entry point.
     const body = {
       primary: { id: input.contactId },
-      display_name: input.displayName,
+      // JN Jobs require `name` (Contacts use `display_name`). Sending
+      // display_name here 400s: "Missing required field(s): name".
+      name: input.displayName,
       description: input.description ?? "",
       date_start: input.dateStart
         ? Math.floor(new Date(input.dateStart).getTime() / 1000)
@@ -468,7 +470,9 @@ export async function attachNote(
       note: input.body,
       record_type_name: "Note",
     };
-    const res = await jnFetch(`${BASE_URL}/tasks`, {
+    // Notes are JN *activities*, not tasks. POSTing to /tasks 400s:
+    // "Invalid record_type_name - Note".
+    const res = await jnFetch(`${BASE_URL}/activities`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
