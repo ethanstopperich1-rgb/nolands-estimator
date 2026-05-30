@@ -16,6 +16,7 @@ import {
 } from "@/lib/sms-conversation";
 import {
   nextBusinessSlots,
+  selectAvailableSlots,
   buildSlotOfferBody,
   buildSlotConfirmedBody,
   parseSlotPick,
@@ -610,8 +611,41 @@ async function handleScheduleOffer(opts: {
     return false;
   }
 
-  // Generate two slots starting from the next business day.
-  const slots = nextBusinessSlots({ count: 2 });
+  // Generate two slots — AVAILABILITY-AWARE (Gap 1). Pull what's already
+  // on the JN calendar (appointments live as JN *tasks*, not jobs) for the
+  // next ~18 days and skip any day+window that's already booked so we never
+  // offer a taken slot. Soft-fails OPEN: any JN read hiccup falls back to
+  // the next two business-day windows so an offer always goes out — a read
+  // outage must never block a homeowner from booking.
+  let slots;
+  try {
+    const startUnix = Math.floor(Date.now() / 1000);
+    const endUnix = startUnix + 60 * 60 * 24 * 18; // ~18 days
+    const jn = await import("@/lib/jobnimbus");
+    const booked = jn.jobNimbusConfigured()
+      ? await jn.searchTasksByDateRange(startUnix, endUnix)
+      : null;
+    const bookedUnix =
+      booked && booked.ok
+        ? booked.tasks
+            .map((t) => t.dateStart)
+            .filter((d): d is number => typeof d === "number")
+        : [];
+    slots = selectAvailableSlots({ bookedUnix, count: 2 });
+    if (slots.length < 2) {
+      // Horizon fully booked (or odd input) — fall back so we still offer.
+      slots = nextBusinessSlots({ count: 2 });
+    }
+    console.log(
+      `[sms-inbound:schedule] availability: ${bookedUnix.length} booked window(s) in horizon, offering ${slots.length} slot(s)`,
+    );
+  } catch (err) {
+    console.warn(
+      "[sms-inbound:schedule] availability check failed; offering default slots:",
+      err,
+    );
+    slots = nextBusinessSlots({ count: 2 });
+  }
   if (slots.length < 2) {
     console.warn("[sms-inbound:schedule] could not compute 2 slots");
     return false;

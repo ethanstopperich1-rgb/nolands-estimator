@@ -84,6 +84,73 @@ export function nextBusinessSlots(opts?: {
 }
 
 /**
+ * Availability-aware variant of nextBusinessSlots. EXCLUDES windows that
+ * already have an appointment on the JobNimbus calendar, then rolls
+ * forward to find `count` FREE windows.
+ *
+ * Pass the unix-SECOND start times of booked tasks (from
+ * `searchTasksByDateRange` — appointments live as JN tasks, not jobs).
+ * Any candidate (ET-day, window) that collides with a booked task is
+ * skipped.
+ *
+ * Conservative by design: a window with ANY existing appointment is
+ * treated as taken. v1 has no per-rep capacity model (that's the
+ * multi-location calendar work) — worst case the homeowner gets a
+ * slightly-later window, never a double-booked one. If fewer than
+ * `count` free slots exist in the horizon, returns what it found and the
+ * caller falls back to `nextBusinessSlots` so an offer always goes out.
+ */
+export function selectAvailableSlots(opts: {
+  bookedUnix: number[];
+  from?: Date;
+  count?: number;
+  maxBusinessDays?: number;
+  templates?: SlotTemplate[];
+}): SlotOffer[] {
+  const from = opts.from ?? new Date();
+  const count = opts.count ?? 2;
+  const maxBusinessDays = opts.maxBusinessDays ?? 10;
+  const templates = opts.templates ?? DEFAULT_TEMPLATES;
+
+  // Bucket booked appointments into "<ET-day>:<window>" keys.
+  const taken = new Set<string>();
+  for (const unix of opts.bookedUnix) {
+    const bucket = etDayWindowBucket(unix);
+    if (bucket) taken.add(bucket);
+  }
+
+  const slots: SlotOffer[] = [];
+  let dayCursor = new Date(from.getTime() + 24 * 60 * 60 * 1000);
+  let businessDaysWalked = 0;
+  let calendarDaysWalked = 0; // safety cap against an infinite loop
+  while (
+    slots.length < count &&
+    businessDaysWalked < maxBusinessDays &&
+    calendarDaysWalked < 30
+  ) {
+    const dow = getEtDayOfWeek(dayCursor);
+    const isWeekend = dow === 0 || dow === 6;
+    if (!isWeekend) {
+      businessDaysWalked++;
+      const dayKey = etDayKey(dayCursor);
+      for (const t of templates) {
+        if (slots.length >= count) break;
+        if (taken.has(`${dayKey}:${t.window}`)) continue; // window booked
+        slots.push({
+          key: String.fromCharCode("A".charCodeAt(0) + slots.length),
+          iso: buildEtIsoString(dayCursor, t.hour),
+          label: `${formatEtDayLabel(dayCursor)} ${t.label}`,
+          window: t.window,
+        });
+      }
+    }
+    dayCursor = new Date(dayCursor.getTime() + 24 * 60 * 60 * 1000);
+    calendarDaysWalked++;
+  }
+  return slots;
+}
+
+/**
  * Compose the "pick a time" SMS body. Mentions both offered slots,
  * the A/B keys, and the CALL fallback. Stays under 320 chars (~2 SMS
  * segments) to keep deliverability + cost in line.
@@ -182,6 +249,38 @@ function getEtDayOfWeek(date: Date): number {
     Sat: 6,
   };
   return map[short] ?? 0;
+}
+
+/** ET calendar-day key "YYYY-MM-DD" for a Date (en-CA renders ISO order). */
+function etDayKey(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ_NOLANDS,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/**
+ * Map a unix-SECOND timestamp to its "<ET-day>:<window>" bucket, or null
+ * when the time falls outside our offered windows (e.g. evening) so it
+ * never blocks a 9 AM / 1 PM offer. Morning = before 12 PM ET; afternoon
+ * = 12 PM–5 PM ET. Keep the boundaries in sync with DEFAULT_TEMPLATES.
+ */
+function etDayWindowBucket(unixSeconds: number): string | null {
+  if (!Number.isFinite(unixSeconds)) return null;
+  const d = new Date(unixSeconds * 1000);
+  const hourStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ_NOLANDS,
+    hour: "2-digit",
+    hour12: false,
+  }).format(d);
+  // "24" can appear at midnight in some runtimes; normalize to 0.
+  const hour = parseInt(hourStr, 10) % 24;
+  if (Number.isNaN(hour)) return null;
+  if (hour < 12) return `${etDayKey(d)}:morning`;
+  if (hour < 17) return `${etDayKey(d)}:afternoon`;
+  return null; // evening / after-hours — doesn't conflict with our windows
 }
 
 /**

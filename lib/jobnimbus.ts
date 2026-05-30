@@ -180,6 +180,71 @@ export async function searchJobsByDateRange(
   }
 }
 
+/** A scheduled task (appointment) summary — what's on the rep's calendar. */
+export interface JNTaskSummary {
+  jnid: string;
+  /** Unix SECONDS of the task start, or null when JN omitted it. */
+  dateStart: number | null;
+  title: string;
+}
+
+export interface SearchTasksResult {
+  ok: true;
+  tasks: JNTaskSummary[];
+}
+
+/**
+ * Search JobNimbus TASKS whose date_start falls in [startUnix, endUnix].
+ *
+ * Appointments booked by BOTH the SMS flow (createMeasureCallTask) and
+ * Sarah's voice agent land as JN *tasks* (record_type "Measure Call",
+ * POST /tasks), NOT jobs — so the SMS slot-offer availability check must
+ * read /tasks, not /jobs. This is the read that lets us avoid offering a
+ * window that's already taken. Mirrors searchJobsByDateRange's filter
+ * shape (Elasticsearch DSL range on date_start, unix seconds).
+ *
+ * Soft contract: callers treat a non-ok result as "couldn't check →
+ * offer default slots" (fail open). Never throws.
+ */
+export async function searchTasksByDateRange(
+  startUnix: number,
+  endUnix: number,
+  limit = 200,
+): Promise<SearchTasksResult | JobNimbusError> {
+  if (!jobNimbusConfigured()) {
+    return { ok: false, reason: "not_configured" };
+  }
+  try {
+    const url = new URL(`${BASE_URL}/tasks`);
+    url.searchParams.set(
+      "filter",
+      JSON.stringify({
+        must: [{ range: { date_start: { gte: startUnix, lte: endUnix } } }],
+      }),
+    );
+    url.searchParams.set("size", String(limit));
+    const res = await jnFetch(url.toString(), { method: "GET" });
+    if (!res.ok) return res;
+    const raw = res.json as
+      | { results?: Array<Record<string, unknown>>; data?: Array<Record<string, unknown>> }
+      | Array<Record<string, unknown>>;
+    const rows: Array<Record<string, unknown>> = Array.isArray(raw)
+      ? raw
+      : raw.results ?? raw.data ?? [];
+    const tasks: JNTaskSummary[] = rows.map((row) => ({
+      jnid: String(row.jnid ?? ""),
+      dateStart:
+        typeof row.date_start === "number" && Number.isFinite(row.date_start)
+          ? (row.date_start as number)
+          : null,
+      title: String(row.title ?? ""),
+    }));
+    return { ok: true, tasks };
+  } catch (err) {
+    return jnUnexpected(err);
+  }
+}
+
 export interface AttachNoteInput {
   contactId: string;
   /** Note body. The painted-roof URL + share-link + estimate range live here. */
