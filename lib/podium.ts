@@ -81,6 +81,82 @@ export function podiumConfigured(): boolean {
   return Boolean(process.env.PODIUM_ACCESS_TOKEN && process.env.PODIUM_LOCATION_UID);
 }
 
+// ─── Read side (health probe + brand-voice mining) ────────────────────
+// Podium send was retired but the OAuth scopes include read_messages /
+// read_contacts / read_locations, so a valid token can READ the historical
+// conversations for voice mining. These helpers verify the token actually
+// authenticates (presence != validity — same lesson as the JN key) and
+// return only statuses/counts (no message content / PII).
+
+/** Bearer-auth GET against the Podium v4 API. Returns status + parsed body. */
+async function podiumGet(
+  path: string,
+): Promise<{ status: number; json: unknown }> {
+  const token = process.env.PODIUM_ACCESS_TOKEN ?? "";
+  try {
+    const res = await fetch(`https://api.podium.com${path}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    let json: unknown = null;
+    try {
+      json = await res.json();
+    } catch {
+      /* non-JSON body */
+    }
+    return { status: res.status, json };
+  } catch {
+    return { status: 0, json: null };
+  }
+}
+
+export interface PodiumHealth {
+  configured: boolean;
+  /** HTTP status from GET /v4/locations — confirms the token is valid. */
+  locationsStatus: number | null;
+  /** HTTP status from GET /v4/conversations — confirms read scope. */
+  conversationsStatus: number | null;
+  /** Conversations visible (best-effort count, no content). */
+  conversationCount: number | null;
+  /** True when both reads returned 200 — token valid + can mine. */
+  ok: boolean;
+}
+
+/**
+ * Probe whether the current PODIUM_ACCESS_TOKEN is valid and can READ
+ * conversations. Returns statuses + a count only — NEVER message content
+ * (no PII surfaces through this). Used by /api/podium/health to confirm
+ * the re-auth landed before we wire the voice-mining pull.
+ */
+export async function checkPodiumRead(): Promise<PodiumHealth> {
+  if (!process.env.PODIUM_ACCESS_TOKEN) {
+    return {
+      configured: false,
+      locationsStatus: null,
+      conversationsStatus: null,
+      conversationCount: null,
+      ok: false,
+    };
+  }
+  const loc = await podiumGet("/v4/locations");
+  const conv = await podiumGet("/v4/conversations?size=1");
+  let count: number | null = null;
+  const cj = conv.json as
+    | { data?: unknown[]; conversations?: unknown[]; meta?: { total?: number } }
+    | null;
+  if (cj) {
+    if (typeof cj.meta?.total === "number") count = cj.meta.total;
+    else if (Array.isArray(cj.data)) count = cj.data.length;
+    else if (Array.isArray(cj.conversations)) count = cj.conversations.length;
+  }
+  return {
+    configured: true,
+    locationsStatus: loc.status,
+    conversationsStatus: conv.status,
+    conversationCount: count,
+    ok: loc.status === 200 && conv.status === 200,
+  };
+}
+
 /**
  * Render the estimate-ready message body. SMS-safe length (<160 chars
  * including link). When the painted PNG sends as an MMS attachment,
