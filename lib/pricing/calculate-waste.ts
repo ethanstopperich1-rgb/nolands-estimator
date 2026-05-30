@@ -345,6 +345,18 @@ export interface GeometricWasteInputs {
   secondaryStructuresCount: number;
   /** Total sloped sqft — used to size the waste table. */
   totalSqft: number;
+  /** True when the gemini-roof route detected a low-slope / membrane
+   *  building (Flash material=membrane_flat with conf≥0.5, Pro 2-image
+   *  material=flat_membrane, OR Solar segments are overwhelmingly
+   *  sub-12°). When set, we short-circuit the shingle-roof complexity
+   *  score and return a fixed 10% — TPO / EPDM / modified-bitumen rolls
+   *  have low cutting waste (4-7% real overage) but we quote at 10% to
+   *  leave headroom for parapet wraps, drain boots, scupper flashings,
+   *  and field patches the rep will spec on-site. Matches the shingle
+   *  floor so the customer-side number stays consistent.
+   *  Optional + defaults false for backward compat with call sites that
+   *  don't yet know about flat-roof detection. */
+  isLowSlopeBuilding?: boolean;
 }
 
 export interface GeometricWasteResult extends WasteResult {
@@ -365,9 +377,46 @@ export interface GeometricWasteResult extends WasteResult {
 
 const STEEP_PITCH_THRESHOLD_DEG_GEOMETRIC = 33.7; // ≈ 8/12
 
+/** Fixed waste % for low-slope membrane buildings (TPO / EPDM /
+ *  modified bitumen). Membrane rolls install in long continuous strips
+ *  with welded seams — real cutting overage runs 4-7% (NRCA TPO guide,
+ *  GAF Liberty install). We quote the customer at 10% to leave headroom
+ *  for parapet wraps, drain boots, scupper flashings, and the field
+ *  patches the rep will spec on-site. Matches the pre-existing shingle
+ *  floor so the customer-side number reads consistent across material
+ *  types — locked at Ethan's direction 2026-05-29. */
+const FLAT_MEMBRANE_FIXED_WASTE_PERCENT = 10;
+
 export function calculateGeometricWaste(
   inputs: GeometricWasteInputs,
 ): GeometricWasteResult {
+  // Short-circuit: low-slope / membrane buildings get a fixed 10%
+  // regardless of facet/azimuth/compactness — those signals describe
+  // shingle-cutting complexity that doesn't apply to a single
+  // continuous membrane plane. The waste table is still sized at the
+  // shingle steps so the rep workbench can compare apples-to-apples
+  // if material gets reclassified on-site.
+  if (inputs.isLowSlopeBuilding) {
+    const baseSquares = inputs.totalSqft / 100;
+    return {
+      suggestedPercent: FLAT_MEMBRANE_FIXED_WASTE_PERCENT,
+      complexityScore: 0,
+      breakdown: {
+        fromFacets: 0,
+        fromAzimuthClusters: 0,
+        fromCompactness: 0,
+        fromSteepPitch: 0,
+        fromSecondaryStructures: 0,
+        fromValleys: 0,
+        fromRidgesHips: 0,
+      },
+      table: WASTE_TABLE_STEPS.map((percent) => ({
+        percent,
+        totalSquares: Math.ceil(baseSquares * (1 + percent / 100) * 10) / 10,
+      })),
+    };
+  }
+
   // Facet term — only contributes above the "simple roof" baseline of
   // 4 facets (a hip with 4 sides). Each extra facet adds 0.8 points.
   const facets = inputs.facetCount ?? 4;

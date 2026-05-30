@@ -122,6 +122,7 @@ import {
   runVisualRoofEval,
   type EvalResult as VisualRoofEvalResult,
 } from "@/lib/visual-roof-eval";
+import { ensembleFromV3 } from "@/lib/ensemble-material";
 
 export const runtime = "nodejs";
 // Paint-only mode budget: Pro Image is the only Gemini call now.
@@ -1080,7 +1081,10 @@ const PIN_TILE_ZOOM = 21; // Fixed zoom for pin-confirmed flow; building dominat
 // per-facet geometry / edge classifiers / pricing-model breakdown). The
 // CACHED object is still the FULL shape, but bumping the scope guarantees no
 // CDN/edge layer keyed on a prior key serves a stale FAT payload to a browser.
-const CACHE_SCOPE_V3 = "gemini-roof-v3-customer-projection";
+// Re-bumped 2026-05-29 — flat-roof building detection (isLowSlopeBuilding),
+// nano-banana color/opacity lock, Street View + Flash material ensemble.
+// Single scope value covers both bumps since cache invalidation is binary.
+const CACHE_SCOPE_V3 = "v3-flat-roof-color-lock-material-ensemble-2026-05-29";
 
 /** Cheap text-only model used solely for structured-output object
  *  detection alongside the painted-image call. Pro Image is expensive
@@ -1521,12 +1525,27 @@ async function persistEstimateToLead(
   if (pricingSqft && result.pricing) {
     const wastePct = result.pricing.recommendedWastePercent;
     const objects = result.objects ?? [];
-    const detectedMaterialKey = geminiMaterialToRateKey(
-      result.geminiAnalysis.roofMaterial?.type ?? null,
-    );
-    const matConf = result.geminiAnalysis.roofMaterial?.confidence ?? 0;
+    // Material ensemble (May 2026): combine Flash satellite-only call
+    // with the Pro 2-image (top-down + Street View) call. Street View
+    // is the better angle for distinguishing barrel tile vs pavers,
+    // 3-tab vs architectural, and metal vs membrane — and it's already
+    // running on every request via runVisualRoofEval. When both sources
+    // agree, confidence boosts above the 0.65 pricing-trust threshold
+    // so the detected material drives the rate band. When they disagree
+    // confidently, the ensemble returns "unknown" with conf=0.55 and
+    // the existing threshold falls back to the architectural-shingle
+    // default — the safest direction to err on a lead-gen quote.
+    const ensemble = ensembleFromV3(result);
+    const detectedMaterialKey = geminiMaterialToRateKey(ensemble.material);
     const pricingMaterialKey =
-      matConf >= 0.65 ? detectedMaterialKey : null;
+      ensemble.confidence >= 0.65 ? detectedMaterialKey : null;
+    console.log(
+      `[gemini-roof v3] material_ensemble ` +
+        `result=${ensemble.material} ` +
+        `conf=${ensemble.confidence.toFixed(2)} ` +
+        `source=${ensemble.source} ` +
+        `→ rate_key=${pricingMaterialKey ?? "default"}`,
+    );
     try {
       const { tiers } = calculateTieredPricingWithPenetrations(
         pricingSqft,
@@ -2345,6 +2364,52 @@ async function handleV3Pinned(
   );
   const excludedM2 = displaySlopedM2 - shingleOnlyM2;
 
+  // ─── Flat-roof building detection (May 2026) ──────────────────────
+  // Distinct from the "Solar wrong" override below: this catches the
+  // case where the building is LEGITIMATELY a low-slope / membrane
+  // roof — a flat-roofed FL ranch, a mid-century modern home, a
+  // commercial storefront, a TPO addition. Without this branch, the
+  // SHINGLE_MIN_PITCH_DEG = 12° filter eats the entire roof and the
+  // customer sees 0 sqft or a tiny slice (the steep porch). Noland's
+  // sells flat / low-slope work as a real service line (commercial +
+  // residential additions) — so this isn't an edge case for us.
+  //
+  // Four corroborating signals; ANY trips the flag:
+  //   (1) Flash's roof_material classifier returned `membrane_flat`
+  //       with confidence ≥ 0.5. Reliable when the satellite tile
+  //       shows the membrane surface clearly.
+  //   (2) Pro 2-image classifier (top-down + Street View) returned
+  //       `flat_membrane`. Stronger than (1) because Street View
+  //       shows the roof at the elevation a roofer would judge it.
+  //       Independent of Flash — both can corroborate or one can
+  //       confirm when the other is uncertain.
+  //   (3) Solar found roof segments AND ≥ 80% of the displayed (3°+)
+  //       area is sub-12°. Geometric, not material-based.
+  //   (4) Solar found roof segments AND NONE of them are ≥12°.
+  //
+  // When set:
+  //   - Pricing/facets use the broader display set (3°+) so the flat
+  //     area is included in priced sqft.
+  //   - The flag rides downstream on the V3 response so calculate-
+  //     waste.ts can swap to the membrane 10% waste band instead of
+  //     the shingle 10-25% complexity score.
+  const geminiSaysFlat =
+    geminiAnalysis.roofMaterial?.type === "membrane_flat" &&
+    (geminiAnalysis.roofMaterial?.confidence ?? 0) >= 0.5;
+  const proSaysFlat =
+    visualRoofAssessment?.primaryMaterial === "flat_membrane" &&
+    visualRoofAssessment.confidence !== "low";
+  const flatDominantFraction =
+    displaySlopedM2 > 0 ? excludedM2 / displaySlopedM2 : 0;
+  const solarSaysFlat =
+    displaySegments.length > 0 &&
+    shingleOnlySegments.length === 0 &&
+    displaySlopedM2 > 0;
+  const flatDominantArea =
+    displaySegments.length > 0 && flatDominantFraction >= 0.8;
+  const isLowSlopeBuilding =
+    geminiSaysFlat || proSaysFlat || solarSaysFlat || flatDominantArea;
+
   // ─── Excluded-area sanity check (May 2026) ────────────────────────
   // When Solar's 12° pricing gate excludes more than ~40% of the
   // displayed (3°+) area, that's a strong signal Solar's segment
@@ -2372,14 +2437,15 @@ async function handleV3Pinned(
     excludedFraction > LOW_PITCH_OVERRIDE_THRESHOLD;
 
   // shingleSegments / totalSlopedM2 flow into pricing, facets, azimuth
-  // clusters, segmentCount. When the override fires, all of those use
-  // the broader 3°+ set so the priced area matches the displayed area.
-  const shingleSegments = pricingOverrideApplied
-    ? displaySegments
-    : shingleOnlySegments;
-  const totalSlopedM2 = pricingOverrideApplied
-    ? displaySlopedM2
-    : shingleOnlyM2;
+  // clusters, segmentCount. Use the broader 3°+ set when EITHER:
+  //   - pricingOverrideApplied (Solar mis-segmented a normal hip roof)
+  //   - isLowSlopeBuilding (legit flat-roof building — membrane/TPO)
+  // Both routes correctly include the sub-12° area in pricing; the
+  // downstream waste calculator reads isLowSlopeBuilding to swap the
+  // membrane waste band in for the shingle one.
+  const useBroadSet = pricingOverrideApplied || isLowSlopeBuilding;
+  const shingleSegments = useBroadSet ? displaySegments : shingleOnlySegments;
+  const totalSlopedM2 = useBroadSet ? displaySlopedM2 : shingleOnlyM2;
   const excludedSegments = allSegments.length - shingleOnlySegments.length;
   const totalFootprintM2 =
     solar?.solarPotential?.wholeRoofStats?.groundAreaMeters2 ?? 0;
@@ -2393,7 +2459,28 @@ async function handleV3Pinned(
     );
   })();
 
-  if (pricingOverrideApplied) {
+  if (isLowSlopeBuilding) {
+    const reasons: string[] = [];
+    if (geminiSaysFlat)
+      reasons.push(
+        `Flash=membrane_flat(${(geminiAnalysis.roofMaterial?.confidence ?? 0).toFixed(2)})`,
+      );
+    if (proSaysFlat)
+      reasons.push(
+        `Pro=flat_membrane(${visualRoofAssessment?.confidence ?? "?"})`,
+      );
+    if (solarSaysFlat)
+      reasons.push(
+        `Solar=${displaySegments.length}seg/none≥${SHINGLE_MIN_PITCH_DEG}°`,
+      );
+    if (flatDominantArea)
+      reasons.push(`${(flatDominantFraction * 100).toFixed(0)}%<12°`);
+    console.log(
+      `[gemini-roof v3] low_slope_building ` +
+        `sloped=${Math.round(displaySlopedM2 * 10.7639)}sqft ` +
+        `— pricing the full membrane area (${reasons.join(", ")})`,
+    );
+  } else if (pricingOverrideApplied) {
     console.log(
       `[gemini-roof v3] low_pitch_override ` +
         `excluded=${Math.round(excludedM2 * 10.7639)}sqft ` +
@@ -2820,10 +2907,12 @@ async function handleV3Pinned(
     avgPitchDeg,
     secondaryStructuresCount: geminiAnalysis.secondaryStructures.length,
     totalSqft: filterCtxSqft,
+    isLowSlopeBuilding,
   });
   const penetrationAdders = calculatePenetrationAdders(objects);
   console.log(
     `[gemini-roof v3] waste=${geometricWaste.suggestedPercent}% ` +
+      `low_slope=${isLowSlopeBuilding ? "yes" : "no"} ` +
       `azimuth_clusters=${azimuthClusters} ` +
       `compactness=${cyanMask?.compactness?.toFixed(2) ?? "null"} ` +
       `penetration_adders=$${penetrationAdders.total}`,

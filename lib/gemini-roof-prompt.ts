@@ -42,10 +42,13 @@ Your output is the SUPPLIED 1280×1280 satellite photo with cyan paint added on 
 
 If you cannot identify a roof to paint with high confidence (e.g. the image is too obscured by clouds or trees, or the central pixel does not sit on a building), return the input image UNCHANGED with no cyan added. Do not invent a roof. Do not generate a new satellite image. Do not regenerate the scene from scratch.
 
-## STYLE — Noland's Roofing brand hybrid
-- **Fill**: cyan #38C5EE at ~40% opacity. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan. (Cyan fill is the universal "this is a measurement layer" convention used by EagleView / Hover / GAF QuickMeasure — preserves the data-trust signal and stays high-contrast against warm-brown shingle.)
-- **Outline**: Noland's fire-orange #E84A1F at full opacity, crisp 2–3 pixel stroke along every legal edge. No feathering, no soft edges, no blurring. (Orange edge is the Noland's brand signature — same fire-orange that bounds the STANDARD pricing tier card and the H1 accent. Tells the customer "Noland's painted this.")
-- **Interior edges** (ridges, hips, valleys, gable seams between two adjacent painted planes) are ALSO the fire-orange #E84A1F stroke — one crisp line where two planes meet.
+## STYLE — Noland's Roofing brand hybrid — PIXEL-EXACT VALUES, IDENTICAL ON EVERY RENDER
+These values are absolute. They do NOT shift between renders, between properties, or between simple and complex roofs. Same hex, same opacity, same stroke thickness — every single time.
+
+- **Fill**: cyan **#38C5EE** at **exactly 40% opacity** (alpha 0.40). Not 35%, not 45%, not "approximately translucent". The hex value is the SAME on every plane of every roof. Shingle texture, ridge caps, vents, and small fixtures must remain CLEARLY VISIBLE through the cyan. (Cyan fill is the universal "this is a measurement layer" convention used by EagleView / Hover / GAF QuickMeasure — preserves the data-trust signal and stays high-contrast against warm-brown shingle.)
+- **Outer perimeter stroke**: Noland's fire-orange **#E84A1F** at **100% opacity** (alpha 1.0), **2 pixels wide** along every legal outer edge. Crisp, hard-edged, NO feathering, NO soft edges, NO blurring, NO antialiased glow halo. (Orange edge is the Noland's brand signature — same fire-orange that bounds the STANDARD pricing tier card and the H1 accent. Tells the customer "Noland's painted this.")
+- **Interior facet strokes** (ridges, hips, valleys, gable seams between two adjacent painted planes): EXACTLY the same Noland's fire-orange **#E84A1F** at **100% opacity**, **2 pixels wide** — visually IDENTICAL to the outer perimeter stroke. One crisp line where two planes meet. Do NOT vary the color, opacity, or thickness between outer and interior strokes — they are the same stroke applied to a different edge category.
+- **No drop shadows. No glow. No gradients. No texture overlay on the cyan or the fire-orange itself.** Both are flat color values — render-to-render byte-for-byte stable on every facet that gets them.
 - The effect is paint ADDED on top of the existing photo, not a replacement of it. Preserve the original pixels everywhere outside the painted area.
 
 ## RULE 1 — Fill every plane + stroke every visible edge. Both are required on every render.
@@ -72,6 +75,24 @@ The strokes follow what's visible in the photo, not what you THINK should be the
 - When in doubt about whether an interior edge is real, OMIT the stroke and rely on fill alone for that region. Better to stroke five real edges than six edges where the sixth is invented.
 
 Inventing interior facet lines is the failure mode that flips this model from "edit the photo" into "regenerate the scene" — the symmetric CGI-looking output a previous prompt version produced on complex estates. Stay anchored to the photo.
+
+### 1e. LOW-SLOPE / MEMBRANE ROOFS — recognize them as legitimate roofs
+
+Not every roof has visible ridges, hips, or facet seams. Low-slope and membrane roofs (TPO, EPDM, modified bitumen, built-up tar-and-gravel) are real roofs that NEED to be painted, even though they lack the facet geometry of a residential gable or hip. Noland's quotes flat / low-slope work on both commercial buildings and low-slope residential additions — this is a real service line, not an edge case.
+
+**Recognize a low-slope / membrane roof by ALL of these signals together:**
+- Surface is UNIFORM — smooth, lightly textured, or evenly granular — with NO visible ridges, hips, or valleys dividing it into facets.
+- The shape sits at ROOF ELEVATION, visibly above the surrounding ground plane. Eave shadows are present along at least two sides where the roof edge meets open air.
+- The shape's perimeter is bounded by walls of the host building (it abuts the house siding, not open lawn).
+- Often shows a few small dark circles (roof drains / scuppers), HVAC condensers, or piping centered on the surface — these sit ON the roof, not next to it.
+- May appear tan, gray, white (TPO), black (EPDM), or speckled (granular cap sheet / gravel ballast). Color alone is NOT the signal — elevation + eave shadow + drains are.
+
+**When you recognize a low-slope roof, paint it like this:**
+- ONE continuous polygon of cyan #38C5EE at 40% opacity covering the entire visible roof surface, eave to eave.
+- ONLY the outer perimeter stroke around the polygon — the same Noland's fire-orange #E84A1F at 100% opacity, 2 pixels wide as on every other roof. The perimeter stroke is REQUIRED — without it the roof reads as just a tinted rectangle.
+- **NO interior facet strokes.** A flat roof has no ridges, hips, or valleys. Do NOT invent them to make it look more "roof-like" — the absence of interior lines is a correct feature of this roof type.
+
+A flat-roofed FL ranch, a mid-century modern home, a strip-mall storefront, a 1960s commercial building, and a TPO addition on the back of a shingled house are ALL legitimate paint targets. Treat them as roofs.
 
 ## RULE 2 — Only six things are legal cyan boundaries
 The cyan painted area's outer + interior boundaries consist ONLY of these six edge types:
@@ -115,8 +136,8 @@ The cast shadow of the eave extends 5–15 feet past the eave onto the lawn. Sto
 - Detached sheds, garages, or carports with ground between them and the main house
 - Porches with a VISIBLY SHALLOWER separate roof — the giveaway is a clean horizontal seam at the wall where the porch roof tucks UNDER the main eave, plus a slope that reads flatter than the main roof
 - Breezeways with their own separate structure
-- **Screened pool enclosures / pool cages** — large flat or low-pitch panels next to the house with a dark mesh / screen surface. They show a fine grid or diamond pattern, NOT shingle or tile texture, and read noticeably darker and flatter than the adjacent roof. Common on Florida homes; often as large as the house roof itself. NEVER paint.
-- **Paver / concrete pool decks and lanais** — uniform tan, gray, or terracotta surface AT GROUND LEVEL beside the pool. Has a repeating paver grid but no roof pitch, no eave shadow, no ridge. If you can see the pool water directly adjacent, the surrounding hard surface is deck, not roof.
+- **Screened pool enclosures / pool cages** — large flat or low-pitch panels next to the house with a dark mesh / screen surface. They show a fine grid or diamond pattern (the screen is partially transparent — you can sometimes see ground or pool water THROUGH it), NOT shingle or membrane texture. They cast little to NO eave shadow because the screen is translucent. Read noticeably darker and "flatter" than any real roof. Common on Florida homes; often as large as the house roof itself. NEVER paint. **Discrimination from a real low-slope membrane roof**: a membrane roof is OPAQUE (you cannot see ground through it), has clear eave shadows on multiple sides, and often shows small drains or HVAC units sitting ON its surface; a pool cage is semi-transparent, casts no eave shadow, and shows only the diamond/rectangular screen pattern with no equipment on top.
+- **Paver / concrete pool decks and lanais** — uniform tan, gray, or terracotta surface AT GROUND LEVEL beside the pool. Has a repeating paver grid but NO roof pitch, NO eave shadow, NO ridge, and sits in the same elevation plane as the lawn/pool. If you can see the pool water directly adjacent, the surrounding hard surface is deck, not roof. **Discrimination from a real low-slope membrane roof**: a membrane roof sits ABOVE ground level (you can see the wall face below its edge); a paver deck is AT ground level (no visible wall below it). A membrane roof shows a continuous unbroken surface; pavers show a rectangular tile grid.
 - **Detached lanai / cabana roofs separated from the main roof** — a low, dark membrane or flat-tile structure with its own perimeter and a visible gap (deck, screen wall, or open air) between it and the main roof. Treat as a separate building.
 - **Tile roof color trap** — Spanish / Mediterranean barrel-tile roofs (terracotta, brown, tan) sit next to paver decks and tile patios that share a very similar color. Discriminate by TEXTURE and ELEVATION: tile roof shows repeating curved barrel rows with sharp ridge/hip lines and casts a clear eave shadow; ground tile / pavers show a flat rectangular grid with no eave shadow. Color alone is NOT enough — require visible barrel texture AND a roof edge before painting.
 - **Attached metal awnings, aluminum patio covers, and metal carport canopies** — narrow rectangular panels attached to one side or the rear of the house, often shading a side door, walkway, or patio. Almost always WHITE, SILVER, or LIGHT GRAY smooth metal with NO shingle / tile / barrel texture. The giveaway is a clear MATERIAL CONTRAST with the adjacent main roof (bright reflective metal vs. textured shingle or tile; pure white vs. gray / brown / terracotta). These are aftermarket hardware, NOT part of the main roof system being re-roofed. NEVER paint, even when the metal canopy directly abuts the main roof's eave. If the appendage shares an edge with the main roof but its surface looks like a different material, stop the cyan at the main roof's eave — do not extend cyan onto the metal awning.
