@@ -361,18 +361,24 @@ export async function createInspectionJob(
       // any location-filtered board view. Env-overridable per deploy.
       location: { id: Number(process.env.JOBNIMBUS_DEFAULT_LOCATION_ID || "1") },
     };
-    // Assign the job to a rep. JN boards are commonly filtered by
-    // Sales rep / Assignee, so an UNASSIGNED job stays invisible on a
-    // rep-scoped board even though it sits correctly in Retail/Lead.
-    // Reuses the same owner env as the contact path; first id is the
-    // primary sales_rep, all ids become job owners (assignees).
+    // Assign the job (Assigned To / owners). JN boards are commonly
+    // filtered by Assignee, so an UNASSIGNED job stays invisible on a
+    // scoped board even though it sits correctly in Retail/Lead.
+    // Reuses the same owner env as the contact path. All ids become
+    // job owners (assignees) — e.g. Destiny on intake.
     const jobOwnerIds = (process.env.JOBNIMBUS_NEW_LEAD_OWNER_IDS || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     if (jobOwnerIds.length > 0) {
       body.owners = jobOwnerIds.map((id) => ({ id }));
-      body.sales_rep = jobOwnerIds[0];
+    }
+    // sales_rep is intentionally SEPARATE + optional: estimator leads are
+    // assigned for visibility but carry no Sales Rep unless one is
+    // explicitly configured, so a human sets the rep in JN later.
+    const salesRepId = process.env.JOBNIMBUS_DEFAULT_SALES_REP_ID?.trim();
+    if (salesRepId) {
+      body.sales_rep = salesRepId;
     }
     const res = await jnFetch(`${BASE_URL}/jobs`, {
       method: "POST",
