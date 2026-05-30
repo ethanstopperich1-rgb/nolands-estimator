@@ -1,21 +1,26 @@
 /**
  * /twitter-image — the X/Twitter card image.
  *
- * Reuses the exact same branded Noland's card as the Open Graph image
+ * Renders the exact same branded Noland's card as the Open Graph image
  * (app/opengraph-image.tsx) so x.com and any `twitter:image` consumer
- * renders the correct logo'd card on the correct (production) domain.
+ * gets the correct logo'd card on the production domain.
  *
- * Why this file exists: `twitter:image` previously pointed at a static
- * `twitter-image.png` that doesn't exist in this repo (a 404). Next.js
- * auto-detects this special file and generates a valid twitter:image
- * from its default export. Re-exporting the OG generator keeps the two
- * cards byte-identical with zero duplicated design code.
+ * IMPORTANT (Next.js 16 / Turbopack): route-segment config exports
+ * (`runtime`) MUST be declared directly in the route file — they
+ * cannot be re-exported via `export { runtime } from "..."` (Turbopack
+ * can't statically parse a re-exported config field and fails the
+ * build with "can't recognize the exported `runtime` field"). So we
+ * re-export ONLY the default component (allowed) and declare `runtime`
+ * + the image metadata as direct local consts mirroring
+ * opengraph-image.tsx. Keeps the two cards byte-identical with no
+ * duplicated render code.
  */
 
-export {
-  default,
-  runtime,
-  alt,
-  size,
-  contentType,
-} from "./opengraph-image";
+import OpengraphImage from "./opengraph-image";
+
+export const runtime = "nodejs";
+export const alt = "Noland's Roofing — Get your roof priced in 30 seconds";
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+
+export default OpengraphImage;
