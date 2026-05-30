@@ -146,6 +146,23 @@ export async function POST(req: Request) {
     })();
   }
 
+  // Real-time Slack ping on EVERY inbound reply so the team sees
+  // engagement (YES / CALL / STOP / question) the moment it lands.
+  // Fire-and-forget — never blocks the webhook ACK.
+  {
+    const lower = body.toLowerCase();
+    const smsKind: "stop" | "call" | "book" | "reply" = /^(stop|stopall|unsubscribe|cancel|end|quit)$/i.test(body)
+      ? "stop"
+      : /^(call me|call|callback)\b/.test(lower)
+        ? "call"
+        : /^(yes|y|yeah|yep|yup|sure|ok|okay|schedule|book|[ab]|[12])\b/.test(lower)
+          ? "book"
+          : "reply";
+    void import("@/lib/slack-notifications").then(({ sendSlackInboundSms }) =>
+      sendSlackInboundSms({ from, to, body, kind: smsKind }),
+    );
+  }
+
   // STOP / UNSUBSCRIBE / END / QUIT / CANCEL — Twilio handles the
   // account-level suppression automatically, but we ALSO persist the
   // opt-out in Supabase so future outbound paths (different sender ID,

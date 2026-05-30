@@ -390,6 +390,79 @@ function buildCallEndedBlocks(ev: LeadWebhookEvent): {
 }
 
 /**
+ * Lightweight standalone notifier for an INBOUND customer SMS reply
+ * (YES / SCHEDULE / CALL / STOP / slot pick / free-text question). Not
+ * lead-keyed — cold inbound texts have no lead yet — so it does NOT go
+ * through the LeadWebhookEvent union. Reuses the same SLACK_WEBHOOK_URL
+ * + safety guard. Fire-and-forget; never throws.
+ */
+export async function sendSlackInboundSms(opts: {
+  /** Homeowner E.164 (the sender). */
+  from: string;
+  /** Our receiving number (the 888), for context. */
+  to?: string | null;
+  /** Message body as received. */
+  body: string;
+  /** Classified intent — drives the headline + emoji. */
+  kind: "stop" | "call" | "book" | "reply";
+  /** Lead name when resolvable. */
+  leadName?: string | null;
+}): Promise<void> {
+  const url = process.env.SLACK_WEBHOOK_URL;
+  if (!url || !isSlackWebhookUrl(url)) return;
+
+  const emoji =
+    opts.kind === "stop"
+      ? "🛑"
+      : opts.kind === "call"
+        ? "📞"
+        : opts.kind === "book"
+          ? "✅"
+          : "💬";
+  const headline =
+    opts.kind === "stop"
+      ? "Homeowner opted OUT (STOP)"
+      : opts.kind === "call"
+        ? "Homeowner asked for a CALL"
+        : opts.kind === "book"
+          ? "Homeowner wants to BOOK"
+          : "Inbound reply";
+  const who = opts.leadName
+    ? `${opts.leadName} (${maskPhone(opts.from)})`
+    : maskPhone(opts.from);
+  const payload = {
+    text: `${emoji} ${headline} — ${who}: ${opts.body.slice(0, 160)}`,
+    blocks: [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `${emoji} *${headline}*` },
+      },
+      {
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*From*\n${who}` },
+          { type: "mrkdwn", text: `*Message*\n${opts.body.slice(0, 280)}` },
+        ],
+      },
+    ],
+  };
+
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 5000);
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timeout);
+  } catch {
+    // Never let a Slack hiccup affect the inbound webhook ACK.
+  }
+}
+
+/**
  * Post one lead/call event to the configured Slack channel.
  *
  * Returns `{ ok: true }` on 2xx, `{ ok: false, reason }` on any
