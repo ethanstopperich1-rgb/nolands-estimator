@@ -84,7 +84,10 @@ interface LookupV2Response {
   } | null;
 }
 
-const CACHE_KEY_PREFIX = "phone-verify:v1:";
+// v2 (2026-05-30): bumped from v1 to DISCARD all verdicts cached under the
+// old logic, which wrongly blocked valid mobiles on an LTI error_code. Every
+// number re-checks with the corrected requireSms rules on next lookup.
+const CACHE_KEY_PREFIX = "phone-verify:v2:";
 
 /** Line types Twilio LTI can return that we treat as undeliverable for
  *  a voice call. `nonFixedVoip`/`personal`/`tollFree` and the standard
