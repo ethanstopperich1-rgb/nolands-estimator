@@ -566,15 +566,31 @@ function loadingMessageFor(elapsed: number): string {
   return LOADING_MESSAGES.filter((m) => m.at <= elapsed).pop()?.text ?? LOADING_MESSAGES[0].text;
 }
 
-/** Live-format a phone input as the customer types: "(555) 555-5555".
- *  Strips non-digits, caps at 10 digits, then re-builds the standard
- *  US grouping. Tolerates partial input — no flicker at the seams. */
+/** Live-format a phone input as the customer types: "(555) 555-5555",
+ *  or "1 (555) 555-5555" when a US country code is present.
+ *
+ *  A US/NANP area code can NEVER start with 1, so a leading 1 is
+ *  unambiguously the country code. We peel it off and render it UP FRONT
+ *  instead of letting it slide into the 10-digit grouping — otherwise
+ *  autofill / paste of "+1 407 819 5809" or "14078195809" gets sliced to
+ *  the first 10 digits ("1407819580"), formatted as "(140) 781-9580", and
+ *  the customer's LAST digit is silently dropped → an invalid number that
+ *  fails every SMS + call (Twilio 21211). toE164() already maps the
+ *  11-digit "1…" form to "+1…", so keeping the 1 keeps the lead reachable.
+ *  Tolerates partial input — no flicker at the seams. */
 function formatPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "").slice(0, 10);
-  if (digits.length === 0) return "";
-  if (digits.length <= 3) return `(${digits}`;
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  let digits = raw.replace(/\D/g, "");
+  let prefix = "";
+  if (digits.startsWith("1")) {
+    prefix = "1 ";
+    digits = digits.slice(1);
+  }
+  digits = digits.slice(0, 10);
+  if (digits.length === 0) return prefix.trim();
+  if (digits.length <= 3) return `${prefix}(${digits}`;
+  if (digits.length <= 6)
+    return `${prefix}(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `${prefix}(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
 // ─── Hero (Voxaris brand) ───────────────────────────────────────────────
