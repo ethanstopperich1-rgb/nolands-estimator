@@ -119,6 +119,9 @@ export interface PodiumHealth {
   conversationCount: number | null;
   /** True when both reads returned 200 — token valid + can mine. */
   ok: boolean;
+  /** When the conversations read != 200, the (truncated) error body so we
+   *  can see exactly what Podium wants. Validation text only, no PII. */
+  conversationsError?: string | null;
 }
 
 /**
@@ -138,7 +141,13 @@ export async function checkPodiumRead(): Promise<PodiumHealth> {
     };
   }
   const loc = await podiumGet("/v4/locations");
-  const conv = await podiumGet("/v4/conversations?size=1");
+  // Conversations list almost certainly needs the locationUid (sends use it
+  // too). Pass it; surface the error body if it still 400s so Podium tells
+  // us the exact missing param.
+  const locUid = process.env.PODIUM_LOCATION_UID ?? "";
+  const conv = await podiumGet(
+    `/v4/conversations?locationUid=${encodeURIComponent(locUid)}&size=1`,
+  );
   let count: number | null = null;
   const cj = conv.json as
     | { data?: unknown[]; conversations?: unknown[]; meta?: { total?: number } }
@@ -148,12 +157,21 @@ export async function checkPodiumRead(): Promise<PodiumHealth> {
     else if (Array.isArray(cj.data)) count = cj.data.length;
     else if (Array.isArray(cj.conversations)) count = cj.conversations.length;
   }
+  let conversationsError: string | null = null;
+  if (conv.status !== 200) {
+    try {
+      conversationsError = JSON.stringify(conv.json).slice(0, 300);
+    } catch {
+      conversationsError = null;
+    }
+  }
   return {
     configured: true,
     locationsStatus: loc.status,
     conversationsStatus: conv.status,
     conversationCount: count,
     ok: loc.status === 200 && conv.status === 200,
+    conversationsError,
   };
 }
 
