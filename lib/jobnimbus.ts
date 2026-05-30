@@ -339,7 +339,7 @@ export async function createInspectionJob(
     // jobs default to "Retail" (residential walk-in inspection) unless
     // the caller flags a storm event → "Insurance". status_name "Lead"
     // matches their pipeline entry point.
-    const body = {
+    const body: Record<string, unknown> = {
       primary: { id: input.contactId },
       // JN Jobs require `name` (Contacts use `display_name`). Sending
       // display_name here 400s: "Missing required field(s): name".
@@ -350,7 +350,25 @@ export async function createInspectionJob(
         : undefined,
       record_type_name: input.recordType ?? "Retail",
       status_name: input.status ?? "Lead",
+      // Tag the job to an office branch. JN location ids:
+      // 1 = "Noland's Roofing: Clermont" (HQ, default), 2 = Orange City,
+      // 3 = Bradenton. Without this, the job is unscoped and falls out of
+      // any location-filtered board view. Env-overridable per deploy.
+      location: { id: Number(process.env.JOBNIMBUS_DEFAULT_LOCATION_ID || "1") },
     };
+    // Assign the job to a rep. JN boards are commonly filtered by
+    // Sales rep / Assignee, so an UNASSIGNED job stays invisible on a
+    // rep-scoped board even though it sits correctly in Retail/Lead.
+    // Reuses the same owner env as the contact path; first id is the
+    // primary sales_rep, all ids become job owners (assignees).
+    const jobOwnerIds = (process.env.JOBNIMBUS_NEW_LEAD_OWNER_IDS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (jobOwnerIds.length > 0) {
+      body.owners = jobOwnerIds.map((id) => ({ id }));
+      body.sales_rep = jobOwnerIds[0];
+    }
     const res = await jnFetch(`${BASE_URL}/jobs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
