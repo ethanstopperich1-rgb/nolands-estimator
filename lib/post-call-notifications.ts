@@ -34,8 +34,7 @@ import {
 // so reps see the entire customer conversation in one Podium inbox.
 // `toE164` (formatter) survives; `twilioConfigured` is no longer
 // used here (replaced with `podiumConfigured`).
-import { toE164 } from "@/lib/twilio";
-import { sendPodiumText, podiumConfigured } from "@/lib/podium";
+import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
 import { resolveNotifyPhone } from "@/lib/lead-notifications";
 import { parseLang, t, type Lang } from "@/lib/i18n";
 import {
@@ -285,7 +284,7 @@ async function sendHomeownerSms(opts: {
   appointmentAt?: string;
   jobnimbusContactId?: string | null;
 }): Promise<boolean> {
-  if (!opts.phoneE164 || !podiumConfigured()) return false;
+  if (!opts.phoneE164 || !twilioConfigured()) return false;
   const firstName = opts.name.split(/\s+/)[0] ?? "there";
   let body: string;
   switch (opts.outcome) {
@@ -319,12 +318,12 @@ async function sendHomeownerSms(opts: {
       body = t("sms.postcall.no_appointment", opts.lang, { firstName });
   }
   try {
-    await sendPodiumText({
-      phone: opts.phoneE164,
-      contactName: opts.name,
+    await sendSms({
+      to: opts.phoneE164,
       body,
-      openInbox: true,
-      jobnimbusContactId: opts.jobnimbusContactId ?? null,
+      // Post-call text to the homeowner on the 888 — same thread as
+      // their confirmation + estimate + reminders (Podium retired).
+      jnContactId: opts.jobnimbusContactId ?? undefined,
     });
     return true;
   } catch (err) {
@@ -352,7 +351,7 @@ async function sendRepUpdate(opts: {
   dashboardOrigin: string;
 }): Promise<boolean> {
   const dest = resolveNotifyPhone(opts.office);
-  if (!dest || !podiumConfigured()) return false;
+  if (!dest || !twilioConfigured()) return false;
 
   // GSM-7 safe: no emoji, no em-dash. Each headline stays single-
   // segment with the body lines that follow.
@@ -381,15 +380,13 @@ async function sendRepUpdate(opts: {
   lines.push(`${opts.dashboardOrigin}/dashboard/leads/${opts.lead.public_id}`);
 
   try {
-    await sendPodiumText({
-      phone: dest,
-      // Stable label so rep post-call alerts upsert into a single
-      // ops conversation rather than a new thread per call.
-      contactName: "Noland's rep alert",
+    await sendSms({
+      to: dest,
       body: lines.join("\n"),
-      // Quiet send — don't open the customer-triage inbox on rep
-      // ops messages.
-      openInbox: false,
+      // Rep ops alert to a Noland's staff number — not a TCPA consumer,
+      // so bypass the consumer opt-out gate. Sends from the 888 like
+      // every other SMS now (Podium retired).
+      skipOptOutCheck: true,
     });
     return true;
   } catch (err) {

@@ -25,13 +25,17 @@
  *     their telecom-compliance layer.
  */
 
-import { podiumConfigured } from "@/lib/podium";
-import { toE164 } from "@/lib/twilio";
+import {
+  sendSms,
+  SmsOptedOutError,
+  toE164,
+  twilioConfigured,
+} from "@/lib/twilio";
+import { resolveBaseUrl } from "@/lib/base-url";
 import {
   type ReminderTouchpoint,
   type ReminderVars,
   renderFallbackCopy,
-  resolveTemplateUid,
 } from "@/lib/reminder-templates";
 
 export interface ReminderLead {
@@ -62,10 +66,8 @@ export interface ReminderSendResult {
   messageUid?: string;
   error?: string;
   /** Which path served — useful for ops dashboards. */
-  via?: "template" | "fallback";
+  via?: "template" | "fallback" | "twilio";
 }
-
-const PODIUM_MESSAGES_URL = "https://api.podium.com/v4/messages";
 
 /**
  * Format an appointment timestamp into America/New_York local time
@@ -131,81 +133,39 @@ export async function sendReminderTouchpoint(
   if (!lead.phone || lead.phone.trim().length < 7) {
     return { sent: false, reason: "no_phone" };
   }
-  if (!podiumConfigured()) {
+  if (!twilioConfigured()) {
     return { sent: false, reason: "not_configured" };
   }
 
-  const accessToken = process.env.PODIUM_ACCESS_TOKEN!;
-  const locationUid = process.env.PODIUM_LOCATION_UID!;
-  const senderName = process.env.PODIUM_SENDER_NAME ?? "Noland's Roofing";
-
+  // All follow-up touchpoints now send as inline Twilio SMS on the 888
+  // — the SAME number as the confirmation + estimate-ready texts — so
+  // the homeowner's entire thread lives in ONE place, replies route to
+  // /api/sms/inbound (YES / SCHEDULE / STOP all work), STOP suppresses
+  // every future send, and there is no Podium-token-expiry silent-
+  // failure risk. Podium templates are retired here; renderFallbackCopy
+  // is the single source of copy. statusCallback flows delivery status
+  // to /api/sms/status; leadPublicId correlates the sms_messages row.
+  const to = toE164(lead.phone) ?? lead.phone;
   const vars = buildReminderVars(lead);
-  const templateUid = resolveTemplateUid(touchpoint);
-
-  // Build the Podium /v4/messages body. Two shapes:
-  //   - template path: include templateUid + merge variables
-  //   - fallback path: include rendered raw body
-  // Podium's API tolerates either body or templateUid as the message
-  // content selector; sending both lets the template override at the
-  // platform side if Noland's later configures one.
-  const channel = {
-    // 2026-05-26: Podium /v4/messages requires type="phone" + identifier.
-    // type="sms" + phoneNumber returns HTTP 400 invalid_request_values.
-    type: "phone" as const,
-    identifier: toE164(lead.phone) ?? lead.phone,
-    contactName: lead.name,
-  };
-
-  const requestBody: Record<string, unknown> = {
-    channel,
-    locationUid,
-    senderName,
-    setOpenInbox: false, // Reminder threads stay scoped; rep doesn't need to triage.
-  };
-
-  let via: "template" | "fallback";
-  if (templateUid) {
-    requestBody.templateUid = templateUid;
-    requestBody.templateVariables = vars;
-    via = "template";
-  } else {
-    requestBody.body = renderFallbackCopy(touchpoint, vars);
-    via = "fallback";
-  }
+  const body = renderFallbackCopy(touchpoint, vars);
+  const origin = resolveBaseUrl();
 
   try {
-    const res = await fetch(PODIUM_MESSAGES_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
+    const result = await sendSms({
+      to,
+      body,
+      statusCallback: `${origin}/api/sms/status`,
+      leadPublicId: lead.publicId,
     });
-
-    if (res.status === 429) {
-      return { sent: false, reason: "rate_limited", via };
-    }
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      return {
-        sent: false,
-        reason: "error",
-        via,
-        error: `podium_${res.status}: ${errText.slice(0, 200)}`,
-      };
-    }
-    const json = (await res.json()) as { data?: { uid?: string } };
-    return {
-      sent: true,
-      via,
-      messageUid: json.data?.uid,
-    };
+    return { sent: true, via: "twilio", messageUid: result.sid };
   } catch (err) {
+    if (err instanceof SmsOptedOutError) {
+      return { sent: false, reason: "opted_out", via: "twilio" };
+    }
     return {
       sent: false,
       reason: "error",
-      via,
+      via: "twilio",
       error: err instanceof Error ? err.message : String(err),
     };
   }

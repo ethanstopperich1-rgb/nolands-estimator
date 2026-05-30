@@ -297,10 +297,12 @@ export async function POST(req: Request): Promise<NextResponse> {
   });
 
   // ─── Fire-and-forget side effects ─────────────────────────────────
-  // Podium SMS send. Soft-fails if Podium env isn't wired.
+  // Estimate-ready SMS via Twilio on the 888 — same sender as the full
+  // V3 flow + confirmation, so the homeowner gets one thread. Soft-fails
+  // if Twilio env isn't wired.
   if (body.paintedUrl && body.estimateLow != null && body.estimateHigh != null) {
-    void import("@/lib/podium").then(({ sendEstimateReadyViaPodium }) =>
-      sendEstimateReadyViaPodium({
+    void import("@/lib/twilio").then(({ sendEstimateReadyViaTwilio }) =>
+      sendEstimateReadyViaTwilio({
         customerPhone: phoneE164,
         customerName: "Friend", // No name yet — Podium template renders "Hi Friend"
         address: body.address.split(",")[0].trim(),

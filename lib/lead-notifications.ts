@@ -36,8 +36,7 @@
 // Podium. `toE164` (formatter) + `SmsOptedOutError` (still thrown by
 // the inbound STOP handler) survive; `twilioConfigured` is no longer
 // used here (replaced with `podiumConfigured`).
-import { toE164, SmsOptedOutError } from "@/lib/twilio";
-import { sendPodiumText, podiumConfigured } from "@/lib/podium";
+import { sendSms, toE164, twilioConfigured, SmsOptedOutError } from "@/lib/twilio";
 import type { OfficeBranding } from "@/lib/supabase";
 
 export interface NewLeadNotificationPayload {
@@ -133,7 +132,7 @@ export async function notifyOfficeOfNewLead(opts: {
    *  `process.env.VERCEL_URL`-derived in preview. */
   dashboardOrigin: string;
 }): Promise<{ sid: string; status: string } | null> {
-  if (!podiumConfigured()) {
+  if (!twilioConfigured()) {
     console.log("[lead-notify] podium_not_configured — skipping rep SMS");
     return null;
   }
@@ -149,19 +148,21 @@ export async function notifyOfficeOfNewLead(opts: {
   const body = buildNewLeadSmsBody(opts.lead, opts.dashboardOrigin);
 
   try {
-    const result = await sendPodiumText({
-      phone: destination,
-      // Rep alerts use a stable contactName so Podium upserts them
-      // into a single ops-style conversation rather than spawning a
-      // new customer thread per alert.
-      contactName: "Noland's rep alert",
+    // Rep ops alert via Twilio on the 888 (Podium retired). To a
+    // Noland's staff number — not a TCPA consumer — so bypass the
+    // consumer opt-out gate. Shape `result` like the old Podium return
+    // so the logging + return contract below stay unchanged.
+    const twilioRes = await sendSms({
+      to: destination,
       body,
-      // Don't open the customer-triage inbox for rep ops messages —
-      // the alert lands as a quiet thread the rep can review without
-      // it cluttering the homeowner-conversation queue.
-      openInbox: false,
+      skipOptOutCheck: true,
     });
-    console.log("[lead-notify] sent rep alert via Podium", {
+    const result = {
+      sent: true,
+      messageUid: twilioRes.sid as string | undefined,
+      reason: undefined as string | undefined,
+    };
+    console.log("[lead-notify] sent rep alert via Twilio (888)", {
       leadPublicId: opts.lead.leadPublicId,
       destination,
       sent: result.sent,
