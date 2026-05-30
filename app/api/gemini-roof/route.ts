@@ -1719,7 +1719,18 @@ async function persistEstimateToLead(
     const JN_PUSH_ON_LEAD_CAPTURE =
       process.env.JN_PUSH_ON_LEAD_CAPTURE === "true";
     if (!priorLead.jobnimbus_contact_id && JN_PUSH_ON_LEAD_CAPTURE) {
-      void (async () => {
+      // AWAIT (not fire-and-forget): persistEstimateToLead is the promise
+      // tracked by waitUntil() at the call site, so the serverless function
+      // stays alive until everything it awaits completes. The prior
+      // `void (async()=>…)()` was NOT awaited and NOT in its own waitUntil —
+      // so the function returned its response and froze BEFORE the push's
+      // findContactByPhone/createContact network calls finished, silently
+      // dropping the JN write (jobnimbus_contact_id stayed null even with a
+      // valid key + flag on). Awaiting folds the push into the waitUntil-
+      // tracked promise so it reliably lands. (2026-05-30: this is why the
+      // V3→JN push "never fired" in prod — the estimate-persist beside it
+      // used waitUntil and saved fine; the push didn't.)
+      await (async () => {
         try {
           const jn = await import("@/lib/jobnimbus");
           if (!jn.jobNimbusConfigured()) return;
