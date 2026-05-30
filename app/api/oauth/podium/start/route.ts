@@ -62,7 +62,15 @@ export async function GET(req: Request): Promise<Response> {
   const state = randomBytes(32).toString("hex");
 
   const origin = new URL(req.url).origin;
-  const redirectUri = `${origin}/api/oauth/podium/callback`;
+  // The redirect_uri MUST exactly match one registered on the Podium OAuth
+  // app, or Podium rejects with "redirect_uri mismatch". Deriving it from
+  // the request origin breaks when /start is hit on a domain (e.g. the
+  // custom domain) that differs from what was registered at setup (e.g. a
+  // *.vercel.app URL). PODIUM_REDIRECT_URI pins it to the registered value
+  // regardless of which domain starts the flow; the callback reads the same
+  // env so the token exchange stays consistent.
+  const redirectUri =
+    process.env.PODIUM_REDIRECT_URI ?? `${origin}/api/oauth/podium/callback`;
 
   const url = new URL(AUTHORIZE_URL);
   url.searchParams.set("client_id", clientId);

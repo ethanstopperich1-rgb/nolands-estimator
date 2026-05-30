@@ -80,7 +80,10 @@ export async function GET(req: Request): Promise<Response> {
       "PODIUM_CLIENT_ID or PODIUM_CLIENT_SECRET is unset in Vercel env. This route can't exchange the code without them.",
     );
   }
-  const redirectUri = `${url.origin}/api/oauth/podium/callback`;
+  // Must EXACTLY match the redirect_uri sent in /start (Podium validates
+  // it on the token exchange). Same env override so both halves agree.
+  const redirectUri =
+    process.env.PODIUM_REDIRECT_URI ?? `${url.origin}/api/oauth/podium/callback`;
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     code,
