@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkPodiumRead } from "@/lib/podium";
+import { checkPodiumRead, minePodiumVoice } from "@/lib/podium";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +19,16 @@ export async function GET(req: Request): Promise<Response> {
   if (!expected) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
-  const secret = new URL(req.url).searchParams.get("secret");
+  const params = new URL(req.url).searchParams;
+  const secret = params.get("secret");
   if (secret !== expected) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  // ?mine=N runs the transient voice-mining pull (operator-only, gated).
+  const mine = params.get("mine");
+  if (mine) {
+    const result = await minePodiumVoice(Number(mine) || 15);
+    return NextResponse.json(result);
   }
   const health = await checkPodiumRead();
   return NextResponse.json(health);

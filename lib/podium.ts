@@ -175,6 +175,72 @@ export async function checkPodiumRead(): Promise<PodiumHealth> {
   };
 }
 
+export interface MinedMessage {
+  /** Best-effort direction marker (Podium field varies). */
+  dir: string;
+  text: string;
+}
+export interface MineResult {
+  conversationsFetched: number;
+  messagesCollected: number;
+  /** Keys of the first message object — schema discovery (no values). */
+  firstMessageKeys: string[];
+  sample: MinedMessage[];
+}
+
+/**
+ * Brand-voice mining pull. Pages the location's conversations, fetches each
+ * thread's messages, and returns a capped sample of message text + a
+ * direction marker so the caller can isolate REP-OUTBOUND phrasings.
+ *
+ * Transient analysis only — nothing is persisted. Operator-gated at the
+ * route. Returns first-message keys too so we can confirm the direction/
+ * body field names against Podium's actual schema.
+ */
+export async function minePodiumVoice(
+  maxConversations = 15,
+  maxMessagesPerConv = 40,
+): Promise<MineResult | { error: string }> {
+  const locUid = process.env.PODIUM_LOCATION_UID ?? "";
+  const convRes = await podiumGet(
+    `/v4/conversations?locationUid=${encodeURIComponent(locUid)}`,
+  );
+  if (convRes.status !== 200) {
+    return { error: `conversations status ${convRes.status}` };
+  }
+  const cj = convRes.json as { data?: Array<Record<string, unknown>> } | null;
+  const convs = Array.isArray(cj?.data) ? cj!.data! : [];
+
+  let firstMessageKeys: string[] = [];
+  const sample: MinedMessage[] = [];
+  let messagesCollected = 0;
+  let conversationsFetched = 0;
+
+  for (const c of convs.slice(0, maxConversations)) {
+    const uid = String((c as { uid?: string }).uid ?? "");
+    if (!uid) continue;
+    const mRes = await podiumGet(
+      `/v4/conversations/${encodeURIComponent(uid)}/messages`,
+    );
+    if (mRes.status !== 200) continue;
+    conversationsFetched++;
+    const mj = mRes.json as { data?: Array<Record<string, unknown>> } | null;
+    const msgs = Array.isArray(mj?.data) ? mj!.data! : [];
+    for (const m of msgs.slice(0, maxMessagesPerConv)) {
+      const mo = m as Record<string, unknown>;
+      if (firstMessageKeys.length === 0) firstMessageKeys = Object.keys(mo);
+      const text = String(mo.body ?? mo.text ?? mo.message ?? "").trim();
+      if (!text) continue;
+      const dir = String(
+        mo.direction ?? mo.channelType ?? mo.type ?? mo.source ?? "?",
+      );
+      messagesCollected++;
+      if (sample.length < 250) sample.push({ dir, text: text.slice(0, 300) });
+    }
+  }
+  return { conversationsFetched, messagesCollected, firstMessageKeys, sample };
+}
+
 /**
  * Render the estimate-ready message body. SMS-safe length (<160 chars
  * including link). When the painted PNG sends as an MMS attachment,
