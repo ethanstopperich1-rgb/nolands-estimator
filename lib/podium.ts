@@ -146,7 +146,7 @@ export async function checkPodiumRead(): Promise<PodiumHealth> {
   // us the exact missing param.
   const locUid = process.env.PODIUM_LOCATION_UID ?? "";
   const conv = await podiumGet(
-    `/v4/conversations?locationUid=${encodeURIComponent(locUid)}&size=1`,
+    `/v4/conversations?locationUid=${encodeURIComponent(locUid)}`,
   );
   let count: number | null = null;
   const cj = conv.json as
