@@ -38,6 +38,24 @@ export interface SendSmsOptions {
    *  messages that don't fall under TCPA (e.g. internal operator
    *  notifications). Never pass true for messages to a consumer. */
   skipOptOutCheck?: boolean;
+  /** Optional Twilio StatusCallback URL. When set, Twilio POSTs
+   *  delivery-status updates (queued → sent → delivered / failed) to
+   *  this HTTPS endpoint. Appended as the `StatusCallback` form field. */
+  statusCallback?: string;
+  /** Optional caller-supplied idempotency hint. Threaded into the
+   *  fire-and-forget sms_messages row for de-dup / correlation; not
+   *  sent to Twilio (Messages API has no idempotency header). */
+  idempotencyKey?: string;
+  /** Optional JobNimbus contact id. When provided, the post-send
+   *  fire-and-forget note attaches here directly instead of looking
+   *  the lead up by phone. */
+  jnContactId?: string;
+  /** Optional lead public_id — persisted on the sms_messages row for
+   *  correlation back to the originating lead. */
+  leadPublicId?: string;
+  /** Optional office_id — persisted on the sms_messages row for
+   *  multi-tenant scoping. */
+  officeId?: string;
 }
 
 export interface TwilioSendResult {
@@ -146,22 +164,128 @@ export async function sendSms(opts: SendSmsOptions): Promise<TwilioSendResult> {
     }
   }
 
+  // Delivery-status webhook — Twilio POSTs queued/sent/delivered/failed
+  // callbacks to this URL when set. Single form field; no repeat.
+  if (opts.statusCallback) {
+    form.set("StatusCallback", opts.statusCallback);
+  }
+
   const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString("base64");
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: form.toString(),
-  });
+
+  // Dependency-free retry/backoff. Twilio occasionally returns 429
+  // (rate-limit) or transient 5xx; retrying a couple times with a
+  // fixed backoff smooths over those without a library. Non-429 4xx
+  // (bad number, unverified TF, etc.) are permanent — never retry.
+  // Fixed delays (no jitter / wall-clock dependence) keep this
+  // deterministic for tests.
+  const BACKOFFS_MS = [500, 1500];
+  let res: Response | null = null;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    });
+    const retryable = res.status === 429 || res.status >= 500;
+    if (res.ok || !retryable || attempt >= BACKOFFS_MS.length) break;
+    // Honor Retry-After (seconds) when present; else use the backoff.
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const delayMs =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : BACKOFFS_MS[attempt];
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
     throw new Error(`Twilio send failed ${res.status}: ${errText.slice(0, 400)}`);
   }
   const json = (await res.json()) as { sid: string; status: string; to: string };
-  return { sid: json.sid, status: json.status, to: json.to };
+  const result: TwilioSendResult = { sid: json.sid, status: json.status, to: json.to };
+
+  // Fire-and-forget side effects — JN note + sms_messages row. NEVER
+  // throws; the customer-facing send already succeeded by this point.
+  // Gated on the service-role client being configured.
+  void recordOutboundSms({ opts, from, result });
+
+  return result;
+}
+
+/**
+ * Post-send bookkeeping for an outbound Twilio message. Two soft-fail
+ * effects: (a) a JobNimbus note on the contact (looked up by phone if
+ * no jnContactId supplied, mirroring /api/sms/inbound), and (b) an
+ * sms_messages audit row. Never throws — any failure here must not
+ * surface to the customer flow.
+ */
+async function recordOutboundSms(args: {
+  opts: SendSmsOptions;
+  from: string;
+  result: TwilioSendResult;
+}): Promise<void> {
+  const { opts, from, result } = args;
+  try {
+    const { supabaseServiceRoleConfigured, createServiceRoleClient } = await import(
+      "@/lib/supabase"
+    );
+    if (!supabaseServiceRoleConfigured()) return;
+    const sb = createServiceRoleClient();
+
+    // (a) JobNimbus note. Use the supplied contact id, else look the
+    // lead up by phone last-10 then jobnimbus_contact_id — same
+    // convention as /api/sms/inbound.
+    try {
+      let contactId = opts.jnContactId ?? null;
+      if (!contactId) {
+        const phoneSuffix = opts.to.replace(/\D/g, "").slice(-10);
+        const { data: leadHit } = await sb
+          .from("leads")
+          .select("jobnimbus_contact_id")
+          .like("phone", `%${phoneSuffix}`)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        contactId =
+          (leadHit as { jobnimbus_contact_id?: string | null } | null)
+            ?.jobnimbus_contact_id ?? null;
+      }
+      if (contactId) {
+        const { logJN } = await import("@/lib/jn-log");
+        logJN(
+          contactId,
+          "sms-out",
+          `[SMS-OUT to ${opts.to}] ${opts.body.slice(0, 200)}`,
+        );
+      }
+    } catch (err) {
+      console.error("[twilio] JN-log side effect threw:", err);
+    }
+
+    // (b) sms_messages audit row. Soft-fail silently if the table
+    // doesn't exist yet (pre-migration environments). `as any` because
+    // sms_messages (migration 0025) isn't in the generated Supabase
+    // types yet — same pattern as lib/gemini-cost-cap.ts.
+    try {
+      await (sb as any).from("sms_messages").insert({
+        message_sid: result.sid,
+        to_e164: opts.to,
+        from_e164: from,
+        body: opts.body.slice(0, 480),
+        direction: "outbound",
+        status: result.status,
+        ...(opts.officeId ? { office_id: opts.officeId } : {}),
+        ...(opts.leadPublicId ? { lead_public_id: opts.leadPublicId } : {}),
+      });
+    } catch {
+      // table may not exist yet — swallow.
+    }
+  } catch {
+    // service-role import / client construction failed — swallow.
+  }
 }
 
 /**
@@ -241,6 +365,9 @@ export interface EstimateReadyInput {
   highEstimate: number;
   /** Lead public_id — included in logs for correlation. */
   leadPublicId: string;
+  /** Optional Twilio StatusCallback URL — threaded to sendSms so
+   *  delivery-status updates flow to a webhook. */
+  statusCallback?: string;
 }
 
 export interface EstimateReadySendResult {
@@ -303,6 +430,8 @@ export async function sendEstimateReadyViaTwilio(
       // side, so it must be HTTPS + publicly reachable for the lifetime
       // of the send (a few seconds). Our painted PNG URL meets both.
       mediaUrl: input.paintedImageUrl || undefined,
+      statusCallback: input.statusCallback,
+      leadPublicId: input.leadPublicId,
     });
     return { sent: true, sid: result.sid };
   } catch (err) {

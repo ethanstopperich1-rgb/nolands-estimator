@@ -10,9 +10,9 @@ import { isTestPhone } from "@/lib/leads/dedup";
 // through Podium so the customer thread lives in Noland's Clermont
 // Podium inbox. `toE164` (phone formatter) + `twilioConfigured`
 // (still gates the Twilio voice trunk used by Sarah) survive.
-import { toE164, twilioConfigured } from "@/lib/twilio";
+import { sendSms, toE164, twilioConfigured } from "@/lib/twilio";
 import { verifyDialable } from "@/lib/phone-verify";
-import { sendPodiumText, podiumConfigured } from "@/lib/podium";
+import { podiumConfigured } from "@/lib/podium";
 import { attachLeadContext } from "@/lib/sms-conversation";
 import { notifyOfficeOfNewLead } from "@/lib/lead-notifications";
 import {
@@ -880,12 +880,13 @@ export async function POST(req: Request) {
   // number directly we have context.
   const customerSmsDisabled =
     (process.env.CUSTOMER_SMS_DISABLED ?? "").toLowerCase() === "true";
-  // Outbound SMS gate. Was `twilioConfigured()` but actual send is via
-  // Podium since the TWILIO-EXIT-SMS refactor (May 2026). The Twilio
-  // env gate was a stale conditional — if TWILIO_ACCOUNT_SID was
-  // missing, the Podium send got skipped silently. Now keyed off the
-  // platform actually doing the sending.
-  if (phoneE164 && podiumConfigured() && !isLeadUpdate && !customerSmsDisabled && !dedupMatch) {
+  // Outbound SMS gate. The 888 Twilio number (TWILIO_PHONE_NUMBER) is
+  // the single customer-facing SMS sender — the Podium SEND path was
+  // retired here (the customer thread now lives on the homeowner's
+  // phone in one Twilio thread alongside Sarah's outbound calls). Keyed
+  // off `twilioConfigured()` so the send is skipped silently in dev/
+  // preview when the Twilio env isn't wired.
+  if (phoneE164 && twilioConfigured() && !isLeadUpdate && !customerSmsDisabled && !dedupMatch) {
     const firstName = body.name.split(/\s+/)[0];
     // Office-aware SMS intro. Falls back to "Noland's Roofing" if the
     // office row didn't resolve (dev / preview without Supabase). This
@@ -928,27 +929,27 @@ export async function POST(req: Request) {
     // Run both writes in parallel and don't await — keep the API
     // response fast.
     void Promise.all([
-      // Outbound SMS via Podium (2026-05-26 — Twilio direct retired).
-      // The customer thread lands in Noland's Clermont Podium inbox
-      // so reps see the conversation where they already work. The
-      // `from` is implicit (Podium's location-provisioned number).
-      sendPodiumText({
-        phone: phoneE164,
-        contactName: body.name,
+      // Outbound confirmation SMS via Twilio on the 888 — the single
+      // customer-facing SMS sender. The homeowner's thread lives in one
+      // Twilio thread alongside Sarah's calls + the later estimate-ready
+      // MMS (Podium SEND path retired for customer SMS). statusCallback
+      // flows delivery status to /api/sms/status; leadPublicId correlates
+      // the sms_messages audit row back to the lead.
+      sendSms({
+        to: phoneE164,
         body: smsBody,
-        openInbox: true,
+        statusCallback: `${shareOrigin}/api/sms/status`,
+        leadPublicId: leadId,
       })
         .then((r) =>
-          console.log("[leads] sent confirmation SMS via Podium", {
+          console.log("[leads] sent confirmation SMS via Twilio", {
             leadId,
-            sent: r.sent,
-            messageUid: r.messageUid,
-            reason: r.reason,
-            error: r.error,
+            sid: r.sid,
+            status: r.status,
           }),
         )
         .catch((err) =>
-          console.error("[leads] Podium SMS send failed:", err),
+          console.error("[leads] Twilio SMS send failed:", err),
         ),
       attachLeadContext({
         phone: phoneE164,

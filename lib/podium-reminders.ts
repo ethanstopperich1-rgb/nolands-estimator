@@ -26,6 +26,7 @@
  */
 
 import { podiumConfigured } from "@/lib/podium";
+import { toE164 } from "@/lib/twilio";
 import {
   type ReminderTouchpoint,
   type ReminderVars,
@@ -148,8 +149,10 @@ export async function sendReminderTouchpoint(
   // content selector; sending both lets the template override at the
   // platform side if Noland's later configures one.
   const channel = {
-    type: "sms" as const,
-    phoneNumber: lead.phone,
+    // 2026-05-26: Podium /v4/messages requires type="phone" + identifier.
+    // type="sms" + phoneNumber returns HTTP 400 invalid_request_values.
+    type: "phone" as const,
+    identifier: toE164(lead.phone) ?? lead.phone,
     contactName: lead.name,
   };
 
