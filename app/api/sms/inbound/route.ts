@@ -25,9 +25,18 @@ import {
 import {
   createServiceRoleClient,
   resolveOfficeByTwilioNumber,
+  resolveOfficeIdBySlug,
   supabaseServiceRoleConfigured,
   type OfficeBranding,
 } from "@/lib/supabase";
+import {
+  isColdStartKeyword,
+  looksLikeAddress,
+  cleanFirstName,
+  coldGreetingBody,
+  coldRetryAddressBody,
+  coldAskNameBody,
+} from "@/lib/sms-cold-start";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -210,6 +219,29 @@ export async function POST(req: Request) {
     });
   }
 
+  // ─── Cold-start booking flow continuation (Gap 3) ─────────────────
+  // A brand-new texter mid-funnel (texted ROOF, now answering the
+  // address/name prompts). Must run BEFORE the slot-pick/SCHEDULE
+  // cascade so their free-text address ("123 Main St") isn't misrouted.
+  {
+    const coldConv = await getConversation(from);
+    if (coldConv?.coldStage) {
+      const handled = await handleColdContinue({
+        from,
+        body,
+        conv: coldConv,
+        inboundOffice,
+        replyFrom,
+      });
+      if (handled) {
+        return new Response("<Response/>", {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        });
+      }
+    }
+  }
+
   // ─── Three-way state machine ──────────────────────────────────────
   //
   // Order matters — A/B slot-pick check must run BEFORE the YES/
@@ -274,9 +306,12 @@ export async function POST(req: Request) {
     }
   }
 
-  // (3) YES / SCHEDULE → offer two business-day slots
+  // (3) YES / SCHEDULE / ROOF keyword → offer slots for a known lead, or
+  //     kick off the cold-start booking funnel for a brand-new texter.
   const scheduleMatch = body.match(/^(yes|y|yeah|yep|yup|sure|ok|okay|schedule|book)\b/i);
-  if (scheduleMatch) {
+  const coldKeyword = isColdStartKeyword(body);
+  if (scheduleMatch || coldKeyword) {
+    // Known homeowner (lead on file) → offer slots for their lead.
     const handled = await handleScheduleOffer({
       from,
       body,
@@ -289,7 +324,16 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "text/xml" },
       });
     }
-    // Fall through to AI path if no lead found.
+    // No lead yet + they used the advertised keyword (ROOF / estimate /
+    // inspection / quote) → start the cold-start capture→book funnel.
+    if (coldKeyword) {
+      await handleColdStart({ from, body, inboundOffice, replyFrom });
+      return new Response("<Response/>", {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
+    // scheduleMatch but no lead → fall through to the AI path.
   }
 
   // Append the inbound user message.
@@ -675,6 +719,214 @@ async function handleScheduleOffer(opts: {
     console.error("[sms-inbound:schedule] send failed:", err);
     return false;
   }
+  return true;
+}
+
+/**
+ * Cold-start (Gap 3) — a brand-new texter sent the advertised keyword
+ * (ROOF) with NO lead on file. Greet, ask for the property address, and
+ * park the conversation in the `await_address` stage. The first reply
+ * carries business ID + STOP (TCPA) + the estimator fast-lane link.
+ */
+async function handleColdStart(opts: {
+  from: string;
+  body: string;
+  inboundOffice: OfficeBranding | null;
+  replyFrom: string | undefined;
+}): Promise<boolean> {
+  const conv = (await getConversation(opts.from)) ?? {
+    phone: opts.from,
+    turns: [],
+    lastActivityAt: new Date().toISOString(),
+  };
+  conv.coldStage = "await_address";
+  conv.coldAddress = undefined;
+  conv.coldName = undefined;
+  await saveConversation(conv);
+  const reply = coldGreetingBody();
+  try {
+    await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
+    await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+    await appendTurn({ phone: opts.from, role: "assistant", body: reply });
+  } catch (err) {
+    console.error("[sms-inbound:cold-start] greeting send failed:", err);
+    return false;
+  }
+  console.log(`[sms-inbound:cold-start] greeted ${opts.from.slice(-4)}`);
+  return true;
+}
+
+/**
+ * Cold-start continuation — drives the captured texter through
+ * await_address → await_name → create lead → offer AVAILABLE slots. Once
+ * slots are offered, the normal slot-pick handler books the A/B reply.
+ * Tolerant: a non-address reply re-asks; a missing name falls back to a
+ * friendly default. Soft-fails to a "rep will reach out" message if the
+ * lead insert or JN read fails — the homeowner never hits a dead end.
+ */
+async function handleColdContinue(opts: {
+  from: string;
+  body: string;
+  conv: SmsConversation;
+  inboundOffice: OfficeBranding | null;
+  replyFrom: string | undefined;
+}): Promise<boolean> {
+  const conv = opts.conv;
+
+  // Stage 1: waiting for the property address.
+  if (conv.coldStage === "await_address") {
+    if (!looksLikeAddress(opts.body)) {
+      const reply = coldRetryAddressBody();
+      await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
+      await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+      await appendTurn({ phone: opts.from, role: "assistant", body: reply });
+      return true; // stay in await_address
+    }
+    conv.coldAddress = opts.body.trim().slice(0, 200);
+    conv.coldStage = "await_name";
+    await saveConversation(conv);
+    const reply = coldAskNameBody();
+    await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
+    await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+    await appendTurn({ phone: opts.from, role: "assistant", body: reply });
+    return true;
+  }
+
+  // Stage 2: have the address, waiting for the name → create lead + offer.
+  if (conv.coldStage === "await_name") {
+    const name = cleanFirstName(opts.body) || "there";
+    const address = conv.coldAddress ?? "";
+    const created = await createSmsLead({
+      from: opts.from,
+      name,
+      address,
+      inboundOffice: opts.inboundOffice,
+    });
+    // Clear cold state regardless — we never loop the funnel.
+    conv.coldStage = undefined;
+    conv.coldName = name;
+    await saveConversation(conv);
+
+    if (!created) {
+      const reply = `Got it, ${name}! A Noland's Roofing rep will reach out shortly to lock in your free inspection. Reply STOP to opt out.`;
+      await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
+      await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+      await appendTurn({ phone: opts.from, role: "assistant", body: reply });
+      return true;
+    }
+
+    // Lead created → offer availability-aware slots (same logic as the
+    // warm path). Soft-fails to default slots on any JN read hiccup.
+    let slots;
+    try {
+      const startUnix = Math.floor(Date.now() / 1000);
+      const endUnix = startUnix + 60 * 60 * 24 * 18; // ~18 days
+      const jn = await import("@/lib/jobnimbus");
+      const booked = jn.jobNimbusConfigured()
+        ? await jn.searchTasksByDateRange(startUnix, endUnix)
+        : null;
+      const bookedUnix =
+        booked && booked.ok
+          ? booked.tasks
+              .map((t) => t.dateStart)
+              .filter((d): d is number => typeof d === "number")
+          : [];
+      slots = selectAvailableSlots({ bookedUnix, count: 2 });
+      if (slots.length < 2) slots = nextBusinessSlots({ count: 2 });
+    } catch {
+      slots = nextBusinessSlots({ count: 2 });
+    }
+
+    conv.offeredSlots = slots;
+    conv.offeredAt = new Date().toISOString();
+    await saveConversation(conv);
+
+    const reply = buildSlotOfferBody({ firstName: name, slots });
+    try {
+      await sendSms({ to: opts.from, body: reply, from: opts.replyFrom });
+      await appendTurn({ phone: opts.from, role: "user", body: opts.body });
+      await appendTurn({ phone: opts.from, role: "assistant", body: reply });
+    } catch (err) {
+      console.error("[sms-inbound:cold-start] slot offer send failed:", err);
+      return true; // lead exists; offer can be retried on next inbound
+    }
+    console.log(
+      `[sms-inbound:cold-start] lead created + slots offered ${opts.from.slice(-4)}`,
+    );
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Create a lead from the cold SMS funnel, mirroring /api/leads' insert.
+ * email is NOT NULL on `leads` and SMS doesn't collect one — we write a
+ * clearly-namespaced synthetic address (the PHONE is the real contact
+ * channel). source = "sms:roof-888" for attribution. Returns false on any
+ * failure so the caller can soft-fall to a "rep will reach out" message.
+ */
+async function createSmsLead(opts: {
+  from: string;
+  name: string;
+  address: string;
+  inboundOffice: OfficeBranding | null;
+}): Promise<boolean> {
+  if (!supabaseServiceRoleConfigured()) return false;
+  const sb = createServiceRoleClient();
+  const officeId =
+    opts.inboundOffice?.id ?? (await resolveOfficeIdBySlug("nolands"));
+  if (!officeId) {
+    console.error("[sms-inbound:cold-start] no office to attach lead to");
+    return false;
+  }
+  const leadId = `lead_${crypto.randomUUID().replace(/-/g, "")}`;
+  const last10 = opts.from.replace(/\D/g, "").slice(-10);
+  const syntheticEmail = `sms-${last10}@noemail.nolandsroofing.com`;
+  try {
+    // city/state/etc. are post-0024 columns the generated types lag on —
+    // same `as any` insert pattern used in /api/leads + gemini-roof.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (sb as any).from("leads").insert({
+      office_id: officeId,
+      public_id: leadId,
+      name: opts.name,
+      email: syntheticEmail,
+      phone: opts.from,
+      address: opts.address,
+      source: "sms:roof-888",
+      status: "new",
+      tcpa_consent: true,
+      tcpa_consent_at: new Date().toISOString(),
+      tcpa_consent_text:
+        "Homeowner texted the advertised keyword to Noland's Roofing's published line (888) 786-9134 and provided their address + first name to book a free roof inspection. Consumer-initiated conversational SMS; 'Reply STOP to opt out' disclosed in the first reply.",
+    });
+    if (error) {
+      console.error(
+        "[sms-inbound:cold-start] lead insert failed:",
+        error.message,
+      );
+      return false;
+    }
+  } catch (err) {
+    console.error("[sms-inbound:cold-start] lead insert threw:", err);
+    return false;
+  }
+  // Earliest-signal Slack ping (same spirit as the website's first-capture
+  // ping). Soft-fail — a Slack outage never touches lead capture.
+  void import("@/lib/slack-notifications")
+    .then(({ sendSlackInboundSms }) =>
+      sendSlackInboundSms({
+        from: opts.from,
+        to: null,
+        body: `NEW SMS lead via ROOF keyword — ${opts.name} @ ${opts.address}`,
+        kind: "book",
+      }),
+    )
+    .catch(() => {});
+  console.log(
+    `[sms-inbound:cold-start] created lead ${leadId} office=${officeId}`,
+  );
   return true;
 }
 

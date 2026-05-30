@@ -98,6 +98,17 @@ export interface SmsConversation {
   /** ISO time the current offeredSlots were sent. Drives the 24h
    *  staleness check. */
   offeredAt?: string;
+  /** Cold-start booking flow ("Text ROOF to 888" — Gap 3). Tracks where
+   *  a brand-new texter (no lead on file) is in the capture→book funnel:
+   *    - "await_address" : greeted, waiting for the property address
+   *    - "await_name"    : have the address, waiting for their name
+   *  Cleared once the lead is created and slots are offered (the A/B
+   *  pick then flows through the normal slot-pick handler). */
+  coldStage?: "await_address" | "await_name";
+  /** Address captured during the cold-start flow (raw homeowner text). */
+  coldAddress?: string;
+  /** First name captured during the cold-start flow. */
+  coldName?: string;
 }
 
 function key(phone: string): string {
